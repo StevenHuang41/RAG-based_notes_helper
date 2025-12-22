@@ -1,0 +1,18 @@
+.env
+
+.venv/
+
+# python
+**/*.egg-info/
+**/__pycache__/
+*.pyc
+
+# index
+storage/
+
+# notes
+data/*
+!data/notes_helper.md
+
+.DS_Store
+

@@ -1,0 +1,22 @@
+[project]
+name = "RAG-based_notes_helper"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "pydantic>=2.6",
+  "pydantic-settings>=2.2",
+  "numpy>=1.24",
+  "faiss-cpu>=1.7.4",
+  "sentence-transformers>=2.6.1",
+  "openai>=1.0",
+  "huggingface_hub",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

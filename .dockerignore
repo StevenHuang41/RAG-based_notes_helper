@@ -1,0 +1,16 @@
+.git/
+
+.env
+
+.venv/
+
+# python
+**/*.egg_info/
+__pycache__/
+
+# index
+storage/
+
+# notes
+data/*
+!data/notes_helper.md
