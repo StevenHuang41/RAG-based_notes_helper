@@ -8,9 +8,15 @@
 **/*.egg_info/
 __pycache__/
 
+# pytest
+.pytest_cache/
+
 # index
 storage/
 
 # notes
 data/*
 !data/notes_helper.md
+
+.DS_Store
+

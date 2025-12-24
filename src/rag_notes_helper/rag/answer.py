@@ -54,6 +54,7 @@ def rag_answer(
                 "- Do NOT use **, *, or _\n"
                 "- Use numbered lists with plain numbers and periods only\n"
                 "- a line should have maximum 70 characters\n"
+                "- Do NOT use numbered list if the answer is brief"
             )
         },
         {

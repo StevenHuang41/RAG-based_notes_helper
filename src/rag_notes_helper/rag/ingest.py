@@ -44,8 +44,8 @@ def load_notes(notes_dir: Path | None = None) -> list[Chunk]:
 
         doc_id = _stable_doc_id(file_path)
 
-        source = str(file_path.relative_to(settings.PROJECT_ROOT))
-        source = source[len("data/"):]
+        source = str(file_path.relative_to(settings.NOTES_DIR))
+        # source = source[len("data/"):]
 
         with file_path.open("r", encoding="utf-8", errors="ignore") as f:
             for chunk in chunk_text(

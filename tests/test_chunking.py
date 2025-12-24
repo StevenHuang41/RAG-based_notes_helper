@@ -6,21 +6,82 @@ from rag_notes_helper.rag.chunking import chunk_text
 def test_chunk_text_basic():
     f = StringIO("abcdefghij" * 50)
 
-    chunks = list(
-        chunk_text(
-            file_object=f,
-            doc_id="doc1",
-            source="note.md",
-            chunk_size=50,
-            overlap=10,
-        )
+    chunk_gen = chunk_text(
+        file_object=f,
+        doc_id="doc1",
+        source="note.md",
+        chunk_size=30,
+        overlap=10,
     )
 
-    assert len(chunks) > 1
-    assert chunks[0].chunk_id == 0
-    assert chunks[1].chunk_id == 1
+    c1 = next(chunk_gen)
+    c2 = next(chunk_gen)
 
-    for c in chunks:
+    assert c1.chunk_id == 0
+    assert c2.chunk_id == 1
+
+    for c in chunk_gen:
         assert len(c.text) <= 50
         assert c.doc_id == "doc1"
         assert c.source == "note.md"
+
+
+
+
+def test_chunk_overlap():
+    f = StringIO("1234567890" * 10)
+
+    chunks = list(
+        chunk_text(
+            file_object=f,
+            doc_id="doc",
+            source="src",
+            chunk_size=8,
+            overlap=5,
+        )
+    )
+
+    assert chunks[0].text[-5:] == chunks[1].text[:5]
+
+
+def test_invalid_chunk_params():
+    f = StringIO("test")
+
+    try:
+        list(chunk_text(
+            file_object=f,
+            doc_id="doc",
+            source="src",
+            chunk_size=0,
+            overlap=10,
+        ))
+        assert False
+    except ValueError:
+        pass
+
+
+    try:
+        list(chunk_text(
+            file_object=f,
+            doc_id="doc",
+            source="src",
+            chunk_size=10,
+            overlap=-1,
+        ))
+        assert False
+    except ValueError:
+        pass
+
+
+    try:
+        list(chunk_text(
+            file_object=f,
+            doc_id="doc",
+            source="src",
+            chunk_size=10,
+            overlap=10,
+        ))
+        assert False
+    except ValueError:
+        pass
+
