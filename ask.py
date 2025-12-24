@@ -69,9 +69,8 @@ def main():
                 print("\nCITATIONS:")
                 print("- ", end="")
 
-                source_set = {c['source'][len("data/"):] for c in result["citations"]}
+                source_set = {c['source'] for c in result["citations"]}
                 print(", ".join(source_set))
-                # ", ".join(list(source_set))
 
             print()
 

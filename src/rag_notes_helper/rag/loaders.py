@@ -11,14 +11,10 @@ def _is_text_file(data: bytes) -> bool:
 def load_text_file(path: Path) -> str | None:
     # Load a file if it is likely text.
 
-    # filter out symlinks or directories
-    if not path.is_file():
-        return None
-
-    # check first 4KB characters
     try :
         with path.open("rb") as f:
-            head = f.read(4 * 1024) # read first 4KB
+            # check first 4KB characters
+            head = f.read(4 * 1024)
     except Exception:
         return None
 
