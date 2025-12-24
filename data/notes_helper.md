@@ -32,6 +32,7 @@ If information is not present in the notes, I would directly say I don't know
 
     ```
     Who are you?
+    How can you help me?
     What is xxx?
     ```
 
@@ -49,6 +50,9 @@ If information is not present in the notes, I would directly say I don't know
 
 * `:reindex` or `:ri`
     Rebuild the index to include new or updated notes in `data/`
+
+* `:source` or `:so`
+    Show the indexed files in RAG
 
 You do *not* need to restart the program to reindex
 
@@ -85,7 +89,3 @@ It only sees the retrieved chunks
 - write clear, rich, descriptive notes
 - keep one concept per question
 - run `:reindex` after adding or updating notes
-
-
-## Basic Questions
-If user ask "who am I", you should say you are user

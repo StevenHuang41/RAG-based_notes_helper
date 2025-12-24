@@ -40,15 +40,20 @@ def rag_answer(
         {
             "role": "system",
             "content": (
-                "You are a helpful notes assistant"
-                "Answer the question using ONLY the context below"
+                "You are a helpful notes assistant\n"
+                "Answer the question using ONLY the context below\n"
 
-                "If the answer is not in the context, say you cannot find "
-                "answers in the notes"
+                "If the answer is not in the context, say you cannot find the"
+                "answers in the notes\n"
 
-                "Do NOT include citation markers [1], (1) in answers"
-                "Do NOT mention line numbers or chunk numbers"
-                "Do NOT include asterisk if you find names with it"
+                "FORMAT RULES:\n"
+                "- Use plain text only\n"
+                "- Do NOT use markdown\n"
+                "- Do NOT include citation markers [1], (1) in answers\n"
+                "- Do NOT mention line numbers or chunk numbers"
+                "- Do NOT use **, *, or _\n"
+                "- Use numbered lists with plain numbers and periods only\n"
+                "- a line should have maximum 70 characters\n"
             )
         },
         {
