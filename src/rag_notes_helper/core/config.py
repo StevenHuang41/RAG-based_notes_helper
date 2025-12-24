@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
 
     # chunking strategy
-    CHUNK_SIZE: int = 900        # characters
+    CHUNK_SIZE: int = 1000        # characters
     CHUNK_OVERLAP: int = 200     # characters
 
     # retrieval

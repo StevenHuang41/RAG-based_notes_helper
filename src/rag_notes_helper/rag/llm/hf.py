@@ -27,5 +27,5 @@ class HuggingFaceLLM:
 
         # huggingface return string
         return response.choices[0].message.content \
-                or "model returns emtpy response"
+                or "LLM returns emtpy response"
 

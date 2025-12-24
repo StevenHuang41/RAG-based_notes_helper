@@ -3,7 +3,7 @@ import hashlib
 
 from rag_notes_helper.core.config import settings
 from rag_notes_helper.rag.chunking import Chunk, chunk_text
-from rag_notes_helper.rag.loaders import load_text_file
+from rag_notes_helper.rag.loaders import is_text_file
 
 
 def _stable_doc_id(
@@ -39,8 +39,7 @@ def load_notes(notes_dir: Path | None = None) -> list[Chunk]:
         if not file_path.is_file():
             continue
 
-        text = load_text_file(file_path)
-        if not text:
+        if not is_text_file(file_path):
             continue
 
         doc_id = _stable_doc_id(file_path)
@@ -48,15 +47,15 @@ def load_notes(notes_dir: Path | None = None) -> list[Chunk]:
         source = str(file_path.relative_to(settings.PROJECT_ROOT))
         source = source[len("data/"):]
 
-        chunks = chunk_text(
-            text=text,
-            doc_id=doc_id,
-            source=source,
-            chunk_size=settings.CHUNK_SIZE,
-            overlap=settings.CHUNK_OVERLAP,
-        )
-
-        all_chunks.extend(chunks)
+        with file_path.open("r", encoding="utf-8", errors="ignore") as f:
+            for chunk in chunk_text(
+                file_object=f,
+                doc_id=doc_id,
+                source=source,
+                chunk_size=settings.CHUNK_SIZE,
+                overlap=settings.CHUNK_OVERLAP,
+            ):
+                all_chunks.append(chunk)
 
     return all_chunks
 

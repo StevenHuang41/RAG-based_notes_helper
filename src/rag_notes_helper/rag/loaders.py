@@ -5,24 +5,20 @@ from pathlib import Path
 #     ".txt",
 # }
 
-def _is_text_file(data: bytes) -> bool:
-    return b"\x00" not in data
 
-def load_text_file(path: Path) -> str | None:
-    # Load a file if it is likely text.
+def _has_null(data: bytes) -> bool:
+    return b"\x00" in data
 
+def is_text_file(path: Path) -> bool:
     try :
         with path.open("rb") as f:
             # check first 4KB characters
             head = f.read(4 * 1024)
     except Exception:
-        return None
+        # print(f"Error when checking _is_text_file: {e}")
+        return False
 
-    if not head or not _is_text_file(head):
-        return None
+    if not head or _has_null(head):
+        return  False
 
-    try :
-        return path.read_text(encoding="utf-8", errors="ignore")
-    except Exception:
-        return None
-
+    return True

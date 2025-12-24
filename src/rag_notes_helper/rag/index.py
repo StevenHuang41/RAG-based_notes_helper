@@ -81,3 +81,7 @@ def load_index() -> RagIndex:
 
     return RagIndex(index=index, meta=meta)
 
+def list_indexed_sources(rag: RagIndex) -> list[str]:
+    return sorted({row["source"] for row in rag.meta})
+
+

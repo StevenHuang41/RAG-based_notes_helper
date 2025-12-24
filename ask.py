@@ -1,7 +1,12 @@
 from faiss import bucket_sort
 from numpy import add
 from rag_notes_helper.rag.ingest import load_notes
-from rag_notes_helper.rag.index import build_index, save_index, load_index
+from rag_notes_helper.rag.index import (
+    build_index,
+    save_index,
+    load_index,
+    list_indexed_sources,
+)
 from rag_notes_helper.rag.retrieval import retrieve
 from rag_notes_helper.rag.answer import rag_answer
 
@@ -48,6 +53,15 @@ def main():
             if query in {":reindex", ":ri"}:
                 rag = rebuild_index()
                 continue
+
+            if query in {":source", ":so"}:
+                print("\nSOURCES:\n")
+                for s in list_indexed_sources(rag):
+                    print(f"- {s}")
+
+                print()
+                continue
+
 
             hits = retrieve(query=query, rag=rag)
             result = rag_answer(query=query, hits=hits)

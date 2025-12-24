@@ -40,7 +40,7 @@ def rag_answer(
         {
             "role": "system",
             "content": (
-                "You are a helpful note assistant"
+                "You are a helpful notes assistant"
                 "Answer the question using ONLY the context below"
 
                 "If the answer is not in the context, say you cannot find "
@@ -48,7 +48,7 @@ def rag_answer(
 
                 "Do NOT include citation markers [1], (1) in answers"
                 "Do NOT mention line numbers or chunk numbers"
-                "Do NOT include '*' if you find names with '*' around it"
+                "Do NOT include asterisk if you find names with it"
             )
         },
         {

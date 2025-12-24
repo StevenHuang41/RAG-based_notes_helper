@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import TextIO, Iterable
 
 @dataclass(frozen=True)
 class Chunk:
@@ -9,12 +10,12 @@ class Chunk:
 
 def chunk_text(
     *,
-    text: str,
+    file_object: TextIO,
     doc_id: str,
     source: str,
     chunk_size: int,
     overlap: int,
-) -> list[Chunk]:
+) -> Iterable[Chunk]:
 
     if chunk_size <= 0:
         raise ValueError("chunk_size must be > 0")
@@ -23,35 +24,30 @@ def chunk_text(
     if overlap >= chunk_size:
         raise ValueError("overlap must be smaller than chunk_size")
 
-    text = text.strip()
-
-    if not text:
-        return []
-
-    chunks: list[Chunk] = []
-    start = 0
+    buffer = ""
     chunk_id = 0
-    length = len(text)
 
-    while start < length:
-        end = min(start + chunk_size, length)
-        chunk = text[start:end].strip()
+    for line in file_object:
+        buffer += line
 
-        if chunk:
-            chunks.append(
-                Chunk(
+        while len(buffer) >= chunk_size:
+            text = buffer[:chunk_size].strip()
+            if text:
+                yield Chunk(
                     doc_id=doc_id,
                     chunk_id=chunk_id,
-                    text=chunk,
+                    text=text,
                     source=source,
                 )
-            )
-            chunk_id += 1
+                chunk_id += 1
 
-        if end == length:
-            break
+            buffer = buffer[chunk_size - overlap:]
 
-        start = end - overlap
-
-    return chunks
-
+    # remain text
+    if buffer.strip():
+        yield Chunk(
+            doc_id=doc_id,
+            chunk_id=chunk_id,
+            text=buffer,
+            source=source,
+        )
