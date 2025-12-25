@@ -1,0 +1,16 @@
+# version: "3.9"
+
+services:
+  app:
+    image: rag-notes-helper
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rag-notes-helper
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./storage:/app/storage
+    stdin_open: true
+    tty: true

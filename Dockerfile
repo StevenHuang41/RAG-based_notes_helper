@@ -9,11 +9,11 @@ RUN apt-get update && apt-get install -y \
     && pip install uv
 
 COPY pyproject.toml ./
+COPY src/ src/
 
 RUN pip install --no-cache-dir --upgrade pip \
-    && uv pip install --no-cache-dir .
+    && uv pip install --system --no-cache-dir .
 
-COPY src/ src/
 COPY ask.py .
 
 RUN mkdir -p data storage
