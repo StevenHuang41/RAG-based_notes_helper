@@ -14,6 +14,9 @@ __pycache__/
 # index
 storage/
 
+# tests
+tests/
+
 # notes
 data/*
 !data/notes_helper.md
