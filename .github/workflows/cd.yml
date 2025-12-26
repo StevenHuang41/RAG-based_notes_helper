@@ -5,6 +5,10 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+  packages: write
+
 env:
   IMAGE_OWNER: stevenhuang41
   IMAGE_REPO: rag-based-notes-helper
@@ -25,12 +29,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
- 
+
       - name: build docker image
         run: |
           docker build -t \
           ghcr.io/$IMAGE_OWNER/$IMAGE_REPO/$IMAGE_NAME:latest .
-          
+
 
       - name: push docker image
         run: |
