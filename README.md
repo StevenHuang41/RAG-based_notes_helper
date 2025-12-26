@@ -1,33 +1,69 @@
 # RAG-based Notes Helper
 
-A **Retrieval-Augmented Generation (RAG)** assistant for querying and reviewing your own notes using **local embeddings** and **LLMs**.
+A **Retrieval-Augmented Generation (RAG)** assistant for querying and reviewing your own notes using **local embeddings** (Hugging Face), **Vector search** (Faiss), and **LLM backends** (Hugging Face / OpenAI).
 
-The project is designed as a **clean, testable RAG system**, focusing on memory safety, modular architecture, and LLM integration.
+This project emphasizes **correct RAG design**, **memory-safe ingestion**, **testable**, and **real-world workflows** (Docker + CI).
+
+---
+
+## Why
+
+This project shows how to build an **LLM system without fine-tuning**
+
+### Why not fine-tuning
+
+Fine-tuning is often **costly, unnecessary** for note-based knowledge system
+
+- Require retraining when knowledge updates
+- Higher infrastructure and maintenance cost
+- Introduces model drift and reproducibility issue
+- Hard to debug hallucinations
+
+### Why RAG
+
+- **Knowledge stay external and inspectable**
+    - Your notes remain the only source of truth
+
+- **Instant updates**
+    - New documents are indexed without retraining
+
+- **Lower cost**
+    - Only relevant chunks are sent to the LLM rather than entire file
+    
+- **Reducing hallucinations**
+    - LLM only generates content strictly based on high-quality retrieval
 
 ---
 
 ## Features
 
 - Retrieval-Augmented Generation (**RAG**) over notes
-- **Memory safe** streaming text chunking for large note files
+- **Memory-safe & streaming ingestion** for large note files
 - Overlapping chunking with configurable window size
-- Dense vector retrieval using **faiss**
 - Sentence-Transformer embeddings
-- LLM backend (Hugging Face / OpenAI)
+- Dense vector retrieval using **Faiss**
+- LLM backends:
+    - Hugging Face (free token)
+    - OpenAI (paid API)
 - Source-aware answers with citation
 - Interactive CLI with live re-indexing
 - Unit-tested components
-- CI-enabled (github actions)
+- Containerization using docker
+- CI/CD-enabled (github actions)
+    - Automatic test execution on push and pull requests
+    - Docker build validation
+- Dockerized for reproducible execution
 
 ---
 
 ## Architecture
 
-Notes (`data/`)
+```text
+Notes
 
-Text loaders (memory-safe)
+Text loaders 
 
-Streaming chunking
+Streaming chunking 
 
 Sentence-Transformer embedding
 
@@ -38,12 +74,13 @@ Query embedding
 Top-k retrieval
 
 LLM
+```
 
 ---
 
 ## Project Structure
 
-```
+```text
 .
 ├── ask.py                          # entry point
 ├── src/
@@ -51,75 +88,177 @@ LLM
 │       ├── core/
 │       │   └── config.py
 │       └── rag/
-│           ├── answer.py
-│           ├── chunking.py
-│           ├── index.py
 │           ├── ingest.py
-│           ├── retrieval.py
 │           ├── loaders.py
+│           ├── index.py
+│           ├── chunking.py
+│           ├── retrieval.py
+│           ├── answer.py
 │           └── llm/
 │               ├── hf.py
 │               ├── openai_api.py
 │               └── router.py
 ├── tests/                          # unit tests
-│   ├── test_answer.py
-│   ├── test_chunking.py
-│   ├── test_index.py
 │   ├── test_ingest.py
 │   ├── test_loaders.py
-│   └── test_retrieval.py
-├── data/                           # user notes
-│   ├── EDA.md
-│   ├── ml_flows.md
-│   ├── notes_helper.md
-│   └── workflow
+│   ├── test_index.py
+│   ├── test_chunking.py
+│   ├── test_retrieval.py
+│   └── test_answer.py
+├── data/                           # place your notes here!
+│   └── notes_helper.md             # base knowledge for this app
 ├── storage/                        # faiss index + metadata
 │   ├── faiss.index
 │   └── meta.jsonl
+├── .env.example                    # template for creating .env
+├── .gitignore                      
+├── .dockerignore
+├── Dockerfile
+├── docker-compose.yml
 ├── LICENSE
 ├── pytest.ini
 ├── pyproject.toml
 └── README.md
 ```
 
-## How It Works (RAG Pipeline)
+## How It Works
 
 1. **Ingestion**
     - Files in `data/` are scanned
-    - Binary files are skipped
-    - Text files are streamed line-by-line
+    - Binary files are skipped via null-byte detection
+    - Text is processed **line-by-line** to avoid memory exhaustion
 
 2. **Chunking**
-    - Text is split into overlapping chunks
-    - Streaming design avoids loading large files into memory
+    - Streaming chunk generator splits text into overlapping windows
+    - Prevents memory exhaustion
+    - Configurable chunk and overlap size
 
 3. **Indexing**
     - Each chunk is embedded using SentenceTransformer
     - Embeddings are normalized and indexed with faiss
 
 4. **Retrieval**
-    - User query is embedded with the same sentence transformer model
+    - User query is embedded with the same embedding model
     - faiss retrieves top-k relevant chunks
-    - Low-score matches are filtered out
+    - Low-scoring matches are filtered out
 
 5. **Generation**
     - Retrieved chunks are written into an LLM prompt
-    - LLM is instructed to answer strictly from context
+    - LLM is instructed to answer **only from retrieved context**
     - Citations are shown with the answer
+
+---
+
+## Setup
+
+This app can be run from source or via Docker
+Regardless of the methods, the following setup is required
+
+### 1. Environment Variables
+
+Create `.env` file based on `.env.example`:
+
+```text
+LLM_PROVIDER=hf
+HUGGINGFACE_API_KEY=hf_xxxxxx
+...
+```
+
+At minimum, `HUGGINGFACE_API_KEY` is required in `.env` to run the app
+
+See https://huggingface.co/docs/hub/security-tokens for creating free tokens
+
+### 2. Data Directory
+
+Create a `data/` at the project root and place your notes inside it
+
+```text
+.
+└── data/                           # place your notes here!
+    ├── [your notes]
+    └── notes_helper.md
+```
+
+### 3. Storage Directory
+
+Create an empty `storage/`
+
+```text
+.
+└── storage/                        # faiss index + metadata
+```
+
+`storage/` is for storing faiss index and chunk metadata
+
+It wil be built automatically at runtime
 
 ---
 
 ## Usage
 
-## Configuration
+After completing the setup steps above, choose one of the following running methods
+
+### Running via CLI:
+
+```bash
+git clone https://github.com/StevenHuang41/RAG-based_notes_helper.git
+cd RAG-based_notes_helper
+python ask.py
+```
+
+
+### Running via Docker Pull
+
+If prefer not to clone the repo, pull the pre-built image and mount the required directoies
+
+```bash
+docker pull ghcr.io/stevenhuang41/rag-based-notes-helper/rag-app:latest
+
+docker run -it \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/storage:/app/storage \
+  --env-file .env \
+  ghcr.io/stevenhuang41/rag-based-notes-helper/rag-app:latest
+```
+
+### Running view Docker Compose
+
+```bash
+docker compose up --build
+```
+
+### CLI Commands:
+
+- Type a question after `> `
+- `:reindex`/`:ri` (rebuild index without restarting)
+- `:quit`/`:q` (exit)
+
+ ---
 
 ## Testing
 
-## Design Decisions
+Run unit tests:
+
+```bash
+pytest
+```
+
+---
 
 ## Limitations
 
+- No conversation memory (single-turn only)
+- PDF ingestion not implemented
+- Designed for personal note collections
+
+---
+
 ## Future Work
 
+- Conversational memory
+- PDF loaders
+
 ## License
+
+MIT License
 

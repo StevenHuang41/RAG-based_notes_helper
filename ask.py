@@ -1,5 +1,3 @@
-from faiss import bucket_sort
-from numpy import add
 from rag_notes_helper.rag.ingest import load_notes
 from rag_notes_helper.rag.index import (
     build_index,
