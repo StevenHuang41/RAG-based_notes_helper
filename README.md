@@ -29,7 +29,7 @@ Fine-tuning is often **costly, unnecessary** for note-based knowledge system
 
 - **Lower cost**
     - Only relevant chunks are sent to the LLM rather than entire file
-    
+
 - **Reducing hallucinations**
     - LLM only generates content strictly based on high-quality retrieval
 
@@ -61,9 +61,9 @@ Fine-tuning is often **costly, unnecessary** for note-based knowledge system
 ```text
 Notes
 
-Text loaders 
+Text loaders
 
-Streaming chunking 
+Streaming chunking
 
 Sentence-Transformer embedding
 
@@ -111,7 +111,7 @@ LLM
 │   ├── faiss.index
 │   └── meta.jsonl
 ├── .env.example                    # template for creating .env
-├── .gitignore                      
+├── .gitignore
 ├── .dockerignore
 ├── Dockerfile
 ├── docker-compose.yml
@@ -152,11 +152,11 @@ LLM
 ## Setup
 
 This app can be run from source or via Docker
-Regardless of the methods, the following setup is required
+Regardless of the methods, the following directories and file setup is required
 
-### 1. Environment Variables
+### 1. `.env`
 
-Create `.env` file based on `.env.example`:
+Create `.env` based on `.env.example`
 
 ```text
 LLM_PROVIDER=hf
@@ -164,13 +164,15 @@ HUGGINGFACE_API_KEY=hf_xxxxxx
 ...
 ```
 
+ensure it exists at the project root file
+
 At minimum, `HUGGINGFACE_API_KEY` is required in `.env` to run the app
 
 See https://huggingface.co/docs/hub/security-tokens for creating free tokens
 
-### 2. Data Directory
+### 2. `data/`
 
-Create a `data/` at the project root and place your notes inside it
+Create a `data/` and place your notes inside it
 
 ```text
 .
@@ -179,7 +181,7 @@ Create a `data/` at the project root and place your notes inside it
     └── notes_helper.md
 ```
 
-### 3. Storage Directory
+### 3. `storage/`
 
 Create an empty `storage/`
 
@@ -190,7 +192,7 @@ Create an empty `storage/`
 
 `storage/` is for storing faiss index and chunk metadata
 
-It wil be built automatically at runtime
+Contents wil be built automatically at runtime
 
 ---
 
@@ -198,19 +200,40 @@ It wil be built automatically at runtime
 
 After completing the setup steps above, choose one of the following running methods
 
-### Running via CLI:
+### Running via source:
 
 ```bash
 git clone https://github.com/StevenHuang41/RAG-based_notes_helper.git
 cd RAG-based_notes_helper
+# create .env
+# ensure data/ and storage/ exist
 python ask.py
 ```
 
 
-### Running via Docker Pull
+or run via docker compose
+```bash
+# python ask.py
+docker compose up --build
+```
+
+
+### Running via Docker
 
 If prefer not to clone the repo, pull the pre-built image and mount the required directoies
 
+Setup:
+```bash
+mkdir rag_application
+cd rag_application
+touch .env
+# setup up for api keys
+
+mkdir data storage
+# place your notes in data/
+```
+
+Runs:
 ```bash
 docker pull ghcr.io/stevenhuang41/rag-based-notes-helper/rag-app:latest
 
@@ -221,13 +244,8 @@ docker run -it \
   ghcr.io/stevenhuang41/rag-based-notes-helper/rag-app:latest
 ```
 
-### Running view Docker Compose
 
-```bash
-docker compose up --build
-```
-
-### CLI Commands:
+### Commands:
 
 - Type a question after `> `
 - `:reindex`/`:ri` (rebuild index without restarting)
@@ -237,7 +255,7 @@ docker compose up --build
 
 ## Testing
 
-Run unit tests:
+Run unit tests at project root:
 
 ```bash
 pytest
