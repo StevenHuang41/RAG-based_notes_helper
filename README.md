@@ -1,19 +1,23 @@
 # RAG-based Notes Helper
 
-A Retrieval-Augmented AI assistant for querying and reviewing your own notes using local embeddings and LLMs.
+A **Retrieval-Augmented Generation (RAG)** assistant for querying and reviewing your own notes using **local embeddings** and **LLMs**.
 
-The system indexes plain text files, retrieves relevant content via vector similarity, and generates answers using LLM.
+The project is designed as a **clean, testable RAG system**, focusing on memory safety, modular architecture, and LLM integration.
 
 ---
 
 ## Features
 
-- Retrieval-Augmented Generation (RAG) over notes
-- Streaming text chunking (memory-safe for large files)
-- Faiss-based dense vector retrieval
-- Pluggable LLM backend (Hugging Face)
+- Retrieval-Augmented Generation (**RAG**) over notes
+- **Memory safe** streaming text chunking for large note files
+- Overlapping chunking with configurable window size
+- Dense vector retrieval using **faiss**
+- Sentence-Transformer embeddings
+- LLM backend (Hugging Face / OpenAI)
 - Source-aware answers with citation
 - Interactive CLI with live re-indexing
+- Unit-tested components
+- CI-enabled (github actions)
 
 ---
 
@@ -39,6 +43,7 @@ LLM
 
 ## Project Structure
 
+```
 .
 ├── ask.py                          # entry point
 ├── src/
@@ -75,7 +80,7 @@ LLM
 ├── pytest.ini
 ├── pyproject.toml
 └── README.md
-
+```
 
 ## How It Works (RAG Pipeline)
 
