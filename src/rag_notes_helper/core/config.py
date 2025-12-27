@@ -20,7 +20,6 @@ class Settings(BaseSettings):
 
     # path
     PROJECT_ROOT: Path = Path.cwd()
-    # PROJECT_ROOT: Path = Path(__file__).resolve().parents[3]
     NOTES_DIR: Path = PROJECT_ROOT / "data"
     STORAGE_DIR: Path = PROJECT_ROOT / "storage"
 
@@ -40,7 +39,5 @@ class Settings(BaseSettings):
         env_file=".env",
         extra="ignore",
     )
-
-
 
 settings = Settings()

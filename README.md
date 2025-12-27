@@ -82,9 +82,9 @@ LLM
 
 ```text
 .
-├── ask.py                          # entry point
 ├── src/
 │   └── rag_notes_helper/
+│       ├── cli.py                  # entry point (rag-app)
 │       ├── core/
 │       │   └── config.py
 │       └── rag/
@@ -151,8 +151,9 @@ LLM
 
 ## Setup
 
-This app can be run from source or via Docker
-Regardless of the methods, the following directories and file setup is required
+This app requires the following file and directory exist at the project root
+
+Make sure they have been setup before running the app
 
 ### 1. `.env`
 
@@ -163,8 +164,6 @@ LLM_PROVIDER=hf
 HUGGINGFACE_API_KEY=hf_xxxxxx
 ...
 ```
-
-ensure it exists at the project root file
 
 At minimum, `HUGGINGFACE_API_KEY` is required in `.env` to run the app
 
@@ -180,6 +179,8 @@ Create a `data/` and place your notes inside it
     ├── [your notes]
     └── notes_helper.md
 ```
+
+ensure you have at least one text file in `data/`
 
 ### 3. `storage/`
 
@@ -198,36 +199,64 @@ Contents wil be built automatically at runtime
 
 ## Usage
 
-After completing the setup steps above, choose one of the following running methods
-
-### Running via source:
+### Running from Source:
 
 ```bash
 git clone https://github.com/StevenHuang41/RAG-based_notes_helper.git
 cd RAG-based_notes_helper
-# create .env
-# ensure data/ and storage/ exist
-python ask.py
+
+uv pip install -e .
+
+# Setup .env
+# Setup data/
 ```
 
-
-or run via docker compose
+#### One time query
 ```bash
-# python ask.py
-docker compose up --build
+rag-app "what is ..."
 ```
 
+#### Interactive REPL
+```bash
+rag-app repl
+```
 
-### Running via Docker
+#### Reindex
+```bash
+rag-app reindex
+```
 
-If prefer not to clone the repo, pull the pre-built image and mount the required directoies
+### Running with Docker Compose
+
+requires to clone git repo
+
+#### One time query
+```bash
+docker compose run --rm app "what is ..."
+```
+
+#### Interactive REPL
+```bash
+docker compose run --rm app
+```
+
+#### Reindex
+```bash
+docker compose run --rm app reindex
+```
+
+Do **NOT** use `docker compose up` for interactive CLI
+
+### Running via Docker Image
+
+No need to clone git repo
 
 Setup:
 ```bash
 mkdir rag_application
 cd rag_application
 touch .env
-# setup up for api keys
+# Setup .env
 
 mkdir data storage
 # place your notes in data/
@@ -236,7 +265,21 @@ mkdir data storage
 Runs:
 ```bash
 docker pull ghcr.io/stevenhuang41/rag-based-notes-helper/rag-app:latest
+```
 
+
+#### One time query
+```bash
+docker run -it \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/storage:/app/storage \
+  --env-file .env \
+  ghcr.io/stevenhuang41/rag-based-notes-helper/rag-app:latest \
+  "what is ..."
+```
+
+#### Interactive REPL
+```bash
 docker run -it \
   -v $(pwd)/data:/app/data \
   -v $(pwd)/storage:/app/storage \
@@ -244,18 +287,20 @@ docker run -it \
   ghcr.io/stevenhuang41/rag-based-notes-helper/rag-app:latest
 ```
 
-
 ### Commands:
 
-- Type a question after `> `
-- `:reindex`/`:ri` (rebuild index without restarting)
-- `:quit`/`:q` (exit)
+#### REPL
+
+- `:quit`       /   `:q`      (exit)
+- `:reindex`    /   `:ri`     (reindex without exiting)
+- `:sources`    /   `:so`     (show indexed files)
+- `:citations`  /   `:ci`     (toggle citation files with answer)
 
  ---
 
 ## Testing
 
-Run unit tests at project root:
+Run unit tests at project root
 
 ```bash
 pytest

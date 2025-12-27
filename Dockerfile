@@ -2,7 +2,8 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
+RUN --mount=type=cache,target=/var/cache/apt \
+    apt-get update && apt-get install -y \
     build-essential \
     git \
     && rm -rf /var/lib/apt/lists/* \
@@ -11,12 +12,11 @@ RUN apt-get update && apt-get install -y \
 COPY pyproject.toml ./
 COPY src/ src/
 
-RUN pip install --no-cache-dir --upgrade pip \
+RUN --mount=type=cache,target=/root/.cache/uv \
+    pip install --no-cache-dir --upgrade pip \
     && uv pip install --system --no-cache-dir .
-
-COPY ask.py .
 
 RUN mkdir -p data storage
 
-CMD ["python", "ask.py"]
-
+ENTRYPOINT ["rag-app"]
+CMD [ "repl" ]
