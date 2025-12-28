@@ -12,7 +12,6 @@ permissions:
 env:
   IMAGE_OWNER: stevenhuang41
   IMAGE_REPO: rag-based-notes-helper
-  IMAGE_NAME: rag-app
 
 jobs:
   build-and-push:
@@ -33,10 +32,10 @@ jobs:
       - name: build docker image
         run: |
           docker build -t \
-          ghcr.io/$IMAGE_OWNER/$IMAGE_REPO/$IMAGE_NAME:latest .
+          ghcr.io/$IMAGE_OWNER/$IMAGE_REPO:latest .
 
 
       - name: push docker image
         run: |
-          docker push ghcr.io/$IMAGE_OWNER/$IMAGE_REPO/$IMAGE_NAME:latest
+          docker push ghcr.io/$IMAGE_OWNER/$IMAGE_REPO:latest
 
