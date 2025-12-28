@@ -3,16 +3,18 @@ FROM python:3.11-slim AS builder
 WORKDIR /app
 
 RUN --mount=type=cache,target=/var/cache/apt \
-    apt-get update && apt-get install -y \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir uv
+    pip install --no-cache-dir --upgrade pip uv
+    # apt-get update && apt-get install -y \
+    # build-essential \
+    # && rm -rf /var/lib/apt/lists/* \
+
+COPY src/ src/
 
 COPY pyproject.toml ./
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system --no-cache-dir .
+
 
 
 # Runtime
@@ -22,8 +24,6 @@ WORKDIR /app
 
 COPY --from=builder /usr/local/lib/python3.11 /usr/local/lib/python3.11
 COPY --from=builder /usr/local/bin /usr/local/bin
-
-COPY src/ src/
 
 RUN mkdir -p data storage
 

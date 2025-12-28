@@ -87,6 +87,11 @@ def repl():
             continue
 
         if query in {":citations", ":ci"}:
+            if show_citations:
+                print("\nHide Citations\n")
+            else :
+                print("\nShow Citations\n")
+
             show_citations = not show_citations
             continue
 

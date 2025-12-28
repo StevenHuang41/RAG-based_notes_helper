@@ -201,7 +201,7 @@ LLM_PROVIDER=openai
 OPENAI_API_KEY=sk_xxxxxx
 ```
 
-### 2. `data/`
+### 2. Notes directory (`data/`)
 
 Create a `data/` and place your notes inside it:
 ```bash
@@ -223,25 +223,6 @@ https://raw.githubusercontent.com/StevenHuang41/RAG-based_notes_helper/main/data
 
 You mush have **at least one text file** in `data/`
 
-### 3. `storage/`
-
-Create an empty `storage/`:
-```bash
-mkdir storage
-```
-
-Example structure:
-```text
-.
-└── storage/
-```
-
-`storage/` is for storing:
-- faiss index
-- chunk metadata
-
-Contents will be built automatically at runtime
-
 ---
 
 ## Usage
@@ -255,11 +236,9 @@ cd RAG-based_notes_helper
 uv pip install -e .
 ```
 
-[Setup `.env`](#1-env)
+[Setup `.env`](#1-configuration-env)
 
-[Setup `data/`](#2-data)
-
-[Setup `storage/`](#3-storage)
+[Setup `data/`](#2-notes-directory-data)
 
 #### One time query
 ```bash
@@ -287,11 +266,9 @@ cd RAG-based_notes_helper
 uv pip install -e .
 ```
 
-[Setup `.env`](#1-env)
+[Setup `.env`](#1-configuration-env)
 
-[Setup `data/`](#2-data)
-
-[Setup `storage/`](#3-storage)
+[Setup `data/`](#2-notes-directory-data)
 
 #### One time query
 ```bash
@@ -322,11 +299,9 @@ touch .env
 mkdir data storage
 ```
 
-[Setup `.env`](#1-env)
+[Setup `.env`](#1-configuration-env)
 
-[Setup `data/`](#2-data)
-
-[Setup `storage/`](#3-storage)
+[Setup `data/`](#2-notes-directory-data)
 
 Runs at project root:
 ```bash
@@ -336,9 +311,9 @@ docker pull ghcr.io/stevenhuang41/rag-based-notes-helper:latest
 #### One time query
 ```bash
 docker run -it \
+  --env-file .env \
   -v $(pwd)/data:/app/data \
   -v $(pwd)/storage:/app/storage \
-  --env-file .env \
   ghcr.io/stevenhuang41/rag-based-notes-helper:latest \
   "what is ..."
 ```
@@ -346,13 +321,25 @@ docker run -it \
 #### Interactive REPL
 ```bash
 docker run -it \
+  --env-file .env \
   -v $(pwd)/data:/app/data \
   -v $(pwd)/storage:/app/storage \
-  --env-file .env \
   ghcr.io/stevenhuang41/rag-based-notes-helper:latest
 ```
 
 ### Commands:
+
+#### One time mode
+
+* `[query]`
+    RAG generates answer as usual
+
+* `[query] -r`
+    RAG reindex before generating answer
+
+* `[query] -c`
+    Show citations file with answer
+
 
 #### REPL mode
 
@@ -360,6 +347,8 @@ docker run -it \
 - `:reindex`    /   `:ri`     (reindex without exiting)
 - `:sources`    /   `:so`     (show indexed files)
 - `:citations`  /   `:ci`     (toggle citation files with answer)
+
+Use `--help` to see more instructions.
 
  ---
 

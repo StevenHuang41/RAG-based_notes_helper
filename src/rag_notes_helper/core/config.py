@@ -14,8 +14,8 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str | None = None
 
     # LLM settings
-    LLM_MAX_CHUNKS: int = 5
-    LLM_MAX_TOKENS: int = 256
+    LLM_MAX_CHUNKS: int = 10
+    LLM_MAX_TOKENS: int = 2048
     LLM_TEMPERATURE: float = 0.3
 
     # path
@@ -27,12 +27,12 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
 
     # chunking strategy
-    CHUNK_SIZE: int = 1000        # characters
-    CHUNK_OVERLAP: int = 200     # characters
+    CHUNK_SIZE: int = 500        # characters
+    CHUNK_OVERLAP: int = 100     # characters
 
     # retrieval
-    TOP_K: int = 5
-    MIN_RETRIEVAL_SCORE: float = 0.2
+    TOP_K: int = 10
+    MIN_RETRIEVAL_SCORE: float = 0.12
 
 
     model_config = SettingsConfigDict(
