@@ -4,6 +4,24 @@ A **Retrieval-Augmented Generation (RAG)** assistant for querying and reviewing 
 
 This project emphasizes **correct RAG design**, **memory-safe ingestion**, **testable**, and **real-world workflows** (Docker + CI).
 
+[**Quick Start**](#running-via-docker-image)
+
+---
+
+## Quick Links
+
+ - [Why](#why)
+ - [Features](#features)
+ - [Architecture](#architecture)
+ - [Project Structure](#project-structure)
+ - [How It Works](#how-it-works)
+ - [Setup](#setup)
+ - [Usage](#usage)
+ - [Testing](#testing)
+ - [Limitations](#limitations)
+ - [Future Work](#future-work)
+ - [License](#license)
+
 ---
 
 ## Why
@@ -149,51 +167,80 @@ LLM
 
 ---
 
-## Setup
+## Installation & Setup
 
 This app requires the following file and directory exist at the project root
 
 Make sure they have been setup before running the app
 
-### 1. `.env`
+### Prerequisites
 
-Create `.env` based on `.env.example`
+- **python** >= 3.10
+- **uv** (recommended) or `pip`
+- **Docker** >= 20.10
+- **git**
 
+### 1. Configuration (`.env`)
+
+Create `.env` at project root based on `.env.example`:
+
+```bash
+cp .env.example .env
+```
+
+At minimum, `HUGGINGFACE_API_KEY` must be assigned:
 ```text
-LLM_PROVIDER=hf
 HUGGINGFACE_API_KEY=hf_xxxxxx
 ...
 ```
+You need to create a [Hugging Face Token](https://huggingface.co/docs/hub/security-tokens)
 
-At minimum, `HUGGINGFACE_API_KEY` is required in `.env` to run the app
-
-See https://huggingface.co/docs/hub/security-tokens for creating free tokens
+If using OpenAI api instead, configure:
+```text
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk_xxxxxx
+```
 
 ### 2. `data/`
 
-Create a `data/` and place your notes inside it
-
-```text
-.
-└── data/                           # place your notes here!
-    ├── [your notes]
-    └── notes_helper.md
+Create a `data/` and place your notes inside it:
+```bash
+mkdir data
 ```
 
-ensure you have at least one text file in `data/`
+Example structure:
+```text
+.
+└── data/
+    ├── notes_helper.md
+    └── [your notes]
+```
+To download the `notes_helper.md`:
+```bash
+curl -L -o data/notes_helper.md \
+https://raw.githubusercontent.com/StevenHuang41/RAG-based_notes_helper/main/data/notes_helper.md
+```
+
+You mush have **at least one text file** in `data/`
 
 ### 3. `storage/`
 
-Create an empty `storage/`
-
-```text
-.
-└── storage/                        # faiss index + metadata
+Create an empty `storage/`:
+```bash
+mkdir storage
 ```
 
-`storage/` is for storing faiss index and chunk metadata
+Example structure:
+```text
+.
+└── storage/
+```
 
-Contents wil be built automatically at runtime
+`storage/` is for storing:
+- faiss index
+- chunk metadata
+
+Contents will be built automatically at runtime
 
 ---
 
@@ -206,10 +253,13 @@ git clone https://github.com/StevenHuang41/RAG-based_notes_helper.git
 cd RAG-based_notes_helper
 
 uv pip install -e .
-
-# Setup .env
-# Setup data/
 ```
+
+[Setup `.env`](#1-env)
+
+[Setup `data/`](#2-data)
+
+[Setup `storage/`](#3-storage)
 
 #### One time query
 ```bash
@@ -228,7 +278,20 @@ rag-app reindex
 
 ### Running with Docker Compose
 
-requires to clone git repo
+still requires cloning git repo
+
+```bash
+git clone https://github.com/StevenHuang41/RAG-based_notes_helper.git
+cd RAG-based_notes_helper
+
+uv pip install -e .
+```
+
+[Setup `.env`](#1-env)
+
+[Setup `data/`](#2-data)
+
+[Setup `storage/`](#3-storage)
 
 #### One time query
 ```bash
@@ -256,17 +319,19 @@ Setup:
 mkdir rag_application
 cd rag_application
 touch .env
-# Setup .env
-
 mkdir data storage
-# place your notes in data/
 ```
 
-Runs:
+[Setup `.env`](#1-env)
+
+[Setup `data/`](#2-data)
+
+[Setup `storage/`](#3-storage)
+
+Runs at project root:
 ```bash
-docker pull ghcr.io/stevenhuang41/rag-based-notes-helper/rag-app:latest
+docker pull ghcr.io/stevenhuang41/rag-based-notes-helper:latest
 ```
-
 
 #### One time query
 ```bash
@@ -274,7 +339,7 @@ docker run -it \
   -v $(pwd)/data:/app/data \
   -v $(pwd)/storage:/app/storage \
   --env-file .env \
-  ghcr.io/stevenhuang41/rag-based-notes-helper/rag-app:latest \
+  ghcr.io/stevenhuang41/rag-based-notes-helper:latest \
   "what is ..."
 ```
 
@@ -284,12 +349,12 @@ docker run -it \
   -v $(pwd)/data:/app/data \
   -v $(pwd)/storage:/app/storage \
   --env-file .env \
-  ghcr.io/stevenhuang41/rag-based-notes-helper/rag-app:latest
+  ghcr.io/stevenhuang41/rag-based-notes-helper:latest
 ```
 
 ### Commands:
 
-#### REPL
+#### REPL mode
 
 - `:quit`       /   `:q`      (exit)
 - `:reindex`    /   `:ri`     (reindex without exiting)
@@ -300,7 +365,7 @@ docker run -it \
 
 ## Testing
 
-Run unit tests at project root
+Runs unit tests at project root:
 
 ```bash
 pytest
