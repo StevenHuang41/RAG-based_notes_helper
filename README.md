@@ -4,7 +4,7 @@ A **Retrieval-Augmented Generation (RAG)** assistant for querying and reviewing 
 
 This project emphasizes **correct RAG design**, **memory-safe ingestion**, **testable**, and **real-world workflows** (Docker + CI).
 
-[**Quick Start**](#running-via-docker-image)
+[**Quick Start**](#running-with-docker-compose)
 
 ---
 
@@ -77,21 +77,9 @@ Fine-tuning is often **costly, unnecessary** for note-based knowledge system
 ## Architecture
 
 ```text
-Notes
-
-Text loaders
-
-Streaming chunking
-
-Sentence-Transformer embedding
-
-faiss vector index
-
-Query embedding
-
-Top-k retrieval
-
-LLM
+Notes → Chunking → Embedding → Index
+                                  ↓
+Query   →   Embedding   →   Retrieval   →   LLM   →   Answer
 ```
 
 ---
@@ -99,12 +87,24 @@ LLM
 ## Project Structure
 
 ```text
-.
+RAG-based_notes_helper/ 
+├── README.md
+├── pyproject.toml
+├── .env.example                    # template for creating .env
+├── Dockerfile
+├── docker-compose.yml
+├── LICENSE
+├── pytest.ini
+├── .gitignore
+├── .dockerignore
+│
 ├── src/
 │   └── rag_notes_helper/
 │       ├── cli.py                  # entry point (rag-app)
+│       │
 │       ├── core/
 │       │   └── config.py
+│       │ 
 │       └── rag/
 │           ├── ingest.py
 │           ├── loaders.py
@@ -112,10 +112,12 @@ LLM
 │           ├── chunking.py
 │           ├── retrieval.py
 │           ├── answer.py
+│           │
 │           └── llm/
 │               ├── hf.py
 │               ├── openai_api.py
 │               └── router.py
+│               
 ├── tests/                          # unit tests
 │   ├── test_ingest.py
 │   ├── test_loaders.py
@@ -123,20 +125,20 @@ LLM
 │   ├── test_chunking.py
 │   ├── test_retrieval.py
 │   └── test_answer.py
-├── data/                           # place your notes here!
-│   └── notes_helper.md             # base knowledge for this app
-├── storage/                        # faiss index + metadata
+│               
+├── data/                           # place your notes here!!!
+│   └── notes_helper.md             # base knowledge
+│               
+├── storage/                        
 │   ├── faiss.index
 │   └── meta.jsonl
-├── .env.example                    # template for creating .env
-├── .gitignore
-├── .dockerignore
-├── Dockerfile
-├── docker-compose.yml
-├── LICENSE
-├── pytest.ini
-├── pyproject.toml
-└── README.md
+│               
+├── hf_cache/                       # huggingface cache
+│  
+└── .github/                        # github action
+    └── workflows/
+        ├── ci.yml
+        └── cd.yml
 ```
 
 ## How It Works
@@ -169,16 +171,14 @@ LLM
 
 ## Installation & Setup
 
-This app requires the following file and directory exist at the project root
-
-Make sure they have been setup before running the app
+Make sure the following requirements have been setup before running the app
 
 ### Prerequisites
 
 - **python** >= 3.10
-- **uv** (recommended) or `pip`
+- `pip` or **uv** (recommended)
 - **Docker** >= 20.10
-- **git**
+- **git** (optional)
 
 ### 1. Configuration (`.env`)
 
@@ -201,6 +201,8 @@ LLM_PROVIDER=openai
 OPENAI_API_KEY=sk_xxxxxx
 ```
 
+You can also customize other configuration values in `.env`
+
 ### 2. Notes directory (`data/`)
 
 Create a `data/` and place your notes inside it:
@@ -210,14 +212,16 @@ mkdir data
 
 Example structure:
 ```text
-.
+RAG-based_notes_helper/ 
 └── data/
     ├── notes_helper.md
     └── [your notes]
 ```
+
 To download the `notes_helper.md`:
 ```bash
-curl -L -o data/notes_helper.md \
+cd data
+curl -L -o notes_helper.md \
 https://raw.githubusercontent.com/StevenHuang41/RAG-based_notes_helper/main/data/notes_helper.md
 ```
 
@@ -232,7 +236,6 @@ You mush have **at least one text file** in `data/`
 ```bash
 git clone https://github.com/StevenHuang41/RAG-based_notes_helper.git
 cd RAG-based_notes_helper
-
 uv pip install -e .
 ```
 
@@ -242,50 +245,24 @@ uv pip install -e .
 
 #### One time query
 ```bash
-rag-app "what is ..."
+rag-app what is xxx
+rag-app "what is ...?"
+rag-app "what is xxx" -r                    # reindex before answering
+rag-app "what is xxx" -c                    # including citations in answer
+rag-app "I wanna know ..." > answer.txt     # save generated answer
 ```
 
 #### Interactive REPL
+Runs rag-app repeatedly in repl mode:
 ```bash
 rag-app repl
 ```
 
 #### Reindex
+Reindex data if you update in `data/`
 ```bash
 rag-app reindex
 ```
-
-### Running with Docker Compose
-
-still requires cloning git repo
-
-```bash
-git clone https://github.com/StevenHuang41/RAG-based_notes_helper.git
-cd RAG-based_notes_helper
-
-uv pip install -e .
-```
-
-[Setup `.env`](#1-configuration-env)
-
-[Setup `data/`](#2-notes-directory-data)
-
-#### One time query
-```bash
-docker compose run --rm app "what is ..."
-```
-
-#### Interactive REPL
-```bash
-docker compose run --rm app
-```
-
-#### Reindex
-```bash
-docker compose run --rm app reindex
-```
-
-Do **NOT** use `docker compose up` for interactive CLI
 
 ### Running via Docker Image
 
@@ -296,7 +273,7 @@ Setup:
 mkdir rag_application
 cd rag_application
 touch .env
-mkdir data storage
+mkdir data
 ```
 
 [Setup `.env`](#1-configuration-env)
@@ -308,24 +285,45 @@ Runs at project root:
 docker pull ghcr.io/stevenhuang41/rag-based-notes-helper:latest
 ```
 
-#### One time query
 ```bash
-docker run -it \
+docker run --rm -it \
   --env-file .env \
-  -v $(pwd)/data:/app/data \
-  -v $(pwd)/storage:/app/storage \
+  -v ./data:/app/data \
+  -v ./storage:/app/storage \                      
+  -v ./hf_cache:/root/.cache/huggingface \
   ghcr.io/stevenhuang41/rag-based-notes-helper:latest \
-  "what is ..."
+  "query" 
 ```
 
-#### Interactive REPL
+The rules are the same as running from source
+
+Usage: [-h] [-r] [-c] [query ...]
+
+If query is `repl`, gets into repl mode
+If query is `reindex`, reindex RAG
+
+
+### Running with Docker Compose
+
+still requires cloning git repo
+
 ```bash
-docker run -it \
-  --env-file .env \
-  -v $(pwd)/data:/app/data \
-  -v $(pwd)/storage:/app/storage \
-  ghcr.io/stevenhuang41/rag-based-notes-helper:latest
+git clone https://github.com/StevenHuang41/RAG-based_notes_helper.git
+cd RAG-based_notes_helper
 ```
+
+[Setup `.env`](#1-configuration-env)
+
+[Setup `data/`](#2-notes-directory-data)
+
+#### One time query
+```bash
+docker compose run --rm app "query"
+```
+
+The rules are the same as running from source
+
+Do **NOT** use `docker compose up` for interactive CLI
 
 ### Commands:
 
@@ -333,6 +331,12 @@ docker run -it \
 
 * `[query]`
     RAG generates answer as usual
+
+    - query = repl
+        Start REPL mode
+
+    - query = reindex
+        Reindex notes in `data/`
 
 * `[query] -r`
     RAG reindex before generating answer

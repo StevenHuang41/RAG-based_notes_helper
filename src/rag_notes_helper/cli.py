@@ -173,3 +173,5 @@ def main():
         show_citations=args.citations,
     )
 
+if __name__ == "__main__":
+    main()

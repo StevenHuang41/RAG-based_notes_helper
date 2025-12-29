@@ -2,30 +2,17 @@ FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
-RUN --mount=type=cache,target=/var/cache/apt \
-    pip install --no-cache-dir --upgrade pip uv
-    # apt-get update && apt-get install -y \
-    # build-essential \
-    # && rm -rf /var/lib/apt/lists/* \
-
-COPY src/ src/
+RUN pip install --no-cache-dir --upgrade pip uv
 
 COPY pyproject.toml ./
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system --no-cache-dir .
+    uv pip install --no-cache-dir --requirements pyproject.toml
 
+COPY src/ src/
 
+RUN mkdir -p data storage hf_cache
 
-# Runtime
-FROM python:3.11-slim
+ENV PYTHONPATH=/app/src
 
-WORKDIR /app
-
-COPY --from=builder /usr/local/lib/python3.11 /usr/local/lib/python3.11
-COPY --from=builder /usr/local/bin /usr/local/bin
-
-RUN mkdir -p data storage
-
-ENTRYPOINT ["rag-app"]
-CMD [ "repl" ]
+ENTRYPOINT ["python", "-m", "rag_notes_helper.cli"]

@@ -2,16 +2,16 @@
 
 services:
   app:
-    image: rag-notes-helper
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: rag-notes-helper
+    image: rag-based-notes-helper
+    build: .
     env_file:
       - .env
+    environment:
+      PYTHONPATH: /app/src
+      HF_HOME: /root/.cache/huggingface
     volumes:
       - ./data:/app/data
       - ./storage:/app/storage
-      - ~/.cache/huggingface:/root/.cache/huggingface
+      - ./hf_cache:/root/.cache/huggingface
     stdin_open: true
     tty: true

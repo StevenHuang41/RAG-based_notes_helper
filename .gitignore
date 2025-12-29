@@ -13,9 +13,11 @@
 # index
 storage/
 
+# cache
+hf_cache/
+
 # notes
 data/*
 !data/notes_helper.md
 
 .DS_Store
-
