@@ -7,7 +7,7 @@ RUN pip install --no-cache-dir --upgrade pip uv
 COPY pyproject.toml ./
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --no-cache-dir --requirements pyproject.toml
+    uv pip install --system --no-cache-dir --requirements pyproject.toml
 
 COPY src/ src/
 
