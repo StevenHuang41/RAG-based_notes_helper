@@ -87,7 +87,7 @@ Query   →   Embedding   →   Retrieval   →   LLM   →   Answer
 ## Project Structure
 
 ```text
-RAG-based_notes_helper/ 
+RAG-based_notes_helper/
 ├── README.md
 ├── pyproject.toml
 ├── .env.example                    # template for creating .env
@@ -104,7 +104,7 @@ RAG-based_notes_helper/
 │       │
 │       ├── core/
 │       │   └── config.py
-│       │ 
+│       │
 │       └── rag/
 │           ├── ingest.py
 │           ├── loaders.py
@@ -117,7 +117,7 @@ RAG-based_notes_helper/
 │               ├── hf.py
 │               ├── openai_api.py
 │               └── router.py
-│               
+│
 ├── tests/                          # unit tests
 │   ├── test_ingest.py
 │   ├── test_loaders.py
@@ -125,16 +125,16 @@ RAG-based_notes_helper/
 │   ├── test_chunking.py
 │   ├── test_retrieval.py
 │   └── test_answer.py
-│               
+│
 ├── data/                           # place your notes here!!!
 │   └── notes_helper.md             # base knowledge
-│               
-├── storage/                        
+│
+├── storage/
 │   ├── faiss.index
 │   └── meta.jsonl
-│               
+│
 ├── hf_cache/                       # huggingface cache
-│  
+│
 └── .github/                        # github action
     └── workflows/
         ├── ci.yml
@@ -212,7 +212,7 @@ mkdir data
 
 Example structure:
 ```text
-RAG-based_notes_helper/ 
+RAG-based_notes_helper/
 └── data/
     ├── notes_helper.md
     └── [your notes]
@@ -289,10 +289,10 @@ docker pull ghcr.io/stevenhuang41/rag-based-notes-helper:latest
 docker run --rm -it \
   --env-file .env \
   -v ./data:/app/data \
-  -v ./storage:/app/storage \                      
+  -v ./storage:/app/storage \
   -v ./hf_cache:/root/.cache/huggingface \
   ghcr.io/stevenhuang41/rag-based-notes-helper:latest \
-  "query" 
+  "query"
 ```
 
 The rules are the same as running from source
@@ -333,9 +333,11 @@ Do **NOT** use `docker compose up` for interactive CLI
     RAG generates answer as usual
 
     - query = repl
+
         Start REPL mode
 
     - query = reindex
+
         Reindex notes in `data/`
 
 * `[query] -r`
@@ -348,11 +350,10 @@ Do **NOT** use `docker compose up` for interactive CLI
 #### REPL mode
 
 - `:quit`       /   `:q`      (exit)
+- `:help`       /   `:h`      (show instructions)
 - `:reindex`    /   `:ri`     (reindex without exiting)
-- `:sources`    /   `:so`     (show indexed files)
 - `:citations`  /   `:ci`     (toggle citation files with answer)
-
-Use `--help` to see more instructions.
+- `:sources`    /   `:so`     (show indexed files)
 
  ---
 
