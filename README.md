@@ -4,7 +4,7 @@ A **Retrieval-Augmented Generation (RAG)** assistant for querying and reviewing 
 
 This project emphasizes **correct RAG design**, **memory-safe ingestion**, **testable**, and **real-world workflows** (Docker + CI).
 
-[**Quick Start**](#running-with-docker-compose)
+[**Quick Start**](#running-via-docker)
 
 ---
 
@@ -15,7 +15,7 @@ This project emphasizes **correct RAG design**, **memory-safe ingestion**, **tes
  - [Architecture](#architecture)
  - [Project Structure](#project-structure)
  - [How It Works](#how-it-works)
- - [Setup](#setup)
+ - [Instinstallation-setup](#installation-setup)
  - [Usage](#usage)
  - [Testing](#testing)
  - [Limitations](#limitations)
@@ -280,7 +280,7 @@ cd rag_application
 
 # get docker-compose.yml
 curl -L -o docker-compose.yml \
-https://raw.githubusercontent.com/StevenHuang41/Rag_Based-notes-helper/main/docker-compose.yml
+https://raw.githubusercontent.com/StevenHuang41/Rag-based_notes_helper/main/docker-compose.yml
 
 # get docker image
 docker pull ghcr.io/stevenhuang41/rag-based-notes-helper:latest
