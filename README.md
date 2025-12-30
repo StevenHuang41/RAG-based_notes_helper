@@ -91,7 +91,7 @@ RAG-based_notes_helper/
 ├── README.md
 ├── pyproject.toml
 ├── .env.example                    # template for creating .env
-├── Dockerfile                      
+├── Dockerfile
 ├── docker-compose.yml              # runtime-only, pull-only
 ├── LICENSE
 ├── pytest.ini
@@ -284,9 +284,6 @@ https://raw.githubusercontent.com/StevenHuang41/Rag-based_notes_helper/main/dock
 
 # get docker image
 docker pull ghcr.io/stevenhuang41/rag-based-notes-helper:latest
-
-touch .env
-mkdir data
 ```
 
 [Setup `.env`](#1-configuration-env)
