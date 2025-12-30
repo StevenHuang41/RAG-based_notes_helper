@@ -1,9 +1,8 @@
 # version: "3.9"
 
 services:
-  app:
-    image: rag-based-notes-helper
-    build: .
+  rag-app:
+    image: ghcr.io/stevenhuang41/rag-based-notes-helper:latest
     env_file:
       - .env
     environment:

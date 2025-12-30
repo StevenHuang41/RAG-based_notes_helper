@@ -91,8 +91,8 @@ RAG-based_notes_helper/
 ├── README.md
 ├── pyproject.toml
 ├── .env.example                    # template for creating .env
-├── Dockerfile
-├── docker-compose.yml
+├── Dockerfile                      
+├── docker-compose.yml              # runtime-only, pull-only
 ├── LICENSE
 ├── pytest.ini
 ├── .gitignore
@@ -129,7 +129,7 @@ RAG-based_notes_helper/
 ├── data/                           # place your notes here!!!
 │   └── notes_helper.md             # base knowledge
 │
-├── storage/
+├── storage/                        # rag matadata and faiss
 │   ├── faiss.index
 │   └── meta.jsonl
 │
@@ -185,13 +185,17 @@ Make sure the following requirements have been setup before running the app
 Create `.env` at project root based on `.env.example`:
 
 ```bash
+curl -L -o .env.example \
+https://raw.githubusercontent.com/StevenHuang41/RAG-based_notes_helper/main/.env.example
+```
+
+```bash
 cp .env.example .env
 ```
 
-At minimum, `HUGGINGFACE_API_KEY` must be assigned:
+At minimum, `HUGGINGFACE_API_KEY` must be assigned in `.env`:
 ```text
-HUGGINGFACE_API_KEY=hf_xxxxxx
-...
+HUGGINGFACE_API_KEY=hf_xxxxxx   # replace hf_xxxxxx with your token
 ```
 You need to create a [Hugging Face Token](https://huggingface.co/docs/hub/security-tokens)
 
@@ -225,7 +229,7 @@ curl -L -o notes_helper.md \
 https://raw.githubusercontent.com/StevenHuang41/RAG-based_notes_helper/main/data/notes_helper.md
 ```
 
-You mush have **at least one text file** in `data/`
+You mush have **at least one text file** in `data/` to avoid no chunk to index error.
 
 ---
 
@@ -236,6 +240,7 @@ You mush have **at least one text file** in `data/`
 ```bash
 git clone https://github.com/StevenHuang41/RAG-based_notes_helper.git
 cd RAG-based_notes_helper
+# get in venv
 uv pip install -e .
 ```
 
@@ -264,7 +269,7 @@ Reindex data if you update in `data/`
 rag-app reindex
 ```
 
-### Running via Docker Image
+### Running via Docker
 
 No need to clone git repo
 
@@ -272,6 +277,14 @@ Setup:
 ```bash
 mkdir rag_application
 cd rag_application
+
+# get docker-compose.yml
+curl -L -o docker-compose.yml \
+https://raw.githubusercontent.com/StevenHuang41/Rag_Based-notes-helper/main/docker-compose.yml
+
+# get docker image
+docker pull ghcr.io/stevenhuang41/rag-based-notes-helper:latest
+
 touch .env
 mkdir data
 ```
@@ -282,9 +295,12 @@ mkdir data
 
 Runs at project root:
 ```bash
-docker pull ghcr.io/stevenhuang41/rag-based-notes-helper:latest
+docker compose run --rm rag-app "query"
 ```
 
+Do **NOT** use `docker compose up` for interactive CLI
+
+(optional)
 ```bash
 docker run --rm -it \
   --env-file .env \
@@ -294,36 +310,6 @@ docker run --rm -it \
   ghcr.io/stevenhuang41/rag-based-notes-helper:latest \
   "query"
 ```
-
-The rules are the same as running from source
-
-Usage: [-h] [-r] [-c] [query ...]
-
-If query is `repl`, gets into repl mode
-If query is `reindex`, reindex RAG
-
-
-### Running with Docker Compose
-
-still requires cloning git repo
-
-```bash
-git clone https://github.com/StevenHuang41/RAG-based_notes_helper.git
-cd RAG-based_notes_helper
-```
-
-[Setup `.env`](#1-configuration-env)
-
-[Setup `data/`](#2-notes-directory-data)
-
-#### One time query
-```bash
-docker compose run --rm app "query"
-```
-
-The rules are the same as running from source
-
-Do **NOT** use `docker compose up` for interactive CLI
 
 ### Commands:
 
