@@ -4,11 +4,14 @@ A **Retrieval-Augmented Generation (RAG)** assistant for querying and reviewing 
 
 This project emphasizes **correct RAG design**, **memory-safe ingestion**, **testable**, and **real-world workflows** (Docker + CI).
 
+[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+
 [**Quick Start**](#running-via-docker)
+
 
 ---
 
-## Quick Links
+## Overview
 
  - [Why](#why)
  - [Features](#features)
