@@ -1,31 +1,30 @@
 from huggingface_hub import InferenceClient
 
-from rag_notes_helper.core.config import settings
-
-
 class HuggingFaceLLM:
-    def __init__(self) -> None:
+    def __init__(self, model: str, api_key: str) -> None:
 
-        if not settings.HUGGINGFACE_API_KEY:
-            raise RuntimeError("HUGGINGFACE_API_KEY not set in .env")
-
+        self.model = model
         self.client = InferenceClient(
             provider="auto",
-            api_key = settings.HUGGINGFACE_API_KEY
+            api_key = api_key,
         )
 
-        self.model = settings.HF_MODEL
-
-    def generate(self, prompt: list[dict[str, str]]) -> str:
+    def generate(
+        self,
+        prompt: list[dict[str, str]],
+        max_tokens: int = 2048,
+        temperature: float = 0.3,
+    ) -> str:
         response = self.client.chat.completions.create(
             model=self.model,
             messages=prompt,
-            max_tokens=settings.LLM_MAX_TOKENS,
-            temperature=settings.LLM_TEMPERATURE,
+            max_tokens=max_tokens,
+            temperature=temperature,
         )
 
-
         # huggingface return string
-        return response.choices[0].message.content \
-                or "LLM returns emtpy response"
+        return (
+            response.choices[0].message.content
+            or "LLM returns emtpy response"
+        )
 

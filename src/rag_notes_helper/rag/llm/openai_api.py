@@ -3,27 +3,31 @@ from openai import OpenAI
 from rag_notes_helper.core.config import settings
 
 class OpenAILLM:
-    def __init__(self) -> None:
+    def __init__(self, model: str, api_key: str) -> None:
 
-        if not settings.OPENAI_API_KEY:
-            raise RuntimeError("OPENAI_API_KEY not set in .env")
-
+        self.model = model
         self.client = OpenAI(
-            api_key=settings.OPENAI_API_KEY,
+            api_key=api_key,
         )
         
-        self.model = settings.OPENAI_MODEL
 
-    def generate(self, prompt: list[dict[str, str]]) -> str:
+    def generate(
+        self,
+        prompt: list[dict[str, str]],
+        max_tokens: int = 2048,
+        temperature: float = 0.3,
+    ) -> str:
         response = self.client.chat.completions.create(
             model = self.model,
             message=prompt,
-            max_tokens=settings.LLM_MAX_TOKENS,
-            temperature=settings.LLM_TEMPERATURE,
+            max_tokens=max_tokens,
+            temperature=temperature,
         )
 
-        return response.choices[0].message.content \
-                or "LLM return empty response"
+        return (
+            response.choices[0].message.content
+            or "LLM return empty response"
+        )
 
     
 
