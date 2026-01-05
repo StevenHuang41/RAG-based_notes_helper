@@ -1,8 +1,12 @@
 from rag_notes_helper.rag.answer import rag_answer
 
-
 class DummyLLM:
-    def generate(self, prompt):
+    def generate(
+        self,
+        prompt,
+        max_tokens: int = 2048,
+        temperature: float = 0.3,
+    ):
         return "dummy answer"
 
 

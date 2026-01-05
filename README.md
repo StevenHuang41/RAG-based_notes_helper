@@ -65,6 +65,7 @@ Fine-tuning is often **costly, unnecessary** for note-based knowledge system
 - Dense vector retrieval using **Faiss**
 - LLM backends:
     - Hugging Face (free token)
+    - Ollama (free and runs locally)
     - OpenAI (paid API)
 - Source-aware answers with citation
 - Interactive CLI with live re-indexing
@@ -118,6 +119,7 @@ RAG-based_notes_helper/
 │           │
 │           └── llm/
 │               ├── hf.py
+│               ├── ollama.py
 │               ├── openai_api.py
 │               └── router.py
 │
@@ -196,19 +198,16 @@ https://raw.githubusercontent.com/StevenHuang41/RAG-based_notes_helper/main/.env
 cp .env.example .env
 ```
 
-At minimum, `HUGGINGFACE_API_KEY` must be assigned in `.env`:
+Uncomment the provider you wanna use, make sure the following variables exist in `.env`:
 ```text
-HUGGINGFACE_API_KEY=hf_xxxxxx   # replace hf_xxxxxx with your token
-```
-You need to create a [Hugging Face Token](https://huggingface.co/docs/hub/security-tokens)
-
-If using OpenAI api instead, configure:
-```text
-LLM_PROVIDER=openai
-OPENAI_API_KEY=sk_xxxxxx
+LLM_PROVIDER=xxx
+LLM_MODEL=yyy
+LLM_API_KEY=sk_xxxxxx
 ```
 
 You can also customize other configuration values in `.env`
+
+See [Hugging Face Token](https://huggingface.co/docs/hub/security-tokens) to create an API key.
 
 ### 2. Notes directory (`data/`)
 
@@ -243,7 +242,7 @@ You mush have **at least one text file** in `data/` to avoid no chunk to index e
 ```bash
 git clone https://github.com/StevenHuang41/RAG-based_notes_helper.git
 cd RAG-based_notes_helper
-# get in venv
+# get into venv
 uv pip install -e .
 ```
 
@@ -290,6 +289,7 @@ docker pull ghcr.io/stevenhuang41/rag-based-notes-helper:latest
 ```
 
 [Setup `.env`](#1-configuration-env)
+!remember to use docker url for `OLLAMA_BASE_URL` in .env
 
 [Setup `data/`](#2-notes-directory-data)
 

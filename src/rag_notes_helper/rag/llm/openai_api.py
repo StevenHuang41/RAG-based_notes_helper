@@ -1,7 +1,5 @@
 from openai import OpenAI
 
-from rag_notes_helper.core.config import settings
-
 class OpenAILLM:
     def __init__(self, model: str, api_key: str) -> None:
 
@@ -9,7 +7,7 @@ class OpenAILLM:
         self.client = OpenAI(
             api_key=api_key,
         )
-        
+
 
     def generate(
         self,
@@ -29,5 +27,5 @@ class OpenAILLM:
             or "LLM return empty response"
         )
 
-    
+
 
