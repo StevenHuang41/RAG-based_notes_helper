@@ -1,16 +1,17 @@
 # RAG-based Notes Helper
 
-<p align="center">
-  <a href="docs/demo.mp4">
-    <img src="docs/demo.gif" width="800" />
-  </a>
-</p>
 
-A **Retrieval-Augmented Generation (RAG)** assistant for querying and reviewing your own notes using **local embeddings** (Hugging Face), **Vector search** (Faiss), and **LLM backends** (Hugging Face / OpenAI).
+A **Retrieval-Augmented Generation (RAG)** assistant for querying and reviewing your own notes using **local embeddings** (Hugging Face), **Vector search** (Faiss), and **LLM backends** (Hugging Face / OpenAI / Ollama).
 
 This project emphasizes **correct RAG design**, **memory-safe ingestion**, **testable**, and **real-world workflows** (Docker + CI).
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+
+<p align="center">
+    <a href="docs/demo.mp4">
+        <img src="docs/demo.gif" width="800" />
+    </a>
+</p>
 
 [**Quick Start**](#running-via-docker)
 
