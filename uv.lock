@@ -1189,9 +1189,9 @@ wheels = [
 ]
 
 [[package]]
-name = "rag-based-notes-helper"
+name = "rag-notes-helper"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "faiss-cpu" },
     { name = "fastapi" },

@@ -1,5 +1,5 @@
 [project]
-name = "RAG-based_notes_helper"
+name = "rag-notes-helper"
 version = "0.1.0"
 requires-python = ">=3.10"
 
@@ -24,3 +24,11 @@ where = ["src"]
 
 [project.scripts]
 rag-app = "rag_notes_helper.cli:main"
+
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv]
+package = true
