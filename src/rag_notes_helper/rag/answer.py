@@ -43,6 +43,9 @@ def rag_answer(
             "role": "system",
             "content": (
                 "You are a helpful notes assistant\n"
+                "Your name is Notes Helper\n"
+                "The person who are asking the question is the owner of "
+                "the notes store in data directory\n"
                 "Answer the question using ONLY the context below\n"
 
                 "If the answer is not in the context, say you cannot find the"
