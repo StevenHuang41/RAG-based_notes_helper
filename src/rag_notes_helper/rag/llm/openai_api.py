@@ -1,4 +1,6 @@
+from collections.abc import Iterable
 from openai import OpenAI
+from openai.types.chat import ChatCompletionMessageParam
 
 class OpenAILLM:
     def __init__(self, model: str, api_key: str) -> None:
@@ -11,13 +13,13 @@ class OpenAILLM:
 
     def generate(
         self,
-        prompt: list[dict[str, str]],
+        prompt: Iterable[ChatCompletionMessageParam],
         max_tokens: int = 2048,
         temperature: float = 0.3,
     ) -> str:
         response = self.client.chat.completions.create(
             model = self.model,
-            message=prompt,
+            messages=prompt,
             max_tokens=max_tokens,
             temperature=temperature,
         )

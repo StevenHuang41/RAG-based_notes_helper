@@ -17,10 +17,13 @@ def test_load_notes_generates_chunks(tmp_path):
     origin_data_dir, settings.NOTES_DIR = settings.NOTES_DIR, temp_data_dir
 
     try :
-        chunks = load_notes()
+        chunks = list(load_notes())
     finally :
         settings.NOTES_DIR = origin_data_dir
 
     assert len(chunks) > 0
-    assert all("test note" in c.text.lower() for c in chunks)
-
+    assert all(c.doc_id for c in chunks)
+    assert chunks[0].chunk_id == 0
+    assert chunks[1].chunk_id == 1
+    assert all("test note" in c.text for c in chunks)
+    assert all(c.source == "note.md" for c in chunks)

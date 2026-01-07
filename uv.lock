@@ -1203,6 +1203,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "pytest" },
     { name = "sentence-transformers" },
+    { name = "tqdm" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -1217,6 +1218,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.2" },
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "sentence-transformers", specifier = ">=2.6.1" },
+    { name = "tqdm", specifier = ">=4.67.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.27" },
 ]
 
