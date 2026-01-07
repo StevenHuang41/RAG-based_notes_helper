@@ -9,22 +9,17 @@ from rag_notes_helper.rag.loaders import is_text_file
 def _stable_doc_id(
     path: Path,
     *,
-    head_bytes: int = 1024,
+    chunk_bytes: int = 8192,
     hash_len: int = 16,
 ) -> str:
     hasher = hashlib.sha256()
 
-    time_stamp = str(path.stat().st_mtime_ns).encode("utf-8")
-
     with path.open("rb") as f:
-        content = f.read(head_bytes)
+        while (chunk:= f.read(chunk_bytes)) != b'':
+            hasher.update(chunk)
 
-    hasher.update(time_stamp)
-    hasher.update((content))
+    return hasher.hexdigest()[:hash_len]
 
-    digest = hasher.hexdigest()[:hash_len]
-
-    return f"{path.stem}-{digest}"
 
 
 def load_notes(notes_dir: Path | None = None) -> list[Chunk]:
@@ -45,7 +40,6 @@ def load_notes(notes_dir: Path | None = None) -> list[Chunk]:
         doc_id = _stable_doc_id(file_path)
 
         source = str(file_path.relative_to(settings.NOTES_DIR))
-        # source = source[len("data/"):]
 
         with file_path.open("r", encoding="utf-8", errors="ignore") as f:
             for chunk in chunk_text(

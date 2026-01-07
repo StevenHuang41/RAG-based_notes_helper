@@ -1,11 +1,5 @@
 from pathlib import Path
 
-# TEXT_EXTENSIONS = {
-#     ".md",
-#     ".txt",
-# }
-
-
 def _has_null(data: bytes) -> bool:
     return b"\x00" in data
 
