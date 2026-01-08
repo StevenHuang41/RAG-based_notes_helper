@@ -5,25 +5,31 @@ from rag_notes_helper.core.config import settings
 
 
 def test_load_notes_generates_chunks(tmp_path):
-    temp_data_dir = tmp_path / "data"
-    temp_data_dir.mkdir()
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
 
-    note = temp_data_dir / "note.md"
-    note.write_text(
-        "This is a test note.\n" * 20,
+    note1 = data_dir / "note1.md"
+    note1.write_text(
+        "This is a test note1.\n",
+        encoding="utf-8",
+    )
+    note2 = data_dir / "note2.md"
+    note2.write_text(
+        "This is a test note2.\n",
         encoding="utf-8",
     )
 
-    origin_data_dir, settings.NOTES_DIR = settings.NOTES_DIR, temp_data_dir
 
-    try :
-        chunks = list(load_notes())
-    finally :
-        settings.NOTES_DIR = origin_data_dir
+    chunks = list(load_notes(data_dir))
 
-    assert len(chunks) > 0
-    assert all(c.doc_id for c in chunks)
-    assert chunks[0].chunk_id == 0
-    assert chunks[1].chunk_id == 1
-    assert all("test note" in c.text for c in chunks)
-    assert all(c.source == "note.md" for c in chunks)
+    assert len(chunks) == 2
+
+    c1, c2 = chunks
+
+    assert c1.doc_id != c2.doc_id
+    assert c1.chunk_id  == 0
+    assert c2.chunk_id  == 0
+    assert "test note1" in c1.text
+    assert "test note2" in c2.text
+    assert c1.source == "note1.md"
+    assert c2.source == "note2.md"

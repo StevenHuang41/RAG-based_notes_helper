@@ -35,7 +35,7 @@ def load_notes(notes_dir: Path | None = None) -> Iterable[Chunk]:
 
         doc_id = _stable_doc_id(file_path)
 
-        source = str(file_path.relative_to(settings.NOTES_DIR))
+        source = str(file_path.relative_to(notes_dir))
 
         with file_path.open("r", encoding="utf-8", errors="ignore") as f:
             yield from chunk_text(
