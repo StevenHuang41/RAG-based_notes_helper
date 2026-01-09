@@ -1,7 +1,6 @@
 from pathlib import Path
 
 from rag_notes_helper.rag.ingest import load_notes
-from rag_notes_helper.core.config import settings
 
 
 def test_load_notes_generates_chunks(tmp_path):

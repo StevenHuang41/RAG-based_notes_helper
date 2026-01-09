@@ -10,15 +10,20 @@ def test_retrieve_filters_by_score(monkeypatch):
     index = faiss.IndexFlatIP(dim)
 
     vectors = np.array([[1, 0, 0], [0.1, 0, 0]])
+
     index.add(vectors)
 
-    rag = RagIndex(
-        index=index,
-        meta=[
-            {"text": "first row", "source": "a", "chunk_id": 0},
-            {"text": "second row", "source": "b", "chunk_id": 1},
-        ],
-    )
+    rag = RagIndex(index=index)
+
+    class DummyMetaStore:
+        def get(self, faiss_id: int) -> dict:
+            data = [
+                {"text": "first row", "source": "a", "chunk_id": 0},
+                {"text": "second row", "source": "b", "chunk_id": 1},
+            ]
+            return data[faiss_id]
+
+
 
     def mock_encode(self, texts, **kws):
         return np.array([[0.9, 0, 0]])
@@ -31,8 +36,14 @@ def test_retrieve_filters_by_score(monkeypatch):
         "sentence_transformers.SentenceTransformer.encode",
         mock_encode,
     )
+    monkeypatch.setattr(
+        "rag_notes_helper.rag.meta_store.MetaStore",
+        DummyMetaStore,
+    )
 
-    results = retrieve(query="first", rag=rag, top_k=2)
+    meta_store = DummyMetaStore()
+
+    results = retrieve(query="first", rag=rag, top_k=2, meta_store=meta_store)
 
     assert len(results) == 1
     assert results[0]["text"] == "first row"

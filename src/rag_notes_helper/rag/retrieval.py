@@ -1,14 +1,15 @@
 from sentence_transformers import SentenceTransformer
 
 from rag_notes_helper.core.config import settings
-from rag_notes_helper.rag.index import RagIndex
-
+from rag_notes_helper.rag.index import RagIndex, _ensure_storage_dir
+from rag_notes_helper.rag.meta_store import MetaStore
 
 def retrieve(
     *,
     query: str,
     rag: RagIndex,
     top_k: int | None = None,
+    meta_store: MetaStore
 ) -> list[dict]:
     top_k = top_k or settings.TOP_K
 
@@ -20,6 +21,7 @@ def retrieve(
         convert_to_numpy=True,
     ).astype("float32")
 
+
     scores, indices = rag.index.search(q_emb, top_k)
 
     results: list[dict] = []
@@ -30,7 +32,7 @@ def retrieve(
         if score < settings.MIN_RETRIEVAL_SCORE:
             continue
 
-        item = dict(rag.meta[idx])
+        item = meta_store.get(idx)
         item["score"] = float(score)
         results.append(item)
 

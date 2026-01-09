@@ -5,8 +5,9 @@ from rag_notes_helper.rag.index import (
     build_index,
     save_index,
     load_index,
-    list_indexed_sources,
+    _ensure_storage_dir,
 )
+from rag_notes_helper.rag.meta_store import MetaStore
 from rag_notes_helper.rag.retrieval import retrieve
 from rag_notes_helper.rag.answer import rag_answer
 
@@ -38,8 +39,9 @@ def run_onetime(
 ) -> None:
     rag = rebuild_index() if reindex else build_or_load_index()
 
-    hits = retrieve(query=query, rag=rag)
-    result = rag_answer(query=query, hits=hits)
+    with MetaStore(_ensure_storage_dir()) as meta_store:
+        hits = retrieve(query=query, rag=rag, meta_store=meta_store)
+        result = rag_answer(query=query, hits=hits)
 
     print("\nANSWER:\n")
     print(result["answer"])
@@ -52,6 +54,7 @@ def run_onetime(
 
 def repl():
     rag = build_or_load_index()
+    meta_store = MetaStore(_ensure_storage_dir())
 
     print(
         "\nRAG-based Notes Helper\n"
@@ -60,68 +63,75 @@ def repl():
 
     show_citations = False
 
-    while True:
-        try :
-            query = input("> ").strip()
-        except KeyboardInterrupt:
-            print("\nBye~")
-            break
+    try :
+        while True:
+            try :
+                query = input("> ").strip()
+            except KeyboardInterrupt:
+                print("\nBye~")
+                break
 
-        if not query:
-            continue
+            if not query:
+                continue
 
-        if query in {":quit", ":q"}:
-            print("\nBye~")
-            break
+            if query in {":quit", ":q"}:
+                print("\nBye~")
+                break
 
-        if query in {":reindex", ":ri"}:
-            rag = rebuild_index()
-            continue
+            if query in {":reindex", ":ri"}:
+                meta_store.close()
+                rag = rebuild_index()
+                meta_store = MetaStore(_ensure_storage_dir())
+                continue
 
-        if query in {":sources", ":so"}:
-            print("\nSOURCES:\n")
-            for s in list_indexed_sources(rag):
-                print(f"- {s}")
+            if query in {":sources", ":so"}:
+                print("\nSOURCES:\n")
+                for s in meta_store.list_indexed_sources():
+                    print(f"- {s}")
 
-            print()
-            continue
+                print()
+                continue
 
-        if query in {":citations", ":ci"}:
-            if show_citations:
-                print("\nHide Citations\n")
-            else :
-                print("\nShow Citations\n")
+            if query in {":citations", ":ci"}:
+                if show_citations:
+                    print("\n/Hide Citations\n")
+                else :
+                    print("\n/Show Citations\n")
 
-            show_citations = not show_citations
-            continue
+                show_citations = not show_citations
+                continue
 
-        if query in {":help", ":h"}:
-            print(
-                "\nCommands:\n"
-                "   :quit      or  :q    -> exit app\n"
-                "   :help      or  :h    -> show instructions\n"
-                "   :reindex   or  :ri   -> reindex rag\n"
-                "   :citations or  :ci   -> show citation files\n"
-                "   :sources   or  :so   -> show all source files\n"
-            )
-            continue
-
-
-        hits = retrieve(query=query, rag=rag)
-        result = rag_answer(query=query, hits=hits)
-
-        print("\nANSWER:\n")
-        print(result["answer"])
-
-        if show_citations and result["citations"]:
-            print("\nCITATIONS:")
-            for c in result["citations"]:
+            if query in {":help", ":h"}:
                 print(
-                    f"- {c['source']} "
-                    f"(chunk={c['chunk_id']}, score={c['score']:.3f})"
+                    "\nCommands:\n"
+                        "   :quit      or  :q    -> exit app\n"
+                        "   :help      or  :h    -> show instructions\n"
+                        "   :reindex   or  :ri   -> reindex rag\n"
+                        "   :citations or  :ci   -> show citation files\n"
+                        "   :sources   or  :so   -> show all source files\n"
                 )
+                continue
 
-        print()
+            hits = retrieve(query=query, rag=rag, meta_store=meta_store)
+            result = rag_answer(query=query, hits=hits)
+
+            print("\nANSWER:\n")
+            print(result["answer"])
+
+            if show_citations and result["citations"]:
+                print("\nCITATIONS:")
+                for c in result["citations"]:
+                    print(
+                        f"- {c['source']} "
+                            f"(chunk={c['chunk_id']}, score={c['score']:.3f})"
+                    )
+
+                print()
+
+    finally :
+        meta_store.close()
+
+
 
 
 def build_parser() -> argparse.ArgumentParser:
