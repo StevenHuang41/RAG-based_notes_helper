@@ -1,5 +1,5 @@
 from rag_notes_helper.rag.llm import get_llm
-from rag_notes_helper.core.config import settings
+from rag_notes_helper.core.config import get_settings
 
 
 def rag_answer(
@@ -9,6 +9,7 @@ def rag_answer(
     max_tokens: int | None = None,
     temperature: float | None = None,
 ) -> dict:
+    settings = get_settings()
 
     if not hits:
         return {

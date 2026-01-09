@@ -1,14 +1,14 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Iterable
 import json
-from tqdm import tqdm
 import struct
 
 import faiss
 from sentence_transformers import SentenceTransformer
+from tqdm import tqdm
 
-from rag_notes_helper.core.config import settings
+from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.rag.chunking import Chunk
 
 
@@ -17,18 +17,14 @@ class RagIndex:
     index: faiss.Index
 
 
-def _ensure_storage_dir() -> Path:
-    settings.STORAGE_DIR.mkdir(parents=True, exist_ok=True)
-    return settings.STORAGE_DIR
-
-
 def build_index(chunks: Iterable[Chunk], batch_size: int = 32) -> RagIndex:
+    settings = get_settings()
     model = SentenceTransformer(settings.EMBEDDING_MODEL)
 
     index = None
     batch: list[Chunk] = []
 
-    storage = _ensure_storage_dir()
+    storage: Path = settings.STORAGE_DIR
     idx_f = (storage / "meta.idx").open("wb")
     meta_f = (storage / "meta.jsonl").open("wb")
 
@@ -52,16 +48,17 @@ def build_index(chunks: Iterable[Chunk], batch_size: int = 32) -> RagIndex:
             for chunk in batch:
                 offset = meta_f.tell()
 
-                record = {
-                    "doc_id": chunk.doc_id,
-                    "chunk_id": chunk.chunk_id,
-                    "source": chunk.source,
-                    "text": chunk.text,
-                }
-
                 meta_f.write(
-                    json.dumps(record, ensure_ascii=False).encode("utf-8")
-                    + b"\n"
+                    json.dumps(
+                        {
+                            "doc_id": chunk.doc_id,
+                            "chunk_id": chunk.chunk_id,
+                            "source": chunk.source,
+                            "text": chunk.text,
+
+                        },
+                        ensure_ascii=False,
+                    ).encode("utf-8") + b"\n"
                 )
                 idx_f.write(struct.pack("Q", offset))
 
@@ -82,16 +79,17 @@ def build_index(chunks: Iterable[Chunk], batch_size: int = 32) -> RagIndex:
             for chunk in batch:
                 offset = meta_f.tell()
 
-                record = {
-                    "doc_id": chunk.doc_id,
-                    "chunk_id": chunk.chunk_id,
-                    "source": chunk.source,
-                    "text": chunk.text,
-                }
-
                 meta_f.write(
-                    json.dumps(record, ensure_ascii=False).encode("utf-8")
-                    + b"\n"
+                    json.dumps(
+                        {
+                            "doc_id": chunk.doc_id,
+                            "chunk_id": chunk.chunk_id,
+                            "source": chunk.source,
+                            "text": chunk.text,
+
+                        },
+                        ensure_ascii=False,
+                    ).encode("utf-8") + b"\n"
                 )
                 idx_f.write(struct.pack("Q", offset))
 
@@ -106,15 +104,12 @@ def build_index(chunks: Iterable[Chunk], batch_size: int = 32) -> RagIndex:
 
 
 def save_index(rag: RagIndex) -> None:
-    storage = _ensure_storage_dir()
-
+    storage = get_settings().STORAGE_DIR
     index_path = storage / "faiss.index"
-
     faiss.write_index(rag.index, str(index_path))
 
 def load_index() -> RagIndex:
-    storage = _ensure_storage_dir()
-
+    storage = get_settings().STORAGE_DIR
     index_path = storage / "faiss.index"
 
     if not index_path.exists():

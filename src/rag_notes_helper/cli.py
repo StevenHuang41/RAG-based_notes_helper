@@ -1,11 +1,13 @@
 import argparse
+from pydantic import ValidationError
+import sys
 
+from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.rag.ingest import load_notes
 from rag_notes_helper.rag.index import (
     build_index,
     save_index,
     load_index,
-    _ensure_storage_dir,
 )
 from rag_notes_helper.rag.meta_store import MetaStore
 from rag_notes_helper.rag.retrieval import retrieve
@@ -28,8 +30,44 @@ def rebuild_index():
     chunks = load_notes()
     rag = build_index(chunks)
     save_index(rag)
-    print("Index rebuilt.\n")
+    print("Index built and saved.\n")
     return rag
+
+def show_config():
+    print("\nChecking Configuration ...\n")
+    try :
+        settings = get_settings()
+    except ValidationError as e:
+        print("Configuration is INVALID\n")
+        print(e)
+        sys.exit(1)
+
+    print("Configuration is VALID")
+
+    print("\nLLM:")
+    print(f"    Provider   : {settings.LLM_PROVIDER}")
+    print(f"    Model      : {settings.LLM_MODEL}")
+    print(
+          f"    API Key    : "
+          f"{'SET' if settings.LLM_API_KEY else 'NOT SET'}"
+    )
+
+    print("\nEmbedding:")
+    print(f"    Model      : {settings.EMBEDDING_MODEL}")
+
+    print("\nChunking:")
+    print(f"    Size       : {settings.CHUNK_SIZE}")
+    print(f"    Overlap    : {settings.CHUNK_OVERLAP}")
+
+    print("\nRetrieval:")
+    print(f"    TOP_K      : {settings.TOP_K}")
+    print(f"    Min Score  : {settings.MIN_RETRIEVAL_SCORE}")
+
+    print("\nPaths:")
+    print(f"    Notes dir  : {settings.NOTES_DIR}")
+    print(f"    Storage dir: {settings.STORAGE_DIR}")
+
+    print("\nConfig check completed.\n")
 
 def run_onetime(
     query: str,
@@ -39,7 +77,7 @@ def run_onetime(
 ) -> None:
     rag = rebuild_index() if reindex else build_or_load_index()
 
-    with MetaStore(_ensure_storage_dir()) as meta_store:
+    with MetaStore() as meta_store:
         hits = retrieve(query=query, rag=rag, meta_store=meta_store)
         result = rag_answer(query=query, hits=hits)
 
@@ -54,7 +92,7 @@ def run_onetime(
 
 def repl():
     rag = build_or_load_index()
-    meta_store = MetaStore(_ensure_storage_dir())
+    meta_store = MetaStore()
 
     print(
         "\nRAG-based Notes Helper\n"
@@ -81,7 +119,7 @@ def repl():
             if query in {":reindex", ":ri"}:
                 meta_store.close()
                 rag = rebuild_index()
-                meta_store = MetaStore(_ensure_storage_dir())
+                meta_store = MetaStore()
                 continue
 
             if query in {":sources", ":so"}:
@@ -126,7 +164,7 @@ def repl():
                             f"(chunk={c['chunk_id']}, score={c['score']:.3f})"
                     )
 
-                print()
+            print()
 
     finally :
         meta_store.close()
@@ -143,37 +181,51 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "query",
         nargs="*",
-        help="Question to ask RAG, or command (repl, reindex)",
+        help="Question to ask RAG (default mode)",
+    )
+
+    parser.add_argument(
+        "--repl",
+        action="store_true",
+        help="Start interactive REPL",
     )
 
     parser.add_argument(
         "-r", "--reindex",
         action="store_true",
-        help="Rebuild index before generating answers",
+        help="Rebuild index",
+    )
+
+    parser.add_argument(
+        "--config",
+        action="store_true",
+        help="Check configuration",
     )
 
     parser.add_argument(
         "-c", "--citations",
         action="store_true",
-        help="Show citation files"
+        help="Show citations",
     )
 
     return parser
+
 
 def main():
     parser = build_parser()
     args = parser.parse_args()
 
-    if len(args.query) == 1:
-        cmd = args.query[0]
+    if args.config:
+        show_config()
+        return
 
-        if cmd == "repl":
-            repl()
-            return
+    if args.reindex and not args.query:
+        rebuild_index()
+        return
 
-        if cmd == "reindex":
-            rebuild_index()
-            return
+    if args.repl or (not args.query and not args.reindex):
+        repl()
+        return
 
     query = " ".join(args.query)
 
@@ -182,6 +234,7 @@ def main():
         reindex=args.reindex,
         show_citations=args.citations,
     )
+
 
 if __name__ == "__main__":
     main()

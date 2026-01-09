@@ -2,19 +2,25 @@ import json
 import struct
 from pathlib import Path
 
+from rag_notes_helper.core.config import get_settings
+
 class MetaStore:
-    def __init__(self, storage_dir: Path):
+    def __init__(self, storage_dir: Path | None = None):
+        storage_dir = storage_dir or get_settings().STORAGE_DIR
         self.meta_f = (storage_dir / "meta.jsonl").open("rb")
         self.idx_f = (storage_dir / "meta.idx").open("rb")
 
     def get(self, faiss_id: int) -> dict:
         self.idx_f.seek(faiss_id * 8)
-        offset = struct.unpack("Q", self.idx_f.read(8))[0]
+        raw = self.idx_f.read(8)
+
+        if len(raw) != 8:
+            raise IndexError(f"Invalid faiss_id: {faiss_id}")
+
+        offset = struct.unpack("Q", raw)[0]
 
         self.meta_f.seek(offset)
         return json.loads(self.meta_f.readline().decode("utf-8"))
-
-    # def last_query_citations(self) -> list[str]:
 
 
     def list_indexed_sources(self) -> list[str]:

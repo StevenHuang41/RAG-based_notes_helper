@@ -1,6 +1,6 @@
 from rag_notes_helper.rag.index import build_index
 from rag_notes_helper.rag.chunking import Chunk
-from rag_notes_helper.core.config import settings
+from rag_notes_helper.core.config import get_settings
 
 
 def test_build_index_no_chunk():
@@ -13,7 +13,9 @@ def test_build_index_no_chunk():
 
 def test_build_index_creates_faiss_index(tmp_path, monkeypatch):
 
-    monkeypatch.setattr(settings, "STORAGE_DIR", tmp_path)
+    monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
+
+    get_settings.cache_clear()
 
     chunks = [
         Chunk(doc_id="d1", chunk_id=0, source="note.md", text="test0"),

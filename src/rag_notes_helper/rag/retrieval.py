@@ -1,7 +1,7 @@
 from sentence_transformers import SentenceTransformer
 
-from rag_notes_helper.core.config import settings
-from rag_notes_helper.rag.index import RagIndex, _ensure_storage_dir
+from rag_notes_helper.core.config import get_settings
+from rag_notes_helper.rag.index import RagIndex
 from rag_notes_helper.rag.meta_store import MetaStore
 
 def retrieve(
@@ -11,6 +11,7 @@ def retrieve(
     top_k: int | None = None,
     meta_store: MetaStore
 ) -> list[dict]:
+    settings = get_settings()
     top_k = top_k or settings.TOP_K
 
     model = SentenceTransformer(settings.EMBEDDING_MODEL)
@@ -20,7 +21,6 @@ def retrieve(
         normalize_embeddings=True,
         convert_to_numpy=True,
     ).astype("float32")
-
 
     scores, indices = rag.index.search(q_emb, top_k)
 
