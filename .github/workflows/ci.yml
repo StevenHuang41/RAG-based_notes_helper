@@ -3,10 +3,10 @@ name: CI
 on:
   push:
     branches:
-      - main 
+      - main
   pull_request:
     branches:
-      - main 
+      - main
 
 jobs:
   test:
@@ -25,7 +25,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install .
-          mkdir -p data
 
       - name: run tests
         run: |

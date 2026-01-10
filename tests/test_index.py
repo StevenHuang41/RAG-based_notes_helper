@@ -1,19 +1,17 @@
+import pytest
+
 from rag_notes_helper.rag.index import build_index
 from rag_notes_helper.rag.chunking import Chunk
 from rag_notes_helper.core.config import get_settings
 
 
 def test_build_index_no_chunk():
-    try :
+    with pytest.raises(ValueError, match="No chunks to index"):
         build_index([])
-        assert False
-    except ValueError:
-        pass
 
 
-def test_build_index_creates_faiss_index(tmp_path, monkeypatch):
 
-    monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
+def test_build_index_creates_faiss_index():
 
     get_settings.cache_clear()
 

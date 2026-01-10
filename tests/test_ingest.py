@@ -5,7 +5,6 @@ from rag_notes_helper.rag.ingest import load_notes
 
 def test_load_notes_generates_chunks(tmp_path):
     data_dir = tmp_path / "data"
-    data_dir.mkdir()
 
     note1 = data_dir / "note1.md"
     note1.write_text(
