@@ -321,19 +321,19 @@ docker run --rm -it \
 * `[query]`
     Generates answer as usual
 
-* `[query] --repl`
-    Run in REPL mode
-
-* `[query] --help`
-    Show help message
-
 * `[query] --reindex`
     Reindex before generating answer
 
 * `[query] --citations`
     Show citations file with answer
 
-* `[query] --config`
+* `--help`
+    Show help message
+
+* `--repl`
+    Run in REPL mode
+
+* `--config`
     Check configureation
 
 #### REPL mode
