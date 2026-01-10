@@ -130,6 +130,10 @@ def repl():
                 print()
                 continue
 
+            if query in {":config", ":co"}:
+                show_config()
+                continue
+
             if query in {":citations", ":ci"}:
                 if show_citations:
                     print("\n/Hide Citations\n")
@@ -147,6 +151,7 @@ def repl():
                         "   :reindex   or  :ri   -> reindex rag\n"
                         "   :citations or  :ci   -> show citation files\n"
                         "   :sources   or  :so   -> show all source files\n"
+                        "   :config    or  :co   -> check configuration\n"
                 )
                 continue
 

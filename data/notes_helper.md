@@ -24,9 +24,9 @@
     - Example:
 
     ```
+    What is xxx?
     Who are you?
     How can you help me?
-    What is xxx?
     ```
 
 * Notes helper will:
@@ -43,13 +43,22 @@
 Answer a single question, optionally reindex or show citations
 
 * `[query]`
-    RAG generates answer as usual
+    Generates answer as usual
 
-* `[query] -r`
-    RAG reindex before generating answer
+* `[query] --repl`
+    Run in REPL mode
 
-* `[query] -c`
+* `[query] --help`
+    Show help message
+
+* `[query] --reindex`
+    Reindex before generating answer
+
+* `[query] --citations`
     Show citations file with answer
+
+* `[query] --config`
+    Check configureation
 
 #### REPL mode
 
@@ -59,14 +68,20 @@ inspect sources, toggle citations
 * `:quit` or `:q`
     Exit Notes Helper
 
+* `:help` or `:h`
+    Exit Notes Helper
+
 * `:reindex` or `:ri`
     Rebuild the index to include new or updated notes in `data/`
+
+* `:citations` or `:ci`
+    Toggle citation files in RAG
 
 * `:sources` or `:so`
     Show the indexed files in RAG
 
-* `:citations` or `:ci`
-    Toggle citation files in RAG
+* `:config` or `:co`
+    Check configuration
 
 You do **NOT** need to restart the program to reindex
 

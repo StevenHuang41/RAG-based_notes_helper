@@ -261,21 +261,17 @@ uv pip install -e .
 ```bash
 rag-app what is xxx
 rag-app "what is ...?"
-rag-app "what is xxx" -r                    # reindex before answering
-rag-app "what is xxx" -c                    # including citations in answer
+rag-app "what is xxx" --help                # show help message
+rag-app "what is xxx" --reindex             # reindex before answering
+rag-app "what is xxx" --citaions            # including citations in answer
+rag-app "what is xxx" --config              # check configureation
 rag-app "I wanna know ..." > answer.txt     # save generated answer
 ```
 
 #### Interactive REPL
 Runs rag-app repeatedly in repl mode:
 ```bash
-rag-app repl
-```
-
-#### Reindex
-Reindex data if you update in `data/`
-```bash
-rag-app reindex
+rag-app --repl
 ```
 
 ### Running via Docker
@@ -323,22 +319,22 @@ docker run --rm -it \
 #### One time mode
 
 * `[query]`
-    RAG generates answer as usual
+    Generates answer as usual
 
-    - query = repl
+* `[query] --repl`
+    Run in REPL mode
 
-        Start REPL mode
+* `[query] --help`
+    Show help message
 
-    - query = reindex
+* `[query] --reindex`
+    Reindex before generating answer
 
-        Reindex notes in `data/`
-
-* `[query] -r`
-    RAG reindex before generating answer
-
-* `[query] -c`
+* `[query] --citations`
     Show citations file with answer
 
+* `[query] --config`
+    Check configureation
 
 #### REPL mode
 
@@ -347,6 +343,7 @@ docker run --rm -it \
 - `:reindex`    /   `:ri`     (reindex without exiting)
 - `:citations`  /   `:ci`     (toggle citation files with answer)
 - `:sources`    /   `:so`     (show indexed files)
+- `:config`     /   `:co`     (check configuration)
 
  ---
 
