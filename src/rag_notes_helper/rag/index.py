@@ -17,7 +17,7 @@ class RagIndex:
     index: faiss.Index
 
 
-def build_index(chunks: Iterable[Chunk], batch_size: int = 32) -> RagIndex:
+def build_index(chunks: Iterable[Chunk], batch_size: int = 1024) -> RagIndex:
     settings = get_settings()
     model = SentenceTransformer(settings.EMBEDDING_MODEL)
 
