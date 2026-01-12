@@ -13,19 +13,22 @@ dependencies = [
   "sentence-transformers>=2.6.1",
   "huggingface-hub>=0.36.0",
   "openai>=2.14.0",
-  "pytest>=9.0.2",
   "tqdm>=4.67.1",
 ]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=9.0.2",
+]
+
+[project.scripts]
+rag-app = "rag_notes_helper.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[project.scripts]
-rag-app = "rag_notes_helper.cli:main"
-
 
 [build-system]
 requires = ["setuptools>=68"]

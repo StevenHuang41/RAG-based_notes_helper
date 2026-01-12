@@ -25,4 +25,7 @@ tests/
 data/*
 !data/notes_helper.md
 
+# log
+logs/
+
 .DS_Store

@@ -1,6 +1,8 @@
 import argparse
+from inspect import getlineno
 from pydantic import ValidationError
 import sys
+import time
 
 from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.rag.ingest import load_notes
@@ -12,24 +14,52 @@ from rag_notes_helper.rag.index import (
 from rag_notes_helper.rag.meta_store import MetaStore
 from rag_notes_helper.rag.retrieval import retrieve
 from rag_notes_helper.rag.answer import rag_answer
+from rag_notes_helper.utils.logger import get_logger
+from rag_notes_helper.utils.timer import LapTimer
 
+
+logger = get_logger("cli")
 
 def build_or_load_index():
+    timer = LapTimer()
+
     try:
-        return load_index()
+        logger.info(f"load existing index{timer.start()}")
+        rag = load_index()
+        logger.info(f"load existing index latency={timer.lap():.2f} ms")
+        return rag
+
     except FileNotFoundError:
+        logger.info("no existing index")
+
         print("\nIndex not found. Building index from notes ...")
         chunks = load_notes()
+        logger.info(f"load notes latency={timer.lap():.2f} ms")
+
         rag = build_index(chunks)
+        logger.info(f"build index latency={timer.lap():.2f} ms")
+
         save_index(rag)
+        logger.info(f"save index latency={timer.lap():.2f} ms")
+
         print("Index built and saved.\n")
         return rag
 
 def rebuild_index():
+    timer = LapTimer()
+
     print("\nRebuilding index from notes ...")
+
+    logger.info(f"load notes{timer.start()}")
     chunks = load_notes()
+    logger.info(f"load notes latency={timer.lap():.2f} ms")
+
     rag = build_index(chunks)
+    logger.info(f"build index latency={timer.lap():.2f} ms")
+
     save_index(rag)
+    logger.info(f"save index latency={timer.lap():.2f} ms")
+
     print("Index built and saved.\n")
     return rag
 
@@ -75,11 +105,21 @@ def run_onetime(
     reindex: bool,
     show_citations: bool
 ) -> None:
+    logger.info(f"mode: onetime query_start reindex: {reindex} qeury: {query[:20]}")
+
+    timer = LapTimer()
     rag = rebuild_index() if reindex else build_or_load_index()
+    logger.info(f"mode: onetime load rag latency={timer.lap():.2f} ms")
 
     with MetaStore() as meta_store:
+
+
+        logger.info((f"mode: onetime retrieve{timer.start()}"))
         hits = retrieve(query=query, rag=rag, meta_store=meta_store)
+        logger.info(f"mode: onetime retrieve latency={timer.lap():.2f} ms")
+
         result = rag_answer(query=query, hits=hits)
+        logger.info(f"mode: onetime generate answer latency={timer.lap():.2f} ms")
 
     print("\nANSWER:\n")
     print(result["answer"])
@@ -91,8 +131,14 @@ def run_onetime(
         print(", ".join(source_set))
 
 def repl():
+    logger.info("mode: repl")
+
+    timer = LapTimer()
     rag = build_or_load_index()
+    logger.info(f"mode: repl load rag latency={timer.lap():.2f} ms")
+
     meta_store = MetaStore()
+    logger.info(f"mode: repl load meta latency={timer.lap():.2f} ms")
 
     print(
         "\nRAG-based Notes Helper\n"
@@ -117,15 +163,25 @@ def repl():
                 break
 
             if query in {":reindex", ":ri"}:
+                logger.info((f"mode: repl close meta{timer.start()}"))
                 meta_store.close()
+                logger.info((f"mode: repl close meta latency={timer.lap()} ms"))
+
                 rag = rebuild_index()
+                logger.info((f"mode: repl rebuild index latency={timer.lap()} ms"))
+
                 meta_store = MetaStore()
+                logger.info((f"mode: repl reload meta latency={timer.lap()} ms"))
                 continue
 
             if query in {":sources", ":so"}:
                 print("\nSOURCES:\n")
+
+                logger.info((f"mode: repl list_indexed_sources{timer.start()}"))
                 for s in meta_store.list_indexed_sources():
                     print(f"- {s}")
+
+                logger.info((f"mode: repl list_indexed_sources latency={timer.lap()} ms"))
 
                 print()
                 continue
@@ -155,8 +211,12 @@ def repl():
                 )
                 continue
 
+            logger.info((f"mode: repl query_start  qeury: {query[:20]}{timer.start()}"))
             hits = retrieve(query=query, rag=rag, meta_store=meta_store)
+            logger.info((f"mode: repl retrieve latency={timer.lap()} ms"))
+
             result = rag_answer(query=query, hits=hits)
+            logger.info((f"mode: repl generate answer latency={timer.lap()} ms"))
 
             print("\nANSWER:\n")
             print(result["answer"])
@@ -217,8 +277,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main():
+    main_timer = LapTimer()
     parser = build_parser()
+    logger.info(f"main build_parser latency={main_timer.lap()} ms")
+
     args = parser.parse_args()
+    logger.info(f"main parse_args latency={main_timer.lap()} ms")
 
     if args.config:
         show_config()
@@ -234,11 +298,13 @@ def main():
 
     query = " ".join(args.query)
 
+    logger.info(f"main run_onetime{main_timer.start()}")
     run_onetime(
         query=query,
         reindex=args.reindex,
         show_citations=args.citations,
     )
+    logger.info(f"main run_onetime latency={main_timer.lap()} ms")
 
 
 if __name__ == "__main__":
