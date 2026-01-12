@@ -155,7 +155,7 @@ def repl():
                 print("\nBye~")
                 break
 
-            if not query:
+            if query == "":
                 continue
 
             if query in {":quit", ":q"}:

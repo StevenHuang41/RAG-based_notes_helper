@@ -10,6 +10,9 @@ class MetaStore:
         self.meta_f = (storage_dir / "meta.jsonl").open("rb")
         self.idx_f = (storage_dir / "meta.idx").open("rb")
 
+        self._unpacker = struct.Struct("Q")
+        self._cached_sources = None
+
     def get(self, faiss_id: int) -> dict:
         self.idx_f.seek(faiss_id * 8)
         raw = self.idx_f.read(8)
@@ -17,15 +20,17 @@ class MetaStore:
         if len(raw) != 8:
             raise IndexError(f"Invalid faiss_id: {faiss_id}")
 
-        offset = struct.unpack("Q", raw)[0]
+        offset = self._unpacker.unpack(raw)[0]
 
         self.meta_f.seek(offset)
         return json.loads(self.meta_f.readline().decode("utf-8"))
 
 
     def list_indexed_sources(self) -> list[str]:
-        position = self.meta_f.tell()
+        if self._cached_sources is not None:
+            return self._cached_sources
 
+        position = self.meta_f.tell()
         try :
             sources = set()
             self.meta_f.seek(0)
@@ -33,10 +38,12 @@ class MetaStore:
                 record = json.loads(line)
                 sources.add(record["source"])
 
-            return sorted(sources)
+            self._cached_sources = sorted(sources)
 
         finally:
             self.meta_f.seek(position)
+
+        return self._cached_sources
 
 
     def close(self) -> None:

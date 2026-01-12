@@ -1,18 +1,29 @@
-FROM python:3.11-slim AS builder
+FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim AS builder
+
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_LINK_MODE=copy
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir --upgrade pip uv
+COPY pyproject.toml uv.lock ./
 
-COPY pyproject.toml ./
-
-COPY src/ src/
+COPY src/ ./src/
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system --no-cache-dir .
+    uv sync --frozen --no-dev
 
-RUN mkdir -p data storage hf_cache
 
-ENV PYTHONPATH=/app/src
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY --from=builder /app/.venv /app/.venv
+
+COPY src/ ./src/
+
+RUN mkdir -p data storage hf_cache logs
+
+ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONPATH="/app/src"
 
 ENTRYPOINT ["rag-app"]
