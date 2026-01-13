@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 import json
@@ -11,36 +10,35 @@ from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.rag.chunking import Chunk
 
 
-@dataclass
 class RagIndex:
-    index: faiss.Index
     _model =  None
+
+    def __init__(self, index: faiss.Index) -> None:
+        self.index = index
 
     @property
     def embed_model(self):
-        return self.get_model()
-
-    @classmethod
-    def get_model(cls):
-        if cls._model is None:
+        if RagIndex._model is None:
             from sentence_transformers import SentenceTransformer
-            settings = get_settings()
-            print(f"Loading {settings.EMBEDDING_MODEL}...")
-            cls._model = SentenceTransformer(settings.EMBEDDING_MODEL)
+            embed_model_name = get_settings().EMBEDDING_MODEL
+            print(f"Loading {embed_model_name}...")
+            RagIndex._model = SentenceTransformer(embed_model_name)
 
-        return cls._model
+        return RagIndex._model
 
 
-def build_index(chunks: Iterable[Chunk], batch_size: int = 1024) -> RagIndex:
-    settings = get_settings()
-    storage: Path = settings.STORAGE_DIR
+def build_index(
+    chunks: Iterable[Chunk],
+    batch_size: int = 1024,
+) -> RagIndex:
 
-    model = RagIndex.get_model()
+    storage: Path = get_settings().STORAGE_DIR
+
+    model = RagIndex(None).embed_model
 
     index = None
     batch: list[Chunk] = []
-
-    offset_packer = struct.Struct("Q")
+    packer = struct.Struct("Q")
 
     with (
         (storage / "meta.idx").open("wb") as idx_f,
@@ -51,12 +49,12 @@ def build_index(chunks: Iterable[Chunk], batch_size: int = 1024) -> RagIndex:
 
             if len(batch) >= batch_size:
                 index = _process_batch(batch, model, index,
-                                       meta_f, idx_f, offset_packer)
+                                       meta_f, idx_f, packer)
                 batch.clear()
 
         if batch:
             index = _process_batch(batch, model, index,
-                                   meta_f, idx_f, offset_packer)
+                                   meta_f, idx_f, packer)
 
     if index is None:
         raise ValueError("No chunks to index")
@@ -82,13 +80,15 @@ def _process_batch(
         convert_to_numpy=True,
     ).astype("float32")
 
+
     # 2. initialize or update faiss index
     if index is None:
         index = faiss.IndexFlatIP(embeddings.shape[1])
 
     index.add(embeddings)
 
-    # 3. write meta and offset
+
+    # 3. write meta_f and offset_f
     for chunk in batch:
         offset = meta_f.tell()
 
@@ -98,12 +98,13 @@ def _process_batch(
             "source": chunk.source,
             "text": chunk.text,
         }
-        # write meta
+
+        # write meta_f
         meta_f.write(
             json.dumps(record, ensure_ascii=False).encode("utf-8")
             + b"\n"
         )
-        # write offset
+        # write offset_f
         idx_f.write(packer.pack(offset))
 
     return index

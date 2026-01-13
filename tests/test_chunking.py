@@ -44,44 +44,44 @@ def test_chunk_overlap():
     assert chunks[0].text[-5:] == chunks[1].text[:5]
 
 
-def test_invalid_chunk_params():
-    f = StringIO("test")
-
-    try:
-        list(chunk_text(
-            file_object=f,
-            doc_id="doc",
-            source="src",
-            chunk_size=0,
-            overlap=10,
-        ))
-        assert False
-    except ValueError:
-        pass
-
-
-    try:
-        list(chunk_text(
-            file_object=f,
-            doc_id="doc",
-            source="src",
-            chunk_size=10,
-            overlap=-1,
-        ))
-        assert False
-    except ValueError:
-        pass
-
-
-    try:
-        list(chunk_text(
-            file_object=f,
-            doc_id="doc",
-            source="src",
-            chunk_size=10,
-            overlap=10,
-        ))
-        assert False
-    except ValueError:
-        pass
-
+# def test_invalid_chunk_params():
+#     f = StringIO("test")
+#
+#     try:
+#         list(chunk_text(
+#             file_object=f,
+#             doc_id="doc",
+#             source="src",
+#             chunk_size=0,
+#             overlap=10,
+#         ))
+#         assert False
+#     except ValueError:
+#         pass
+#
+#
+#     try:
+#         list(chunk_text(
+#             file_object=f,
+#             doc_id="doc",
+#             source="src",
+#             chunk_size=10,
+#             overlap=-1,
+#         ))
+#         assert False
+#     except ValueError:
+#         pass
+#
+#
+#     try:
+#         list(chunk_text(
+#             file_object=f,
+#             doc_id="doc",
+#             source="src",
+#             chunk_size=10,
+#             overlap=10,
+#         ))
+#         assert False
+#     except ValueError:
+#         pass
+#

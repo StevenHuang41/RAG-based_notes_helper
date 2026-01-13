@@ -11,7 +11,6 @@ class MetaStore:
         self.idx_f = (storage_dir / "meta.idx").open("rb")
 
         self._unpacker = struct.Struct("Q")
-        self._cached_sources = None
 
     def get(self, faiss_id: int) -> dict:
         self.idx_f.seek(faiss_id * 8)
@@ -27,24 +26,32 @@ class MetaStore:
 
 
     def list_indexed_sources(self) -> list[str]:
-        if self._cached_sources is not None:
-            return self._cached_sources
-
+        sources = set()
         position = self.meta_f.tell()
         try :
-            sources = set()
             self.meta_f.seek(0)
             for line in self.meta_f:
                 record = json.loads(line)
                 sources.add(record["source"])
 
-            self._cached_sources = sorted(sources)
+        finally:
+            self.meta_f.seek(position)
+
+        return sorted(sources)
+
+    def get_all_doc_id(self) -> set[str]:
+        doc_ids = set()
+        position = self.meta_f.tell()
+        try :
+            self.meta_f.seek(0)
+            for line in self.meta_f:
+                record = json.loads(line)
+                doc_ids.add(record["doc_id"])
 
         finally:
             self.meta_f.seek(position)
 
-        return self._cached_sources
-
+        return doc_ids
 
     def close(self) -> None:
         self.meta_f.close()

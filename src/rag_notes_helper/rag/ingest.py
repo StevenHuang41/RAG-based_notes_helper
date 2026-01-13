@@ -1,37 +1,46 @@
 from pathlib import Path
 import hashlib
+import mmap
 from typing import Iterable
 
 from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.rag.chunking import Chunk, chunk_text
 from rag_notes_helper.rag.loaders import is_text_file
+from rag_notes_helper.utils.logger import get_logger
 
 
-def _stable_doc_id(
-    path: Path,
-    *,
-    chunk_bytes: int = 8192,
-    hash_len: int = 16,
-) -> str:
-    hasher = hashlib.sha256()
+logger = get_logger("cli")
+
+def get_stable_doc_id(path: Path, *, hash_len: int = 16) -> str:
+    hasher = hashlib.blake2b(digest_size=32)
 
     with path.open("rb") as f:
-        while (chunk:= f.read(chunk_bytes)) != b'':
-            hasher.update(chunk)
+        with mmap.mmap(f.fileno(), length=0, access=mmap.ACCESS_READ) as mm:
+            hasher.update(mm)
 
-    return hasher.hexdigest()[:hash_len]
+    hv = hasher.hexdigest()[:hash_len]
+    logger.debug(f"create doc_id: {path} - {hv}")
+    return hv
 
 
-
-def load_notes(notes_dir: Path | None = None) -> Iterable[Chunk]:
+def load_notes(
+    notes_dir: Path | None = None,
+    # doc_caches: set[str] | None = None,
+) -> Iterable[Chunk]:
     settings = get_settings()
     notes_dir = notes_dir or settings.NOTES_DIR
+
+    # doc_caches = doc_caches or set()
 
     for file_path in sorted(notes_dir.rglob("*")):
         if not file_path.is_file() or not is_text_file(file_path):
             continue
 
-        doc_id = _stable_doc_id(file_path)
+        doc_id = get_stable_doc_id(file_path)
+        # if doc_id in doc_caches:
+        #     logger.info(f"skipping unchanged file: {file_path}")
+        #     continue
+
         source = str(file_path.relative_to(notes_dir))
 
         with file_path.open("r", encoding="utf-8", errors="ignore") as f:

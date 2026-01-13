@@ -1,5 +1,3 @@
-from sentence_transformers import SentenceTransformer
-
 from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.rag.index import RagIndex
 from rag_notes_helper.rag.meta_store import MetaStore
@@ -14,7 +12,7 @@ def retrieve(
     settings = get_settings()
     top_k = top_k or settings.TOP_K
 
-    model = SentenceTransformer(settings.EMBEDDING_MODEL)
+    model = rag.embed_model
 
     q_emb = model.encode(
         [query],
