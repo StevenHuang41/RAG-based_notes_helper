@@ -24,43 +24,49 @@ def build_or_load_index():
     timer = LapTimer()
 
     try:
-        logger.info(f"load existing index{timer.start()}")
+        logger.info("index exists")
+
+        logger.info(f"load_index{timer.start()}")
         rag = load_index()
-        logger.info(f"load existing index latency={timer.lap():.2f} ms")
+        logger.info(f"latency={timer.lap():.2f} ms")
         return rag
 
     except FileNotFoundError:
-        logger.info("no existing index")
+        logger.info("index not exists")
 
         print("\nIndex not found. Building index from notes ...")
+
+        logger.info(f"load_index{timer.start()}")
         chunks = load_notes()
-        logger.info(f"load notes latency={timer.lap():.2f} ms")
+        logger.info(f"latency={timer.lap():.2f} ms")
 
         rag = build_index(chunks)
-        logger.info(f"build index latency={timer.lap():.2f} ms")
+        logger.info(f"build_index latency={timer.lap():.2f} ms")
 
         save_index(rag)
-        logger.info(f"save index latency={timer.lap():.2f} ms")
+        logger.info(f"save_index latency={timer.lap():.2f} ms")
 
         print("Index built and saved.\n")
         return rag
 
 def rebuild_index():
     timer = LapTimer()
+    logger.info(f"----rebuild_index----{timer.start()}")
 
     print("\nRebuilding index from notes ...")
 
-    logger.info(f"load notes{timer.start()}")
+    logger.info(f"load_notes{timer.start()}")
     chunks = load_notes()
-    logger.info(f"load notes latency={timer.lap():.2f} ms")
+    logger.info(f"latency={timer.lap():.2f} ms")
 
     rag = build_index(chunks)
-    logger.info(f"build index latency={timer.lap():.2f} ms")
+    logger.info(f"build_index latency={timer.lap():.2f} ms")
 
     save_index(rag)
-    logger.info(f"save index latency={timer.lap():.2f} ms")
+    logger.info(f"save_index latency={timer.lap():.2f} ms")
 
     print("Index built and saved.\n")
+    logger.info(f"----rebuild_index latency={timer.lap()} ms----")
     return rag
 
 def show_config():
@@ -105,21 +111,24 @@ def run_onetime(
     reindex: bool,
     show_citations: bool
 ) -> None:
-    logger.info(f"mode: onetime query_start reindex: {reindex} qeury: {query[:20]}")
-
     timer = LapTimer()
+    logger.info(f"----run_onetime----{timer.start()}")
+    logger.info(f"reindex: {reindex}")
+
+
+    logger.info(f"building rag{timer.start()}")
     rag = rebuild_index() if reindex else build_or_load_index()
-    logger.info(f"mode: onetime load rag latency={timer.lap():.2f} ms")
+    logger.info(f"latency={timer.lap():.2f} ms")
 
     with MetaStore() as meta_store:
+        logger.info(f"load meta latency={timer.lap():.2f} ms")
 
-
-        logger.info((f"mode: onetime retrieve{timer.start()}"))
+        logger.info((f"query: {query[:10]}{' ...' if len(query) > 10 else ''}"))
         hits = retrieve(query=query, rag=rag, meta_store=meta_store)
-        logger.info(f"mode: onetime retrieve latency={timer.lap():.2f} ms")
+        logger.info(f"retrieve latency={timer.lap():.2f} ms")
 
         result = rag_answer(query=query, hits=hits)
-        logger.info(f"mode: onetime generate answer latency={timer.lap():.2f} ms")
+        logger.info(f"generate answer latency={timer.lap():.2f} ms")
 
     print("\nANSWER:\n")
     print(result["answer"])
@@ -130,22 +139,22 @@ def run_onetime(
         source_set = {c['source'] for c in result["citations"]}
         print(", ".join(source_set))
 
-def repl():
-    logger.info("mode: repl")
+    logger.info(f"----run_onetime latency={timer.lap()} ms----")
 
+def repl(*, show_citations: bool):
     timer = LapTimer()
+    logger.info(f"----repl----{timer.start()}")
+
     rag = build_or_load_index()
-    logger.info(f"mode: repl load rag latency={timer.lap():.2f} ms")
+    logger.info(f"load rag latency={timer.lap():.2f} ms")
 
     meta_store = MetaStore()
-    logger.info(f"mode: repl load meta latency={timer.lap():.2f} ms")
+    logger.info(f"load meta latency={timer.lap():.2f} ms")
 
     print(
         "\nRAG-based Notes Helper\n"
         "Type your question.\n"
     )
-
-    show_citations = False
 
     try :
         while True:
@@ -163,31 +172,33 @@ def repl():
                 break
 
             if query in {":reindex", ":ri"}:
-                logger.info((f"mode: repl close meta{timer.start()}"))
+                logger.info((f"close meta{timer.start()}"))
                 meta_store.close()
-                logger.info((f"mode: repl close meta latency={timer.lap()} ms"))
+                logger.info((f"latency={timer.lap()} ms"))
 
                 rag = rebuild_index()
-                logger.info((f"mode: repl rebuild index latency={timer.lap()} ms"))
+                logger.info((f"rebuild_index latency={timer.lap()} ms"))
 
                 meta_store = MetaStore()
-                logger.info((f"mode: repl reload meta latency={timer.lap()} ms"))
+                logger.info((f"reload meta latency={timer.lap()} ms"))
                 continue
 
             if query in {":sources", ":so"}:
                 print("\nSOURCES:\n")
 
-                logger.info((f"mode: repl list_indexed_sources{timer.start()}"))
+                logger.info((f"list_indexed_sources{timer.start()}"))
                 for s in meta_store.list_indexed_sources():
                     print(f"- {s}")
 
-                logger.info((f"mode: repl list_indexed_sources latency={timer.lap()} ms"))
+                logger.info((f"latency={timer.lap()} ms"))
 
                 print()
                 continue
 
             if query in {":config", ":co"}:
+                logger.info(f"show_config{timer.start()}")
                 show_config()
+                logger.info(f"latency={timer.lap()} ms")
                 continue
 
             if query in {":citations", ":ci"}:
@@ -211,12 +222,13 @@ def repl():
                 )
                 continue
 
-            logger.info((f"mode: repl query_start  qeury: {query[:20]}{timer.start()}"))
+            logger.info((f"query: {query[:10]}{' ...' if len(query) > 10 else ''}"))
+            logger.info((f"retrieve{timer.start()}"))
             hits = retrieve(query=query, rag=rag, meta_store=meta_store)
-            logger.info((f"mode: repl retrieve latency={timer.lap()} ms"))
+            logger.info((f"latency={timer.lap()} ms"))
 
             result = rag_answer(query=query, hits=hits)
-            logger.info((f"mode: repl generate answer latency={timer.lap()} ms"))
+            logger.info((f"generate answer latency={timer.lap()} ms"))
 
             print("\nANSWER:\n")
             print(result["answer"])
@@ -234,6 +246,7 @@ def repl():
     finally :
         meta_store.close()
 
+    logger.info(f"----repl latency={timer.lap()} ms----")
 
 
 
@@ -277,34 +290,34 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main():
-    main_timer = LapTimer()
     parser = build_parser()
-    logger.info(f"main build_parser latency={main_timer.lap()} ms")
-
     args = parser.parse_args()
-    logger.info(f"main parse_args latency={main_timer.lap()} ms")
+    query = (" ".join(args.query)).strip()
 
-    if args.config:
-        show_config()
-        return
+    if query:
+        # > 'rag-app --config [query]'
+        if args.config:
+            show_config()
 
-    if args.reindex and not args.query:
-        rebuild_index()
-        return
+        # > 'rag-app [query]'
+        run_onetime(
+            query=query,
+            reindex=args.reindex,
+            show_citations=args.citations,
+        )
+    else :
+        # > 'rag-app --config'
+        if args.config:
+            show_config()
+            return
 
-    if args.repl or (not args.query and not args.reindex):
-        repl()
-        return
+        # > 'rag-app --reindex'
+        if args.reindex:
+            rebuild_index()
+            return
 
-    query = " ".join(args.query)
-
-    logger.info(f"main run_onetime{main_timer.start()}")
-    run_onetime(
-        query=query,
-        reindex=args.reindex,
-        show_citations=args.citations,
-    )
-    logger.info(f"main run_onetime latency={main_timer.lap()} ms")
+        # > 'rag-app' or > 'rag-app --repl'
+        repl(show_citations=args.citations)
 
 
 if __name__ == "__main__":
