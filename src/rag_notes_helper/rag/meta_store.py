@@ -11,6 +11,7 @@ class MetaStore:
         self.idx_f = (storage_dir / "meta.idx").open("rb")
 
         self._unpacker = struct.Struct("Q")
+        self.sources_cache = None
 
     def get(self, faiss_id: int) -> dict:
         self.idx_f.seek(faiss_id * 8)
@@ -20,12 +21,14 @@ class MetaStore:
             raise IndexError(f"Invalid faiss_id: {faiss_id}")
 
         offset = self._unpacker.unpack(raw)[0]
-
         self.meta_f.seek(offset)
         return json.loads(self.meta_f.readline().decode("utf-8"))
 
 
     def list_indexed_sources(self) -> list[str]:
+        if self.sources_cache is not None:
+            return self.sources_cache
+
         sources = set()
         position = self.meta_f.tell()
         try :
@@ -34,10 +37,12 @@ class MetaStore:
                 record = json.loads(line)
                 sources.add(record["source"])
 
+            self.sources_cache = sorted(sources)
+
         finally:
             self.meta_f.seek(position)
 
-        return sorted(sources)
+        return self.sources_cache
 
     def get_all_doc_id(self) -> set[str]:
         doc_ids = set()
