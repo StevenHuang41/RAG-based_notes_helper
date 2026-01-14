@@ -1,15 +1,17 @@
 import argparse
 from logging import currentframe
+import time
 from pydantic import ValidationError
 import sys
 
 from rag_notes_helper.core.config import get_settings
-from rag_notes_helper.rag.ingest import get_stable_doc_id, load_notes
+from rag_notes_helper.rag.ingest import get_changed_doc_ids, get_stable_doc_id, load_notes
 from rag_notes_helper.rag.index import (
     RagIndex,
     build_index,
     save_index,
     load_index,
+    smart_rebuild,
 )
 from rag_notes_helper.rag.loaders import is_text_file
 from rag_notes_helper.rag.meta_store import MetaStore
@@ -57,58 +59,36 @@ def rebuild_index():
     logger.info("----rebuild_index start----")
     print("\nRebuilding index from notes ...")
 
-    storage = get_settings().NOTES_DIR
-
     timer = LapTimer()
 
     # 1. get current files' hash value
-    current_files = {}
-    for p in storage.rglob("*"):
-        if p.is_file() and is_text_file(p):
-            current_files[str(p)] = get_stable_doc_id(p)
-
-    # 2. compare hashes in MetaStore
     try :
         with MetaStore() as meta_store:
+            timer.start()
             old_doc_ids = meta_store.get_all_doc_id()
+            logger.info(f"get_all_doc_id latency={timer.lap():.2f} ms")
     except Exception:
         logger.info("No existing meta, rebuilding full index")
         old_doc_ids = set()
 
-    # 3. if hashes are the same, skip
-    if set(current_files.values()) == old_doc_ids and old_doc_ids:
-        print("Index is already up to date\n")
-        logger.info("No file changes detected")
-        logger.info("----rebuild_index end----")
-        return load_index()
-
-    # TODO: only rebuild the changed files
-    # 4. otherwise, rebuild all files
-    print("File changes detected ...")
-    logger.info("File changes detected")
-
-    chunks_gen = load_notes()
-    # try :
-    #     first_chunk = next(chunks_gen)
-    # except StopIteration:
-    #     logger.info("rebuild_index skipped (no file changed)")
-    #     return load_index()
-    #
-    # def combine_rest():
-    #     yield first_chunk
-    #     yield from chunks
-
-    # logger.info(f"load_notes (changed) latency={timer.lap():.2f} ms")
-
-
     timer.start()
-    rag = build_index(chunks_gen)
-    logger.info(f"build_index latency={timer.lap():.2f} ms")
+    # 2. get the changed and unchanged file
+    changed_ids, unchanged_ids = get_changed_doc_ids(old_doc_ids)
+    logger.info(f"get_changed_doc_ids latency={timer.lap():.2f} ms")
 
-    save_index(rag)
-    logger.info(f"save_index latency={timer.lap():.2f} ms")
+    if changed_ids:
+        timer.start()
+        rag = smart_rebuild(changed_ids, unchanged_ids)
+        logger.info(f"smart_rebuild latency={timer.lap():.2f} ms")
 
-    print("Index built and saved.\n")
+        save_index(rag)
+        logger.info(f"save_index latency={timer.lap():.2f} ms")
+
+        print("Index built and saved.\n")
+    else :
+        rag = load_index()
+        print("Index is already up to date\n")
+
     logger.info("----rebuild_index end----")
     return rag
 

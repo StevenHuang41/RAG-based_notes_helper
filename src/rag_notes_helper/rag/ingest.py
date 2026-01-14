@@ -1,3 +1,4 @@
+from inspect import currentframe
 from pathlib import Path
 import hashlib
 import mmap
@@ -51,3 +52,26 @@ def load_notes(
                 chunk_size=settings.CHUNK_SIZE,
                 overlap=settings.CHUNK_OVERLAP,
             )
+
+
+def get_changed_doc_ids(old_doc_ids: set[str]):
+    notes_dir = get_settings().NOTES_DIR
+
+    changed_ids = []
+    unchanged_ids = set()
+
+    current_files = {}
+    for path in notes_dir.rglob("*"):
+        if path.is_file() and is_text_file(path):
+            doc_id = get_stable_doc_id(path)
+            current_files[doc_id] = path
+
+            if doc_id in old_doc_ids:
+                unchanged_ids.add(doc_id)
+            else :
+                changed_ids.append((doc_id, path))
+
+    return changed_ids, unchanged_ids
+
+
+
