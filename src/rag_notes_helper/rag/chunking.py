@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from typing import TextIO, Iterable
 
@@ -24,29 +25,21 @@ def chunk_text(
     if overlap >= chunk_size:
         raise ValueError("overlap must be smaller than chunk_size")
 
-    buffer = ""
+    buffer = []
+    buffer_count = 0
     chunk_id = 0
-    section_count = 0
 
     for line in file_object:
         line = line.strip()
-        buffer += line
+        if line:
+            buffer.append(line)
+            buffer_count += len(line) + 2
 
-        if line == "\n":
-            section_count += 1
-
-        while len(buffer) >= chunk_size or section_count == 2:
-            section_count = 0
-
-            # buffer exceed chunk size
-            if len(buffer) >= chunk_size:
-                text = buffer[:chunk_size].strip()
-                buffer = buffer[chunk_size - overlap:]
-
-            # buffer consist double "\n"
-            else :
-                text = buffer[:].strip()
-                buffer = ""
+        # buffer exceed chunk size
+        while buffer_count - 2 >= chunk_size:
+            text = ", ".join(buffer[:-1])
+            buffer = [line]
+            buffer_count = len(line)
 
             if text:
                 yield Chunk(
@@ -58,10 +51,11 @@ def chunk_text(
                 chunk_id += 1
 
     # remain buffer
-    if buffer.strip():
+    if buffer:
+        text = ", ".join(buffer)
         yield Chunk(
             doc_id=doc_id,
             chunk_id=chunk_id,
-            text=buffer,
+            text=text,
             source=source,
         )

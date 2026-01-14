@@ -1,6 +1,4 @@
 import argparse
-from logging import currentframe
-import time
 from pydantic import ValidationError
 import sys
 
@@ -13,7 +11,6 @@ from rag_notes_helper.rag.index import (
     load_index,
     smart_rebuild,
 )
-from rag_notes_helper.rag.loaders import is_text_file
 from rag_notes_helper.rag.meta_store import MetaStore
 from rag_notes_helper.rag.retrieval import retrieve
 from rag_notes_helper.rag.answer import rag_answer
@@ -168,6 +165,7 @@ def repl(*, show_citations: bool):
 
     timer = LapTimer()
     rag = build_or_load_index()
+    rag.embed_model
     logger.info(f"load rag latency={timer.lap():.2f} ms")
 
     meta_store = MetaStore()
