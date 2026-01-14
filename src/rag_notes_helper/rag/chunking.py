@@ -17,6 +17,13 @@ def chunk_text(
     overlap: int,
 ) -> Iterable[Chunk]:
 
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be > 0")
+    if overlap < 0:
+        raise ValueError("overlap must be >= 0")
+    if overlap >= chunk_size:
+        raise ValueError("overlap must be smaller than chunk_size")
+
     buffer = ""
     chunk_id = 0
     section_count = 0
