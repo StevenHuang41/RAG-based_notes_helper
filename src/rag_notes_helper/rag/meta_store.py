@@ -6,7 +6,7 @@ from rag_notes_helper.core.config import get_settings
 
 class MetaStore:
     def __init__(self, storage_dir: Path | None = None):
-        storage_dir = storage_dir or get_settings().STORAGE_DIR
+        storage_dir = storage_dir or get_settings().storage_dir
         self.meta_f = (storage_dir / "meta.jsonl").open("rb")
         self.idx_f = (storage_dir / "meta.idx").open("rb")
 

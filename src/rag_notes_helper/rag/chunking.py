@@ -1,4 +1,4 @@
-import re
+from collections import deque
 from dataclasses import dataclass
 from typing import TextIO, Iterable
 
@@ -25,22 +25,23 @@ def chunk_text(
     if overlap >= chunk_size:
         raise ValueError("overlap must be smaller than chunk_size")
 
-    buffer = []
-    buffer_count = 0
+    buffer = deque()
+    buffer_len = 0
     chunk_id = 0
 
     for line in file_object:
         line = line.strip()
-        if line:
-            buffer.append(line)
-            buffer_count += len(line) + 2
+        if not line:
+            continue
+
+        line_len = len(line)
+        # if line:
+        #     buffer.append(line)
+        #     buffer_text = ", ".join(buffer)
 
         # buffer exceed chunk size
-        while buffer_count - 2 >= chunk_size:
-            text = ", ".join(buffer[:-1])
-            buffer = [line]
-            buffer_count = len(line)
-
+        if buffer_len + line_len >= chunk_size and buffer:
+            text = ", ".join(buffer)
             if text:
                 yield Chunk(
                     doc_id=doc_id,
@@ -49,6 +50,22 @@ def chunk_text(
                     source=source,
                 )
                 chunk_id += 1
+
+            tmp_buffer = deque()
+            tmp_len = 0
+
+            while tmp_len < overlap and buffer:
+                last_line = buffer.pop()
+                tmp_buffer.appendleft(last_line)
+                tmp_len += len(last_line)
+
+            buffer = tmp_buffer
+            buffer_len = tmp_len
+
+
+        buffer.append(line)
+        buffer_len += line_len
+
 
     # remain buffer
     if buffer:

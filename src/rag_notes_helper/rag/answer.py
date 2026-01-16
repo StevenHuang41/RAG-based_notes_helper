@@ -3,8 +3,8 @@ from rag_notes_helper.core.config import get_settings
 
 
 def rag_answer(
-    *,
     query: str,
+    *,
     hits: list[dict],
     max_tokens: int | None = None,
     temperature: float | None = None,
@@ -20,7 +20,7 @@ def rag_answer(
             "citations": [],
         }
 
-    hits = hits[: settings.LLM_MAX_CHUNKS]
+    hits = hits[: settings.llm.max_chunks]
 
     context_blocks = []
     citations = []
@@ -85,8 +85,8 @@ def rag_answer(
     llm = get_llm()
     answer_text = llm.generate(
         prompt,
-        max_tokens or settings.LLM_MAX_TOKENS,
-        temperature or settings.LLM_TEMPERATURE,
+        max_tokens or settings.llm.max_tokens,
+        temperature or settings.llm.temperature,
     )
 
     return {

@@ -3,14 +3,14 @@ from rag_notes_helper.rag.index import RagIndex
 from rag_notes_helper.rag.meta_store import MetaStore
 
 def retrieve(
+    rag: RagIndex,
+    meta_store: MetaStore,
     *,
     query: str,
-    rag: RagIndex,
     top_k: int | None = None,
-    meta_store: MetaStore
 ) -> list[dict]:
     settings = get_settings()
-    top_k = top_k or settings.TOP_K
+    top_k = top_k or settings.top_k
 
     model = rag.embed_model
 
@@ -27,7 +27,7 @@ def retrieve(
         if idx < 0:
             continue
 
-        if score < settings.MIN_RETRIEVAL_SCORE:
+        if score < settings.min_retrieval_score:
             continue
 
         item = meta_store.get(idx)

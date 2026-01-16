@@ -1,133 +1,91 @@
+from __future__ import annotations
+
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
 from pydantic import (
-    field_validator,
+    Field,
+    SecretStr,
     model_validator,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+class LLMSettings(BaseSettings):
+    provider: Literal["hf", "openai", "ollama"]
+    model: str
+    api_key: SecretStr | None = None
 
-class Settings(BaseSettings):
-    LLM_PROVIDER: Literal["hf", "openai", "ollama"] | None = None
-    LLM_MODEL: str | None = None
-    LLM_API_KEY: str | None = None
+    max_chunks: int = Field(5, gt=0, le=50)
+    max_tokens: int = Field(2048, gt=0)
+    temperature: float = Field(0.3, gt=0, le=1)
 
-    # only for ollama
-    OLLAMA_BASE_URL: str = "http://localhost:11434"
-
-    # LLM runtime settings
-    LLM_MAX_CHUNKS: int = 5
-    LLM_MAX_TOKENS: int = 2048
-    LLM_TEMPERATURE: float = 0.3
-
-    # path
-    PROJECT_ROOT: Path = Path(__file__).resolve().parents[3]
-    NOTES_DIR: Path = PROJECT_ROOT / "data"
-    STORAGE_DIR: Path = PROJECT_ROOT / "storage"
-
-    # embedding
-    EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
-
-    # chunking strategy
-    CHUNK_SIZE: int = 200        # characters
-    CHUNK_OVERLAP: int = 50     # characters
-
-    # retrieval
-    TOP_K: int = 5
-    MIN_RETRIEVAL_SCORE: float = 0.15
-
-    # read .env file configuration variables
     model_config = SettingsConfigDict(
         env_file=".env",
-        extra="ignore",
+        env_prefix="LLM_",
+        extra="ignore"
     )
 
-    @field_validator("TOP_K")
-    @classmethod
-    def validate_top_k(cls, v: int) -> int:
-        if v <= 0:
-            raise ValueError("TOP_K should > 0")
-
-        return v
-
-
-    @field_validator("MIN_RETRIEVAL_SCORE")
-    @classmethod
-    def validate_retri_score(cls, v: float) -> float:
-        if not 0 <= v <= 1:
-            raise ValueError("MIN_RETRIEVAL_SCORE should be 0 <= v <= 1")
-
-        return v
-
-
-    @field_validator("CHUNK_SIZE", "CHUNK_OVERLAP")
-    @classmethod
-    def validate_chunk_params(cls, v: int) -> int:
-        if v <= 0:
-            raise ValueError("Chunk parameters should be > 0")
-
-        return v
-
-
-    @field_validator("EMBEDDING_MODEL")
-    @classmethod
-    def validate_embedding_model(cls, v: str) -> str:
-        if not v.strip():
-            raise ValueError("EMBEDDING_MODEL cannot be empty")
-
-        return v
-
-
-    @field_validator("NOTES_DIR")
-    @classmethod
-    def validate_notes_dir(cls, v: Path) -> Path:
-        if not v.exists():
-            raise ValueError(f"data dir does not exist: {v}")
-
-        if not v.is_dir():
-            raise ValueError(f"data is not a directory: {v}")
-
-        return v
-
-
-    @field_validator("STORAGE_DIR")
-    @classmethod
-    def validate_storage_dir(cls, v: Path) -> Path:
-        try :
-            v.mkdir(parents=True, exist_ok=True)
-        except Exception as e:
-            raise ValueError(f"Cannot create storage dir: {v}") from e
-
-        return v
-
+    @property
+    def api_key_str(self) -> str | None:
+        return self.api_key.get_secret_value() if self.api_key else None
 
     @model_validator(mode="after")
-    def validate_semantics(self):
+    def validate_llm(self) -> LLMSettings:
+        if self.provider != "ollama" and not self.api_key:
+            raise ValueError(f"API Key is required for {self.provider}")
+
+        if self.provider == "ollama" and "/" in self.model:
+            raise ValueError("Ollama model name should be like 'llama3'")
+
+        return self
+
+
+
+class Settings(BaseSettings):
+    # llm settings
+    llm: LLMSettings = Field(default_factory=LLMSettings)
+    ollama_base_url: str = Field("http://localhost:11434", frozen=True)
+
+    # embedding model
+    embed_model_name: str = Field("sentence-transformers/all-MiniLM-L6-v2")
+
+    # chunking strategy
+    chunk_size: int = Field(1000, gt=0)
+    chunk_overlap: int = Field(200, gt=0)
+
+    # retrieval
+    top_k: int = Field(5, gt=0, le=50)
+    min_retrieval_score: float = Field(0.2, ge=0, le=1)
+
+    # path
+    project_root: Path = Path(__file__).resolve().parents[3]
+    notes_dir: Path = project_root / "data"
+    storage_dir: Path = project_root / "storage"
+    logs_dir: Path = project_root / "logs"
+
+    # read .env file configuration variables
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @model_validator(mode="after")
+    def validate_cross_logic(self) -> Settings:
         # chunking logic
-        if self.CHUNK_OVERLAP >= self.CHUNK_SIZE:
+        if self.chunk_overlap >= self.chunk_size:
+            raise ValueError("CHUNK_OVERLAP should be < CHUNK_SIZE")
+
+        # top k & llm max_chunks
+        if self.top_k > self.llm.max_chunks:
             raise ValueError(
-                "CHUNK_OVERLAP must < CHUNK_SIZE"
+                f"TOP_K ({self.top_k}) should not "
+                f"exceed LLM_MAX_CHUNKS ({self.llm.max_chunks})"
             )
 
-        # LLM configuration
-        if not self.LLM_PROVIDER:
-            raise ValueError("LLM_PROVIDER must be set")
+        # path logic
+        if not self.notes_dir.exists():
+            raise ValueError("data/ is missing")
 
-        if not self.LLM_MODEL:
-            raise ValueError("LLM_MODEL must be set")
-
-        if self.LLM_PROVIDER != "ollama" and not self.LLM_API_KEY:
-            raise ValueError(
-                f"LLM_API_KEY is required for '{self.LLM_PROVIDER}'"
-            )
-
-        # provider/model sanity check
-        if self.LLM_PROVIDER == "ollama" and "/" in self.LLM_MODEL:
-            raise ValueError(
-                "OLLAMA models should be a local name, ex: llama3.1"
-            )
+        self.storage_dir.mkdir(parents=True, exist_ok=True)
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
 
         return self
 

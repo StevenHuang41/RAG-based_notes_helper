@@ -4,8 +4,8 @@ import pytest
 from rag_notes_helper.rag.chunking import chunk_text
 
 
-def test_chunk_text_basic():
-    f = StringIO("abcdefghij" * 50)
+def test_chunk_ids():
+    f = StringIO("abcdefghij\n" * 50)
 
     chunk_gen = chunk_text(
         file_object=f,
@@ -29,20 +29,21 @@ def test_chunk_text_basic():
 
 
 
-def test_chunk_overlap():
-    f = StringIO("1234567890" * 10)
+def test_chunk_text_logic():
+    f = StringIO("12345\n678\n"  * 10)
 
     chunks = list(
         chunk_text(
             file_object=f,
             doc_id="doc",
             source="src",
-            chunk_size=8,
-            overlap=5,
+            chunk_size=10,
+            overlap=2,
         )
     )
 
-    assert chunks[0].text[-5:] == chunks[1].text[:5]
+    assert chunks[0].text == "12345, 678"
+    assert chunks[1].text == "678, 12345"
 
 
 def test_invalid_chunk_params():

@@ -29,7 +29,7 @@ def load_notes(
     # doc_caches: set[str] | None = None,
 ) -> Iterable[Chunk]:
     settings = get_settings()
-    notes_dir = notes_dir or settings.NOTES_DIR
+    notes_dir = notes_dir or settings.notes_dir
 
     # doc_caches = doc_caches or set()
 
@@ -49,13 +49,13 @@ def load_notes(
                 file_object=f,
                 doc_id=doc_id,
                 source=source,
-                chunk_size=settings.CHUNK_SIZE,
-                overlap=settings.CHUNK_OVERLAP,
+                chunk_size=settings.chunk_size,
+                overlap=settings.chunk_overlap,
             )
 
 
 def get_changed_doc_ids(old_doc_ids: set[str]):
-    notes_dir = get_settings().NOTES_DIR
+    notes_dir = get_settings().notes_dir
 
     changed_ids = []
     unchanged_ids = set()

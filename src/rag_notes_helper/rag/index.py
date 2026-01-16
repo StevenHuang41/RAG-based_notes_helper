@@ -7,10 +7,15 @@ import numpy as np
 import faiss
 from tqdm import tqdm
 
-from rag_notes_helper.core.config import Settings, get_settings
+from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.rag.chunking import Chunk, chunk_text
+from rag_notes_helper.rag.ingest import get_changed_doc_ids, load_notes
 from rag_notes_helper.rag.meta_store import MetaStore
+from rag_notes_helper.utils.logger import get_logger
+from rag_notes_helper.utils.timer import LapTimer
 
+
+logger = get_logger("cli")
 
 class RagIndex:
     _model =  None
@@ -22,8 +27,8 @@ class RagIndex:
     def embed_model(self):
         if RagIndex._model is None:
             from sentence_transformers import SentenceTransformer
-            embed_model_name = get_settings().EMBEDDING_MODEL
-            print(f"Loading {embed_model_name}...")
+            embed_model_name = get_settings().embed_model_name
+            logger.info(f"Loading {embed_model_name}...")
             RagIndex._model = SentenceTransformer(embed_model_name)
 
         return RagIndex._model
@@ -34,7 +39,7 @@ def build_index(
     batch_size: int = 1024,
 ) -> RagIndex:
 
-    storage: Path = get_settings().STORAGE_DIR
+    storage: Path = get_settings().storage_dir
 
     model = RagIndex(None).embed_model
 
@@ -131,8 +136,8 @@ def smart_rebuild(
 ) -> RagIndex:
 
     settings = get_settings()
-    storage = settings.STORAGE_DIR
-    notes_dir = settings.NOTES_DIR
+    storage = settings.storage_dir
+    notes_dir = settings.notes_dir
 
     tmp_meta_path = storage / "meta.json.tmp"
     tmp_idx_path = storage / "meta.idx.tmp"
@@ -197,8 +202,8 @@ def smart_rebuild(
                     file_object=f,
                     doc_id=doc_id,
                     source=source,
-                    chunk_size=settings.CHUNK_SIZE,
-                    overlap=settings.CHUNK_OVERLAP
+                    chunk_size=settings.chunk_size,
+                    overlap=settings.chunk_overlap
                 ):
                     batch.append(chunk)
 
@@ -283,13 +288,13 @@ def _smart_process_chunks(
 
 
 def save_index(rag: RagIndex) -> None:
-    storage = get_settings().STORAGE_DIR
+    storage = get_settings().storage_dir
     index_path = storage / "faiss.index"
     faiss.write_index(rag.index, str(index_path))
 
 
 def load_index() -> RagIndex:
-    storage = get_settings().STORAGE_DIR
+    storage = get_settings().storage_dir
     index_path = storage / "faiss.index"
 
     if not index_path.exists():
@@ -300,4 +305,88 @@ def load_index() -> RagIndex:
     return RagIndex(index=index)
 
 
+def build_and_save_rag() -> RagIndex:
+    """ full building rag pipeline """
+    chunks = load_notes()
+    rag = build_index(chunks)
+    save_index(rag)
+
+    return rag
+
+    # logger.info(f"load_notes latency={timer.lap():.2f} ms")
+    # logger.info(f"build_index latency={timer.lap():.2f} ms")
+    # logger.info(f"save_index latency={timer.lap():.2f} ms")
+
+def load_or_build_index():
+    """ run when system start """
+    timer = LapTimer()
+    try:
+        timer.start()
+        rag = load_index()
+        logger.info(f"load_index latency={timer.lap():.2f} ms")
+
+    except FileNotFoundError:
+        logger.info("index not exists")
+        print("\nIndex not found. Building index from notes ...")
+
+        timer.start()
+        rag = build_and_save_rag()
+        logger.info(f"build_and_save_rag latency={timer.lap():.2f} ms")
+        print("Index built and saved.\n")
+
+    return rag
+
+
+def rebuild_index(force: bool = False):
+    """ two rebuild mode: smart and force """
+    logger.info("---- rebuild_index()")
+    print(f"\n{'Force' if force else 'Smart'} rebuilding index from notes ...")
+
+    timer = LapTimer()
+
+    # force rebuild
+    if force:
+        timer.start()
+        rag = build_and_save_rag()
+        logger.info(f"force_build latency={timer.lap():.2f} ms")
+        return rag
+
+    # smart rebuild
+    # 1. get current files' hash value
+    try :
+        timer.start()
+        with MetaStore() as meta_store:
+            logger.info(f"load MetaStore latency={timer.lap():.2f} ms")
+
+            old_doc_ids = meta_store.get_all_doc_id()
+            logger.info(f"get_all_doc_id latency={timer.lap():.2f} ms")
+    except Exception:
+        logger.info("No existing meta, rebuilding full index")
+
+        timer.start()
+        rag = build_and_save_rag()
+        logger.info(f"full_rebuild latency={timer.lap():.2f} ms")
+        return rag
+
+    # 2. get the changed and unchanged file
+    timer.start()
+    changed_ids, unchanged_ids = get_changed_doc_ids(old_doc_ids)
+    logger.info(f"get_changed_doc_ids latency={timer.lap():.2f} ms")
+
+    # 3. rebuild only the changed files' chunk
+    if changed_ids:
+        timer.start()
+        rag = smart_rebuild(changed_ids, unchanged_ids)
+        logger.info(f"smart_rebuild latency={timer.lap():.2f} ms")
+
+        save_index(rag)
+        logger.info(f"save_index latency={timer.lap():.2f} ms")
+
+        print("Index built and saved")
+    else :
+        rag = load_index()
+        print("Index is already up to date")
+
+    logger.info("rebuild_index() ----")
+    return rag
 
