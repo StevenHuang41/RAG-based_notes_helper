@@ -26,4 +26,4 @@ RUN mkdir -p data storage hf_cache logs
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONPATH="/app/src"
 
-ENTRYPOINT ["rag-app"]
+ENTRYPOINT ["rag-app", "--repl"]

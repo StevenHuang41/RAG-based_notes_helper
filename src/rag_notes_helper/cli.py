@@ -146,7 +146,7 @@ def repl(
                 do_force = query in {":reindex", ":ri"}
                 rag = rebuild_index(force=do_force)
                 logger.info(
-                    f"rebuild_index({'force' if do_force else ''}) "
+                    f"rebuild_index{'(force)' if do_force else ''} "
                     f"latency={timer.lap():.2f} ms"
                 )
 
@@ -157,12 +157,14 @@ def repl(
 
             if query in {":sources", ":so"}:
                 show_sources(meta_store)
+                print()
                 continue
 
             if query in {":config", ":co"}:
                 timer.start()
                 show_config()
                 logger.info(f"show_config latency={timer.lap()} ms")
+                print()
                 continue
 
             if query in {":citations", ":ci"}:
@@ -194,7 +196,7 @@ def repl(
             logger.info((f"retrieve latency={timer.lap()} ms"))
 
             result = rag_answer(query, hits=hits)
-            logger.info((f"generate answer latency={timer.lap()} ms"))
+            logger.info((f"rag_answer latency={timer.lap()} ms"))
 
             print("\nANSWER:\n")
             print(result["answer"])

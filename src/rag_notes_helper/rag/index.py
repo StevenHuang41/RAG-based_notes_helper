@@ -349,6 +349,7 @@ def rebuild_index(force: bool = False):
         timer.start()
         rag = build_and_save_rag()
         logger.info(f"force_build latency={timer.lap():.2f} ms")
+        print("Index built and saved")
         return rag
 
     # smart rebuild
