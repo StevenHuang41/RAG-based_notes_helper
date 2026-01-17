@@ -1,7 +1,9 @@
 from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.rag.index import RagIndex
 from rag_notes_helper.rag.meta_store import MetaStore
+from rag_notes_helper.utils.timer import deco_time_block
 
+@deco_time_block
 def retrieve(
     rag: RagIndex,
     meta_store: MetaStore,

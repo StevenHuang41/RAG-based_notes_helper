@@ -8,9 +8,11 @@ from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.rag.chunking import Chunk, chunk_text
 from rag_notes_helper.rag.loaders import is_text_file
 from rag_notes_helper.utils.logger import get_logger
+from rag_notes_helper.utils.timer import deco_time_block
 
 
-logger = get_logger("cli")
+logger = get_logger("ingest")
+
 
 def get_stable_doc_id(path: Path, *, hash_len: int = 16) -> str:
     hasher = hashlib.blake2b(digest_size=32)
@@ -19,11 +21,10 @@ def get_stable_doc_id(path: Path, *, hash_len: int = 16) -> str:
         with mmap.mmap(f.fileno(), length=0, access=mmap.ACCESS_READ) as mm:
             hasher.update(mm)
 
-    hv = hasher.hexdigest()[:hash_len]
-    logger.debug(f"create doc_id: {path} - {hv}")
-    return hv
+    return hasher.hexdigest()[:hash_len]
 
 
+@deco_time_block
 def load_notes(
     notes_dir: Path | None = None,
     # doc_caches: set[str] | None = None,
@@ -38,10 +39,6 @@ def load_notes(
             continue
 
         doc_id = get_stable_doc_id(file_path)
-        # if doc_id in doc_caches:
-        #     logger.info(f"skipping unchanged file: {file_path}")
-        #     continue
-
         source = str(file_path.relative_to(notes_dir))
 
         with file_path.open("r", encoding="utf-8", errors="ignore") as f:
@@ -54,17 +51,21 @@ def load_notes(
             )
 
 
-def get_changed_doc_ids(old_doc_ids: set[str]):
-    notes_dir = get_settings().notes_dir
+@deco_time_block
+def get_changed_doc_ids(
+    old_doc_ids: set[str],
+    notes_dir: Path | None = None
+):
+    notes_dir = notes_dir or get_settings().notes_dir
 
     changed_ids = []
     unchanged_ids = set()
 
-    current_files = {}
+    # current_files = {}
     for path in notes_dir.rglob("*"):
         if path.is_file() and is_text_file(path):
             doc_id = get_stable_doc_id(path)
-            current_files[doc_id] = path
+            # current_files[doc_id] = path
 
             if doc_id in old_doc_ids:
                 unchanged_ids.add(doc_id)

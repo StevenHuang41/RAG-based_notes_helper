@@ -35,11 +35,7 @@ def chunk_text(
             continue
 
         line_len = len(line)
-        # if line:
-        #     buffer.append(line)
-        #     buffer_text = ", ".join(buffer)
 
-        # buffer exceed chunk size
         if buffer_len + line_len >= chunk_size and buffer:
             text = ", ".join(buffer)
             if text:
@@ -65,7 +61,6 @@ def chunk_text(
 
         buffer.append(line)
         buffer_len += line_len
-
 
     # remain buffer
     if buffer:

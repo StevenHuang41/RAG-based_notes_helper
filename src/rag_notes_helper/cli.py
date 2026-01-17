@@ -12,21 +12,19 @@ from rag_notes_helper.rag.meta_store import MetaStore
 from rag_notes_helper.rag.retrieval import retrieve
 from rag_notes_helper.rag.answer import rag_answer
 from rag_notes_helper.utils.logger import get_logger
-from rag_notes_helper.utils.timer import LapTimer
+from rag_notes_helper.utils.timer import time_block, deco_time_block
 
 
 logger = get_logger("cli")
 
+@deco_time_block
 def show_config():
-    logger.info("show_config")
-    timer = LapTimer()
     print("\nChecking Configuration ...")
     try :
         settings = get_settings()
     except ValidationError as e:
         print("Configuration is INVALID\n")
         print(e)
-        logger.info(f"show_config latency={timer.lap():.2f} ms")
         sys.exit(1)
 
     print("Configuration is VALID")
@@ -52,18 +50,16 @@ def show_config():
     print(f"    Storage dir: {settings.storage_dir}")
 
     print("\nConfig check completed")
-    logger.info(f"show_config latency={timer.lap():.2f} ms")
 
 
+@deco_time_block
 def show_sources(meta_store: MetaStore):
     print("\nSOURCES:\n")
-
-    timer = LapTimer()
     for s in meta_store.list_indexed_sources():
         print(f"- {s}")
 
-    logger.info(f"list_indexed_sources latency={timer.lap():.2f} ms")
 
+@deco_time_block
 def show_citations(result, show_full: bool = False):
     if show_full:
         print("\nCITATIONS:\n")
@@ -80,6 +76,7 @@ def show_citations(result, show_full: bool = False):
         print(", ".join(source_set))
 
 
+@deco_time_block
 def run_onetime(
     rag: RagIndex,
     meta_store: MetaStore,
@@ -87,16 +84,11 @@ def run_onetime(
     query: str,
     citations: bool = False,
 ) -> None:
-    timer = LapTimer()
-
 
     hits = retrieve(rag, meta_store, query=query)
-    logger.info(f"retrieve latency={timer.lap():.2f} ms")
 
     logger.info((f"query: {query[:20]}{' ...' if len(query) > 20 else ''}"))
-    timer.start()
     result = rag_answer(query, hits=hits)
-    logger.info(f"rag_answer latency={timer.lap():.2f} ms")
 
     print("\nANSWER:\n")
     print(result["answer"])
@@ -110,12 +102,8 @@ def repl(
     *,
     citations: bool = False,
 ):
-    timer = LapTimer()
-    rag = load_or_build_index()
-    logger.info(f"load rag latency={timer.lap():.2f} ms")
-
-    meta_store = MetaStore()
-    logger.info(f"load MetaStore latency={timer.lap():.2f} ms")
+    rag = rag or load_or_build_index()
+    meta_store = meta_store or MetaStore()
 
     print(
         "\nRAG-based Notes Helper\n"
@@ -139,19 +127,16 @@ def repl(
                 break
 
             if query in {":update", ":u", ":reindex", ":ri"}:
-                timer.start()
                 meta_store.close()
-                logger.info(f"close MetaStore latency={timer.lap():.2f} ms")
 
                 do_force = query in {":reindex", ":ri"}
-                rag = rebuild_index(force=do_force)
-                logger.info(
-                    f"rebuild_index{'(force)' if do_force else ''} "
-                    f"latency={timer.lap():.2f} ms"
-                )
+                with time_block(
+                    f"rebuild_index({'force' if do_force else 'smart'})"
+                ):
+                    rag = rebuild_index(force=do_force)
 
                 meta_store = MetaStore()
-                logger.info(f"reload meta latency={timer.lap():.2f} ms")
+
                 print()
                 continue
 
@@ -161,9 +146,7 @@ def repl(
                 continue
 
             if query in {":config", ":co"}:
-                timer.start()
                 show_config()
-                logger.info(f"show_config latency={timer.lap()} ms")
                 print()
                 continue
 
@@ -191,12 +174,9 @@ def repl(
 
             logger.info((f"query: {query[:20]}{' ...' if len(query) > 20 else ''}"))
 
-            timer.start()
             hits = retrieve(rag, meta_store, query=query)
-            logger.info((f"retrieve latency={timer.lap()} ms"))
 
             result = rag_answer(query, hits=hits)
-            logger.info((f"rag_answer latency={timer.lap()} ms"))
 
             print("\nANSWER:\n")
             print(result["answer"])
@@ -275,21 +255,17 @@ def main():
     )
     logger.info(f"config: {get_settings().model_dump_json()}")
 
-    timer = LapTimer()
-    rag = rebuild_index(force=args.reindex) \
-          if args.update or args.reindex else load_or_build_index()
-    logger.info(f"main: load rag latency={timer.lap():.2f} ms")
+    with time_block("start up preparation"):
+        rag = rebuild_index(force=args.reindex) \
+              if args.update or args.reindex else load_or_build_index()
 
-    meta_store = MetaStore()
-    logger.info(f"main: load meta_store latency={timer.lap():.2f} ms")
+        meta_store = MetaStore()
 
     if args.config:
         show_config()
-        logger.info(f"main: show_config latency={timer.lap():.2f} ms")
 
     if args.sources:
         show_sources(meta_store)
-        logger.info(f"main: show_sources latency={timer.lap():.2f} ms")
 
     if args.repl:
         logger.info("==== REPL start ====")
@@ -310,7 +286,6 @@ def main():
 
     elif query and not args.repl:
         logger.info("==== run_onetime start ====")
-        timer.start()
         run_onetime(
             query=query,
             citations=args.citations,
@@ -318,9 +293,8 @@ def main():
             meta_store=meta_store,
         )
         logger.info("==== run_onetime end ====")
-        logger.info(f"main: run_onetime latency={timer.lap():.2f} ms")
 
-    elif not (args.config or args.sources):
+    elif not (args.config or args.sources or args.reindex or args.update):
         parser.print_help()
         sys.exit(1)
 

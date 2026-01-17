@@ -12,10 +12,10 @@ from rag_notes_helper.rag.chunking import Chunk, chunk_text
 from rag_notes_helper.rag.ingest import get_changed_doc_ids, load_notes
 from rag_notes_helper.rag.meta_store import MetaStore
 from rag_notes_helper.utils.logger import get_logger
-from rag_notes_helper.utils.timer import LapTimer
+from rag_notes_helper.utils.timer import time_block, deco_time_block
 
 
-logger = get_logger("cli")
+logger = get_logger("index")
 
 class RagIndex:
     _model =  None
@@ -26,10 +26,10 @@ class RagIndex:
     @property
     def embed_model(self):
         if RagIndex._model is None:
-            from sentence_transformers import SentenceTransformer
-            embed_model_name = get_settings().embed_model_name
-            logger.info(f"Loading {embed_model_name}...")
-            RagIndex._model = SentenceTransformer(embed_model_name)
+            with time_block("loading embedding model"):
+                from sentence_transformers import SentenceTransformer
+                embed_model_name = get_settings().embed_model_name
+                RagIndex._model = SentenceTransformer(embed_model_name)
 
         return RagIndex._model
 
@@ -38,23 +38,36 @@ def build_index(
     chunks: Iterable[Chunk],
     batch_size: int = 1024,
 ) -> RagIndex:
+    if not chunks:
+        raise ValueError("No chunks to index")
 
     storage: Path = get_settings().storage_dir
 
     model = RagIndex(None).embed_model
-
     index = None
     batch: list[Chunk] = []
     packer = struct.Struct("Q")
 
-    with (
-        (storage / "meta.idx").open("wb") as idx_f,
-        (storage / "meta.jsonl").open("wb") as meta_f
-    ):
-        for chunk in tqdm(chunks, desc="Indexing chunks"):
-            batch.append(chunk)
+    with time_block("processing chunks"):
+        with (
+            (storage / "meta.idx").open("wb") as idx_f,
+            (storage / "meta.jsonl").open("wb") as meta_f
+        ):
+            for chunk in tqdm(chunks, desc="Indexing chunks"):
+                batch.append(chunk)
 
-            if len(batch) >= batch_size:
+                if len(batch) >= batch_size:
+                    index = _process_batch(
+                        batch,
+                        model,
+                        index,
+                        meta_f,
+                        idx_f,
+                        packer
+                    )
+                    batch.clear()
+
+            if batch:
                 index = _process_batch(
                     batch,
                     model,
@@ -63,17 +76,6 @@ def build_index(
                     idx_f,
                     packer
                 )
-                batch.clear()
-
-        if batch:
-            index = _process_batch(
-                batch,
-                model,
-                index,
-                meta_f,
-                idx_f,
-                packer
-            )
 
     if index is None:
         raise ValueError("No chunks to index")
@@ -89,6 +91,7 @@ def _process_batch(
     idx_f,
     packer: struct.Struct,
 ) -> faiss.Index:
+
     if not batch:
         return index
 
@@ -152,24 +155,36 @@ def smart_rebuild(
 
     storage.mkdir(parents=True, exist_ok=True)
 
-    with (
-        tmp_meta_path.open("wb") as meta_f,
-        tmp_idx_path.open("wb") as idx_f,
-    ):
-        # 1. migrate unchanged files' chunks
-        with MetaStore() as meta_store:
-            for i in tqdm(
-                range(old_rag.index.ntotal),
-                desc="Migrating existing chunks ..."
-            ):
-                chunk_dict = meta_store.get(i)
-                if chunk_dict["doc_id"] in unchanged_ids:
-                    embed_vec = old_rag.index.reconstruct(i)
-                    embeddings.append(embed_vec)
-                    batch.append(Chunk(**chunk_dict))
+    with time_block("smart process chunks"):
+        with (
+            tmp_meta_path.open("wb") as meta_f,
+            tmp_idx_path.open("wb") as idx_f,
+        ):
+            # 1. migrate unchanged files' chunks
+            with MetaStore() as meta_store:
+                for i in tqdm(
+                    range(old_rag.index.ntotal),
+                    desc="Migrating existing chunks ..."
+                ):
+                    chunk_dict = meta_store.get(i)
+                    if chunk_dict["doc_id"] in unchanged_ids:
+                        embeddings.append(old_rag.index.reconstruct(i))
+                        batch.append(Chunk(**chunk_dict))
 
-                # write unchanged chunks into meta and idx
-                if len(batch) >= batch_size:
+                    # write unchanged chunks into meta and idx
+                    if len(batch) >= batch_size:
+                        new_index = _smart_process_chunks(
+                            batch,
+                            new_index,
+                            meta_f,
+                            idx_f,
+                            packer,
+                            embeddings=embeddings,
+                        )
+                        embeddings.clear()
+                        batch.clear()
+
+                if batch:
                     new_index = _smart_process_chunks(
                         batch,
                         new_index,
@@ -181,6 +196,33 @@ def smart_rebuild(
                     embeddings.clear()
                     batch.clear()
 
+            # 2. get chunks from changed files
+            for doc_id, path in tqdm(changed_ids, desc="Embedding new chunks ..."):
+                source = str(path.relative_to(notes_dir))
+
+                with path.open("r", encoding="utf-8", errors="ignore") as f:
+                    for chunk in chunk_text(
+                        file_object=f,
+                        doc_id=doc_id,
+                        source=source,
+                        chunk_size=settings.chunk_size,
+                        overlap=settings.chunk_overlap
+                    ):
+                        batch.append(chunk)
+
+                        #  write new chunks into meta and idx
+                        if len(batch) >= batch_size:
+                            new_index = _smart_process_chunks(
+                                batch,
+                                new_index,
+                                meta_f,
+                                idx_f,
+                                packer,
+                                has_new_chunk=True,
+                                model=model,
+                            )
+                            batch.clear()
+
             if batch:
                 new_index = _smart_process_chunks(
                     batch,
@@ -188,48 +230,9 @@ def smart_rebuild(
                     meta_f,
                     idx_f,
                     packer,
-                    embeddings=embeddings,
+                    has_new_chunk=True,
+                    model=model,
                 )
-                embeddings.clear()
-                batch.clear()
-
-        # 2. get chunks from changed files
-        for doc_id, path in tqdm(changed_ids, desc="Embedding new chunks ..."):
-            source = str(path.relative_to(notes_dir))
-
-            with path.open("r", encoding="utf-8", errors="ignore") as f:
-                for chunk in chunk_text(
-                    file_object=f,
-                    doc_id=doc_id,
-                    source=source,
-                    chunk_size=settings.chunk_size,
-                    overlap=settings.chunk_overlap
-                ):
-                    batch.append(chunk)
-
-                    #  write new chunks into meta and idx
-                    if len(batch) >= batch_size:
-                        new_index = _smart_process_chunks(
-                            batch,
-                            new_index,
-                            meta_f,
-                            idx_f,
-                            packer,
-                            has_new_chunk=True,
-                            model=model,
-                        )
-                        batch.clear()
-
-        if batch:
-            new_index = _smart_process_chunks(
-                batch,
-                new_index,
-                meta_f,
-                idx_f,
-                packer,
-                has_new_chunk=True,
-                model=model,
-            )
 
     if new_index is None:
         raise ValueError("No notes left after smart rebuild")
@@ -280,58 +283,47 @@ def _smart_process_chunks(
             json.dumps(record, ensure_ascii=False).encode("utf-8")
             + b"\n"
         )
-
         # write offset_f
         idx_f.write(packer.pack(offset))
 
     return index
 
 
+@deco_time_block
 def save_index(rag: RagIndex) -> None:
-    storage = get_settings().storage_dir
-    index_path = storage / "faiss.index"
-    faiss.write_index(rag.index, str(index_path))
+    store_path = get_settings().storage_dir / "faiss.index"
+    faiss.write_index(rag.index, str(store_path))
 
 
+@deco_time_block
 def load_index() -> RagIndex:
-    storage = get_settings().storage_dir
-    index_path = storage / "faiss.index"
+    store_path = get_settings().storage_dir / "faiss.index"
 
-    if not index_path.exists():
-        raise FileNotFoundError("Index not found. Build it first.")
+    if not store_path.exists():
+        raise FileNotFoundError("Index not found")
 
-    index = faiss.read_index(str(index_path))
+    index = faiss.read_index(str(store_path))
 
     return RagIndex(index=index)
 
 
 def build_and_save_rag() -> RagIndex:
     """ full building rag pipeline """
-    chunks = load_notes()
-    rag = build_index(chunks)
+    rag = build_index(load_notes())
     save_index(rag)
+    print("Index built and saved")
 
     return rag
 
-    # logger.info(f"load_notes latency={timer.lap():.2f} ms")
-    # logger.info(f"build_index latency={timer.lap():.2f} ms")
-    # logger.info(f"save_index latency={timer.lap():.2f} ms")
 
 def load_or_build_index():
     """ run when system start """
-    timer = LapTimer()
     try:
-        timer.start()
         rag = load_index()
-        logger.info(f"load_index latency={timer.lap():.2f} ms")
 
     except FileNotFoundError:
-        logger.info("index not exists")
         print("\nIndex not found. Building index from notes ...")
-
-        timer.start()
         rag = build_and_save_rag()
-        logger.info(f"build_and_save_rag latency={timer.lap():.2f} ms")
         print("Index built and saved.\n")
 
     return rag
@@ -339,55 +331,32 @@ def load_or_build_index():
 
 def rebuild_index(force: bool = False):
     """ two rebuild mode: smart and force """
-    logger.info("---- rebuild_index()")
     print(f"\n{'Force' if force else 'Smart'} rebuilding index from notes ...")
-
-    timer = LapTimer()
 
     # force rebuild
     if force:
-        timer.start()
-        rag = build_and_save_rag()
-        logger.info(f"force_build latency={timer.lap():.2f} ms")
-        print("Index built and saved")
-        return rag
+        return build_and_save_rag()
 
     # smart rebuild
-    # 1. get current files' hash value
     try :
-        timer.start()
+        # 1. get current files' hash value
         with MetaStore() as meta_store:
-            logger.info(f"load MetaStore latency={timer.lap():.2f} ms")
-
             old_doc_ids = meta_store.get_all_doc_id()
-            logger.info(f"get_all_doc_id latency={timer.lap():.2f} ms")
-    except Exception:
-        logger.info("No existing meta, rebuilding full index")
 
-        timer.start()
-        rag = build_and_save_rag()
-        logger.info(f"full_rebuild latency={timer.lap():.2f} ms")
+        # 2. get the changed and unchanged file
+        changed_ids, unchanged_ids = get_changed_doc_ids(old_doc_ids)
+
+        if not changed_ids:
+            print("Index is already up to date")
+            return load_index()
+
+        rag = smart_rebuild(changed_ids, unchanged_ids)
+        save_index(rag)
+        print("Index updated and saved")
         return rag
 
-    # 2. get the changed and unchanged file
-    timer.start()
-    changed_ids, unchanged_ids = get_changed_doc_ids(old_doc_ids)
-    logger.info(f"get_changed_doc_ids latency={timer.lap():.2f} ms")
-
-    # 3. rebuild only the changed files' chunk
-    if changed_ids:
-        timer.start()
-        rag = smart_rebuild(changed_ids, unchanged_ids)
-        logger.info(f"smart_rebuild latency={timer.lap():.2f} ms")
-
-        save_index(rag)
-        logger.info(f"save_index latency={timer.lap():.2f} ms")
-
-        print("Index built and saved")
-    else :
-        rag = load_index()
-        print("Index is already up to date")
-
-    logger.info("rebuild_index() ----")
-    return rag
-
+    except Exception as e:
+        logger.warning(
+            f"Smart rebuild failed ({e}), fall back to full rebuild index"
+        )
+        return build_and_save_rag()

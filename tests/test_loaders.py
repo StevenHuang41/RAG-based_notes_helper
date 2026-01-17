@@ -1,23 +1,24 @@
 from pathlib import Path
-import tempfile
 
 from rag_notes_helper.rag.loaders import is_text_file
 
 
-def test_text_file_detected():
-    with tempfile.NamedTemporaryFile("w", delete=False) as f:
-        f.write("This is text")
-        path = Path(f.name)
+def test_text_file_detected(tmp_path):
+    test_path = tmp_path / "test"
+    test_path.write_text("This is text", encoding="utf-8")
 
-    assert is_text_file(path) is True
-    path.unlink()
+    assert is_text_file(test_path) is True
 
 
-def test_binary_file_detected():
-    with tempfile.NamedTemporaryFile("wb", delete=False) as f:
-        f.write(b"\x00\x01\x02")
-        path = Path(f.name)
+def test_binary_file_detected(tmp_path):
+    test_path = tmp_path / "test.bin"
+    test_path.write_bytes(b"\x00")
 
-    assert is_text_file(path) is False
-    path.unlink()
+    assert is_text_file(test_path) is False
 
+
+def test_empty_file(tmp_path):
+    test_path = tmp_path / "empty"
+    test_path.touch()
+
+    assert is_text_file(test_path) is False

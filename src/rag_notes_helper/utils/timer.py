@@ -1,21 +1,24 @@
 import time
+from contextlib import contextmanager
 from .logger import get_logger
 
-logger = get_logger("timer")
+logger = get_logger("latency")
 
-class LapTimer:
-    def __init__(self) -> None:
-        self._last = time.perf_counter()
+@contextmanager
+def time_block(name: str):
+    start = time.perf_counter()
 
-    def start(self):
-        self._last  = time.perf_counter()
-        return ""
+    try :
+        yield
+    finally :
+        end = time.perf_counter()
+        logger.info(f"{name} latency={(end - start) * 1000:.2f} ms")
 
+def deco_time_block(func):
+    def wrapper(*args, **kws):
+        with time_block(func.__name__):
+            return func(*args, **kws)
 
-    def lap(self) -> float:
-        now = time.perf_counter()
-        elapsed = (now - self._last) * 1000
-        self._last = now
-        return elapsed
+    return wrapper
 
 

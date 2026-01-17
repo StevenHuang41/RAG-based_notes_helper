@@ -2,8 +2,8 @@ import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-LOG_DIR = Path("logs")
-LOG_DIR.mkdir(exist_ok=True)
+from rag_notes_helper.core.config import get_settings
+
 
 def get_logger(name: str) -> logging.Logger:
     logger = logging.getLogger(name)
@@ -13,7 +13,7 @@ def get_logger(name: str) -> logging.Logger:
         return logger
 
     handler = RotatingFileHandler(
-        LOG_DIR / "rag.log",
+        get_settings().logs_dir / "rag.log",
         maxBytes=5_000_000,
         backupCount=2,
     )
