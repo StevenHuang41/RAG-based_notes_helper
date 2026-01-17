@@ -2,7 +2,9 @@ import time
 from contextlib import contextmanager
 from .logger import get_logger
 
-logger = get_logger("latency")
+
+def _get_logger():
+    return get_logger("latency")
 
 @contextmanager
 def time_block(name: str):
@@ -12,7 +14,7 @@ def time_block(name: str):
         yield
     finally :
         end = time.perf_counter()
-        logger.info(f"{name} latency={(end - start) * 1000:.2f} ms")
+        _get_logger().info(f"{name} latency={(end - start) * 1000:.2f} ms")
 
 def deco_time_block(func):
     def wrapper(*args, **kws):
