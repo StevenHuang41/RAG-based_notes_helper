@@ -104,6 +104,7 @@ Query   →   Embedding   →   Retrieval   →   LLM   →   Answer
 RAG-based_notes_helper/
 ├── README.md
 ├── pyproject.toml
+├── uv.lock
 ├── .env.example                    # template for creating .env
 ├── Dockerfile
 ├── docker-compose.yml              # runtime-only, pull-only
@@ -119,10 +120,15 @@ RAG-based_notes_helper/
 │       ├── core/
 │       │   └── config.py
 │       │
+│       ├── utils/
+│       │   ├── logger.py
+│       │   └── timer.py
+│       │
 │       └── rag/
 │           ├── ingest.py
 │           ├── loaders.py
 │           ├── index.py
+│           ├── meta_store.py
 │           ├── chunking.py
 │           ├── retrieval.py
 │           ├── answer.py
@@ -146,9 +152,14 @@ RAG-based_notes_helper/
 │
 ├── storage/                        # rag metadata and faiss
 │   ├── faiss.index
-│   └── meta.jsonl
+│   ├── meta.jsonl
+│   └── meta.idx
 │
 ├── hf_cache/                       # huggingface cache
+│
+├── docs/                           # display media file
+│
+├── logs/                           # monitoring latency
 │
 └── .github/                        # github action
     └── workflows/
