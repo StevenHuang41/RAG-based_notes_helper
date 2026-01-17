@@ -25,7 +25,7 @@ This project emphasizes **correct RAG design**, **memory-safe ingestion**, **tes
  - [Architecture](#architecture)
  - [Project Structure](#project-structure)
  - [How It Works](#how-it-works)
- - [Instinstallation-setup](#installation-setup)
+ - [Installation & Setup](#installation-setup)
  - [Usage](#usage)
  - [Testing](#testing)
  - [Limitations](#limitations)
@@ -40,16 +40,16 @@ This project shows how to build an **LLM system without fine-tuning**
 
 ### Why not fine-tuning
 
-Fine-tuning is often **costly, unnecessary** for note-based knowledge system
+Fine-tuning is often **costly** and **unnecessary** for note-based knowledge system
 
-- Require retraining when knowledge updates
+- Requires retraining when knowledge updates
 - Higher infrastructure and maintenance cost
 - Introduces model drift and reproducibility issue
 - Hard to debug hallucinations
 
 ### Why RAG
 
-- **Knowledge stay external and inspectable**
+- **Knowledge stays external and inspectable**
     - Your notes remain the only source of truth
 
 - **Instant updates**
@@ -70,18 +70,21 @@ Fine-tuning is often **costly, unnecessary** for note-based knowledge system
 - Overlapping chunking with configurable window size
 - Sentence-Transformer embeddings
 - Dense vector retrieval using **Faiss**
-- LLM backends:
-    - Hugging Face (free token)
+- **LLM** backends:
+    - Hugging Face (free tier token availiable)
     - Ollama (free and runs locally)
     - OpenAI (paid API)
 - Source-aware answers with citation
-- Interactive CLI with live re-indexing
+- Interactive CLI with explicit startup phase and live re-indexing
+- **Latency logging** for RAG components
+- **Smart and force index rebuild modes** for efficient updates
+- Runtime configuration validation with clear error reporting
+- Import-safe architecture with runtime-only validation (CI-friendly)
 - Unit-tested components
-- Containerization using docker
-- CI/CD-enabled (github actions)
-    - Automatic test execution on push and pull requests
+- **Dockerized** for reproducible execution
+- **CI/CD-enabled** (GitHub Actions)
+    - Automatic test on push and pull requests
     - Docker build validation
-- Dockerized for reproducible execution
 
 ---
 
@@ -141,7 +144,7 @@ RAG-based_notes_helper/
 ├── data/                           # place your notes here!!!
 │   └── notes_helper.md             # base knowledge
 │
-├── storage/                        # rag matadata and faiss
+├── storage/                        # rag metadata and faiss
 │   ├── faiss.index
 │   └── meta.jsonl
 │
@@ -154,6 +157,11 @@ RAG-based_notes_helper/
 ```
 
 ## How It Works
+
+0. **Startup & Validation**
+    - CLI arguments are parsed
+    - Configuration is validated at runtime
+    - Index is loaded or rebuilt if requested
 
 1. **Ingestion**
     - Files in `data/` are scanned
@@ -238,7 +246,7 @@ curl -L -o notes_helper.md \
 https://raw.githubusercontent.com/StevenHuang41/RAG-based_notes_helper/main/data/notes_helper.md
 ```
 
-You mush have **at least one text file** in `data/` to avoid no chunk to index error.
+You must have **at least one text file** in `data/` to avoid no chunk to index error.
 
 ---
 
@@ -260,18 +268,23 @@ uv pip install -e .
 #### One time query
 ```bash
 rag-app what is xxx
-rag-app "what is ...?"
-rag-app "what is xxx" --help                # show help message
+rag-app "what is ..."
+rag-app [command]
+rag-app --help                              # show help message
+rag-app "what is xxx" --update              # smart reindex before answering
 rag-app "what is xxx" --reindex             # reindex before answering
+rag-app "what is xxx" --config              # check configuration
 rag-app "what is xxx" --citaions            # including citations in answer
-rag-app "what is xxx" --config              # check configureation
+rag-app "what is xxx" --sources             # show indexed source files
 rag-app "I wanna know ..." > answer.txt     # save generated answer
 ```
 
-#### Interactive REPL
-Runs rag-app repeatedly in repl mode:
+#### Interactive REPL (recommended)
+Runs rag-app repeatedly in REPL mode (faster after initial load):
+
 ```bash
-rag-app --repl
+rag-app --repl                  # run REPL mode
+rag-app "what is xxx" --repl    # answer query in REPL mode
 ```
 
 ### Running via Docker
@@ -292,7 +305,7 @@ docker pull ghcr.io/stevenhuang41/rag-based-notes-helper:latest
 ```
 
 [Setup `.env`](#1-configuration-env)
-!remember to use docker url for `OLLAMA_BASE_URL` in .env
+    - !! remember to use docker url for `OLLAMA_BASE_URL` in .env
 
 [Setup `data/`](#2-notes-directory-data)
 
@@ -307,41 +320,45 @@ Do **NOT** use `docker compose up` for interactive CLI
 ```bash
 docker run --rm -it \
   --env-file .env \
-  -v ./data:/app/data \
-  -v ./storage:/app/storage \
-  -v ./hf_cache:/root/.cache/huggingface \
+  -v ./data:/app/data \                                 # mount data/
+  -v ./storage:/app/storage \                           # mount storage/
+  -v ./hf_cache:/root/.cache/huggingface \              # mount cache file
+  -e TZ=Asia/Taipei \                                   # set timezone for log file
+  -v ./logs:/app/logs \                                 # mount log file
   ghcr.io/stevenhuang41/rag-based-notes-helper:latest \
-  "query"
+  "query" [commands]
 ```
 
 ### Commands:
 
-#### One time mode
-
-* `[query]`
-    Generates answer as usual
-
-* `[query] --reindex`
-    Reindex before generating answer
-
-* `[query] --citations`
-    Show citations file with answer
-
-* `--help`
-    Show help message
+* `--help` or `-h`
+    - Show help message
 
 * `--repl`
-    Run in REPL mode
+    - Run in REPL mode
 
-* `--config`
-    Check configureation
+* `--reindex` or `-r`
+    - Process all files in data/ to rebuild rag index
+
+* `--update` or `-u`
+    - Only process files that changed its content, faster than `--reindex` if only few changes
+
+* `--citations` or `-ci`
+    - Toggle citations display
+
+* `--sources` or `-so`
+    - Show indexed source files
+
+* `--config` or `-co`
+    - Show configuration
 
 #### REPL mode
 
 - `:quit`       /   `:q`      (exit)
 - `:help`       /   `:h`      (show instructions)
-- `:reindex`    /   `:ri`     (reindex without exiting)
-- `:citations`  /   `:ci`     (toggle citation files with answer)
+- `:reindex`    /   `:ri`     (reindex all files without exiting)
+- `:update`     /   `:u`      (update only changed files)
+- `:citations`  /   `:ci`     (toggle citations display)
 - `:sources`    /   `:so`     (show indexed files)
 - `:config`     /   `:co`     (check configuration)
 
@@ -372,5 +389,5 @@ pytest
 
 ## License
 
-MIT License
+[MIT License](./LICENSE)
 

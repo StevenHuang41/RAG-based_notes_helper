@@ -8,9 +8,11 @@ services:
     environment:
       PYTHONPATH: /app/src
       HF_HOME: /root/.cache/huggingface
+      TZ: Asia/Taipei
     volumes:
       - ./data:/app/data
       - ./storage:/app/storage
+      - ./logs:/app/logs
       - ./hf_cache:/root/.cache/huggingface
     stdin_open: true
     tty: true

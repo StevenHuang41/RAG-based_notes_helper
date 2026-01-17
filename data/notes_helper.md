@@ -3,15 +3,15 @@
 ## What Can Notes Helper Do
 
 - answer questions based on notes in `data/`
-- summarize conepts using the most relevant chunks selected by faiss
+- summarize concepts using the most relevant chunks
 - help reviewing and recalling topics from notes
 - show what files were used to generate the answer
 
 **must not**:
 
-- invent information
-- use external knowledge
-- halluciante answers
+- invent information not present in the notes
+- use external or prior knowledge
+- hallucinate answers beyond retrieved content
 
 ---
 
@@ -24,9 +24,9 @@
     - Example:
 
     ```
-    What is xxx?
-    Who are you?
-    How can you help me?
+    What is xxx
+    Who are you
+    How can you help me
     ```
 
 * Notes helper will:
@@ -36,54 +36,45 @@
     3. generate a readable answer
     4. show citations to the source notes
 
-### Commands
+### Commands:
 
-#### one time mode
+* `--help` or `-h`
+    - Show help message
 
-Answer a single question, optionally reindex or show citations
+* `--repl`
+    - Run in REPL mode
 
-* `[query]`
-    Generates answer as usual
+* `--reindex` or `-r`
+    - Process all files in data/ to rebuild rag index
 
-* `[query] --repl`
-    Run in REPL mode
+* `--update` or `-u`
+    - Only process files that changed its content, faster than `--reindex` if only few changes
 
-* `[query] --help`
-    Show help message
+* `--citations` or `-ci`
+    - Toggle citations display
 
-* `[query] --reindex`
-    Reindex before generating answer
+* `--sources` or `-so`
+    - Show indexed source files
 
-* `[query] --citations`
-    Show citations file with answer
+* `--config` or `-co`
+    - Show configuration
 
-* `[query] --config`
-    Check configureation
 
 #### REPL mode
-
-Ask multiple questions interactively, reindex nots without restarting,
+Ask multiple questions interactively, reindex notes without restarting,
 inspect sources, toggle citations
+The index and embedding model are loaded once and reused during the session
+for faster interaction
 
-* `:quit` or `:q`
-    Exit Notes Helper
+- `:quit`       /   `:q`      (exit)
+- `:help`       /   `:h`      (show instructions)
+- `:reindex`    /   `:ri`     (reindex all files without exiting)
+- `:update`     /   `:u`      (update only changed files)
+- `:citations`  /   `:ci`     (toggle citations display)
+- `:sources`    /   `:so`     (show indexed files)
+- `:config`     /   `:co`     (check configuration)
 
-* `:help` or `:h`
-    Exit Notes Helper
-
-* `:reindex` or `:ri`
-    Rebuild the index to include new or updated notes in `data/`
-
-* `:citations` or `:ci`
-    Toggle citation files in RAG
-
-* `:sources` or `:so`
-    Show the indexed files in RAG
-
-* `:config` or `:co`
-    Check configuration
-
-You do **NOT** need to restart the program to reindex
+You do **NOT** need to restart the system to update or reindex
 
 See CLI usage in README.md
 
@@ -121,7 +112,7 @@ Notes Helper uses a standard RAG pipeline:
   Notes remain the only knowledge base
 
 - **No fine-tuning**
-  Knowledge updates without retraining
+  Knowledge updates via reindexing, without retraining models
 
 - **Memory safety**
   Large note files are processed line-by-line
@@ -141,13 +132,13 @@ Notes Helper uses a standard RAG pipeline:
 
 ## Reminder
 
-Notes Helper is a tool for querying your notes, not an general-purpose ai assistant.
-If query cannot be found in notes, it will reuturn nothing
-
+Notes Helper is a tool for querying your notes, not a general-purpose AI assistant
+If relevant information cannot be found in the notes, it will respond accordingly without guessing
 
 ## Tips For Better Answer
 
 - write clear, rich, descriptive notes
 - keep one concept per question
+- based on experience, avoid using question mark '?'
 - run `:reindex` after adding or updating notes
 - change the configuration in `.env` according to your needs

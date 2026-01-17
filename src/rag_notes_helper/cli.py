@@ -164,8 +164,8 @@ def repl(
                     "\nCommands:\n"
                         "   :quit      or  :q    -> exit app\n"
                         "   :help      or  :h    -> show instructions\n"
-                        "   :update    or  :u    -> update index\n"
                         "   :reindex   or  :ri   -> reindex rag\n"
+                        "   :update    or  :u    -> update index\n"
                         "   :citations or  :ci   -> show citation files\n"
                         "   :sources   or  :so   -> show all source files\n"
                         "   :config    or  :co   -> check configuration\n"
@@ -247,11 +247,11 @@ def main():
     logger.info(
         f"[input]: rag-app{f' {query}' if query else ''}"
         f"{' --repl' if args.repl else ''}"
-        f"{' --config' if args.config else ''}"
-        f"{' --update' if args.update else ''}"
         f"{' --reindex' if args.reindex else ''}"
+        f"{' --update' if args.update else ''}"
         f"{' --citations' if args.citations else ''}"
         f"{' --sources' if args.sources else ''}"
+        f"{' --config' if args.config else ''}"
     )
     logger.info(f"config: {get_settings().model_dump_json()}")
 
