@@ -86,10 +86,14 @@ def display_ansewr(answer):
     print("\nANSWER:\n")
 
     if isinstance(answer, Iterable) and not isinstance(answer, str):
-        for chunk in answer:
-            print(chunk, end="", flush=True)
+        try :
+            for chunk in answer:
+                print(chunk, end="", flush=True)
 
-        print()
+            print()
+        except Exception as e:
+            logger.warning(f"[Stream Error]: {e}")
+            print(f"\n[Stream Error]: {e}")
 
     else :
         print(answer)

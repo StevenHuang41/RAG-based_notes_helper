@@ -58,7 +58,7 @@ class HuggingFaceLLM:
             max_tokens=kws.get("max_tokens", self.max_tokens),
             temperature=kws.get("temperature", self.temperature),
             stream=True,
-        )
+        )                            
 
         current_len = 0
         has_content = False

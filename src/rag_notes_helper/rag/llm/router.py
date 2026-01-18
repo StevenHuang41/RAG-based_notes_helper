@@ -18,8 +18,8 @@ def get_llm():
         return HuggingFaceLLM(
             model=model,
             api_key=api_key,
-            # max_tokens=max_tokens,
-            # temperature=temperature,
+            max_tokens=max_tokens,
+            temperature=temperature,
         )
 
     elif provider == "openai":

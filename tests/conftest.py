@@ -12,8 +12,8 @@ def test_settings(monkeypatch, tmp_path):
     monkeypatch.setenv("LLM_MODEL", "llama3.1")
     monkeypatch.setenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
-    notes_dir = tmp_path / "data"
-    storage_dir = tmp_path / "storage"
+    notes_dir: Path = tmp_path / "data"
+    storage_dir: Path = tmp_path / "storage"
     notes_dir.mkdir(exist_ok=True)
     storage_dir.mkdir(exist_ok=True)
 
