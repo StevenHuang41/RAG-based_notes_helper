@@ -2,7 +2,7 @@ from inspect import currentframe
 from pathlib import Path
 import hashlib
 import mmap
-from typing import Iterable
+from typing import Iterator
 
 from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.rag.chunking import Chunk, chunk_text
@@ -28,7 +28,7 @@ def get_stable_doc_id(path: Path, *, hash_len: int = 16) -> str:
 def load_notes(
     notes_dir: Path | None = None,
     # doc_caches: set[str] | None = None,
-) -> Iterable[Chunk]:
+) -> Iterator[Chunk]:
     settings = get_settings()
     notes_dir = notes_dir or settings.notes_dir
 

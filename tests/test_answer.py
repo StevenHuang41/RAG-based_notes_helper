@@ -1,5 +1,4 @@
-from collections.abc import Iterable
-from typing import Any
+from collections.abc import Iterator
 
 import pytest
 
@@ -12,7 +11,7 @@ def mock_dependencies(monkeypatch):
         def generate(self, prompt, line_width):
             return "generate dummy answer"
 
-        def stream(self, prompt, line_width) -> Iterable:
+        def stream(self, prompt, line_width) -> Iterator:
             yield "stream"
             yield "dummy"
             yield "answer"
@@ -58,7 +57,13 @@ def test_rag_answer_stream(monkeypatch, mock_dependencies, mock_hits):
     monkeypatch.setenv("STREAM", "true")
 
     result = rag_answer(query="q", hits=mock_hits)
+    stream_answer = result["answer"]
 
-    assert isinstance(result["answer"], Iterable)
-    assert " ".join(list(result["answer"])) == "stream dummy answer"
+    assert next(stream_answer) == "stream"
+    assert next(stream_answer) == "dummy"
+    assert next(stream_answer) == "answer"
+
+    with pytest.raises(StopIteration):
+        next(stream_answer)
+
     assert result["citations"][0]["source"] == "note.md"

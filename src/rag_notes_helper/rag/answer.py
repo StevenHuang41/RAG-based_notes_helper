@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Iterator
 from typing import Any
 
 from rag_notes_helper.rag.llm import get_llm

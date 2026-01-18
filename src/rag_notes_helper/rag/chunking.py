@@ -1,7 +1,7 @@
 from collections import deque
 from dataclasses import dataclass
 from io import TextIOBase
-from collections.abc import Iterable
+from collections.abc import Iterator
 
 @dataclass(frozen=True)
 class Chunk:
@@ -17,7 +17,7 @@ def chunk_text(
     source: str,
     chunk_size: int,
     overlap: int,
-) -> Iterable[Chunk]:
+) -> Iterator[Chunk]:
 
     if chunk_size <= 0:
         raise ValueError("chunk_size must be > 0")

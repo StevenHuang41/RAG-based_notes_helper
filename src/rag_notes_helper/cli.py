@@ -1,7 +1,7 @@
 import argparse
 import sys
 from pydantic import ValidationError
-from collections.abc import Iterable
+from collections.abc import Iterator
 
 from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.rag.index import (
@@ -85,7 +85,7 @@ def show_citations(result, show_full: bool = False):
 def display_ansewr(answer):
     print("\nANSWER:\n")
 
-    if isinstance(answer, Iterable) and not isinstance(answer, str):
+    if isinstance(answer, Iterator) and not isinstance(answer, str):
         try :
             for chunk in answer:
                 print(chunk, end="", flush=True)

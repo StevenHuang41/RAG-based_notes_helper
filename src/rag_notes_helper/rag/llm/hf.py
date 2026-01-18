@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 import textwrap
 from typing import Any
 
@@ -24,7 +24,7 @@ class HuggingFaceLLM:
 
     def generate(
         self,
-        prompt: list[dict[str, Any]],
+        prompt: Iterable[dict[str, Any]],
         **kws,
     ) -> str:
 
@@ -46,9 +46,9 @@ class HuggingFaceLLM:
 
     def stream(
         self,
-        prompt: list[dict[str, Any]],
+        prompt: Iterable[dict[str, Any]],
         **kws,
-    ) -> Iterable[str]:
+    ) -> Iterator[str]:
 
         line_width = kws.get("line_width", self.line_width)
 

@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Iterable
+from typing import Iterator
 import json
 import struct
 
@@ -35,7 +35,7 @@ class RagIndex:
 
 
 def build_index(
-    chunks: Iterable[Chunk],
+    chunks: Iterator[Chunk],
     batch_size: int = 1024,
 ) -> RagIndex:
     if not chunks:
@@ -107,7 +107,7 @@ def _process_batch(
     if index is None:
         index = faiss.IndexFlatIP(embeddings.shape[1])
 
-    index.add(embeddings)
+    index.add(embeddings) # type: ignore
 
 
     # 3. write meta_f and offset_f

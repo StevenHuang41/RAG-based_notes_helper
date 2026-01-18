@@ -1,9 +1,10 @@
 import textwrap
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator, Mapping
+from typing import Any, cast
 
 from openai import OpenAI
 from openai.types.chat import ChatCompletionMessageParam
-
+#
 class OpenAILLM:
     def __init__(
         self,
@@ -22,15 +23,17 @@ class OpenAILLM:
 
     def generate(
         self,
-        prompt: Iterable[ChatCompletionMessageParam],
+        prompt: Iterable[Mapping[str, Any]],
         **kws,
     ) -> str:
 
         line_width = kws.get("line_width", self.line_width)
 
+        messages = cast(list[ChatCompletionMessageParam], list(prompt))
+
         response = self.client.chat.completions.create(
             model = self.model,
-            messages=list(prompt),
+            messages=messages,
             max_tokens=kws.get("max_tokens", self.max_tokens),
             temperature=kws.get("temperature", self.temperature),
         )
@@ -40,21 +43,22 @@ class OpenAILLM:
             or "LLM return empty response"
         )
 
-
         return textwrap.fill(response_text, width=line_width)
 
 
     def stream(
         self,
-        prompt: Iterable[ChatCompletionMessageParam],
+        prompt: Iterable[Mapping[str, Any]],
         **kws,
-    ) -> Iterable[str]:
+    ) -> Iterator[str]:
 
         line_width = kws.get("line_width", self.line_width)
 
+        messages = cast(list[ChatCompletionMessageParam], list(prompt))
+
         response = self.client.chat.completions.create(
             model = self.model,
-            messages=list(prompt),
+            messages=messages,
             max_tokens=kws.get("max_tokens", self.max_tokens),
             temperature=kws.get("temperature", self.temperature),
             stream=True,

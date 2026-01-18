@@ -1,7 +1,8 @@
 import requests
 import json
 import textwrap
-from collections.abc import Iterable
+from typing import Any
+from collections.abc import Iterator, Iterable
 
 
 class OllamaLLM:
@@ -36,7 +37,7 @@ class OllamaLLM:
 
     def generate(
         self,
-        prompt: list[dict[str, str]],
+        prompt: Iterable[dict[str, Any]],
         **kws,
     ) -> str:
 
@@ -60,9 +61,9 @@ class OllamaLLM:
 
     def stream(
         self,
-        prompt: list[dict[str, str]],
+        prompt: Iterable[dict[str, Any]],
         **kws,
-    ) -> Iterable[str]:
+    ) -> Iterator[str]:
 
         line_width = kws.get("line_width", self.line_width)
         payload = self._get_payload(prompt, stream=True, **kws)
