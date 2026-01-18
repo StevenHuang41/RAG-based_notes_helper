@@ -12,19 +12,22 @@ from pydantic import (
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class LLMSettings(BaseSettings):
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_prefix="LLM_",
+        env_ignore_empty=True,
+        extra="ignore",
+    )
+
     provider: Literal["hf", "openai", "ollama"]
     model: str
     api_key: SecretStr | None = None
 
     max_chunks: int = Field(5, gt=0, le=50)
-    max_tokens: int = Field(2048, gt=0)
+    max_tokens: int = Field(1024, gt=0)
     temperature: float = Field(0.3, gt=0, le=1)
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_prefix="LLM_",
-        extra="ignore"
-    )
 
     @property
     def api_key_str(self) -> str | None:
@@ -43,6 +46,13 @@ class LLMSettings(BaseSettings):
 
 
 class Settings(BaseSettings):
+    # read .env file configuration variables
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_ignore_empty=True,
+        extra="ignore"
+    )
+
     # llm settings
     llm: LLMSettings = Field(default_factory=LLMSettings)
     ollama_base_url: str = Field("http://localhost:11434", frozen=True)
@@ -58,14 +68,15 @@ class Settings(BaseSettings):
     top_k: int = Field(5, gt=0, le=50)
     min_retrieval_score: float = Field(0.2, ge=0, le=1)
 
+    # format
+    stream: bool = True
+    line_width: int = Field(80, gt=10, le=100)
+
     # path
     project_root: Path = Path(__file__).resolve().parents[3]
     notes_dir: Path = project_root / "data"
     storage_dir: Path = project_root / "storage"
     logs_dir: Path = project_root / "logs"
-
-    # read .env file configuration variables
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @model_validator(mode="after")
     def validate_cross_logic(self) -> Settings:

@@ -1,3 +1,6 @@
+from collections.abc import Iterable
+from typing import Any
+
 from rag_notes_helper.rag.llm import get_llm
 from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.utils.timer import deco_time_block
@@ -26,7 +29,6 @@ GROUNDING & CROSS-CHUNK REASONING:
 
 OUTPUT FORMAT:
 - Plain text only. NO markdown, NO asterisks (*), NO bold (**).
-- Maximum 70 characters per line.
 - Do not include introductions like "Based on the notes..."
 """.strip()
 
@@ -36,9 +38,7 @@ def rag_answer(
     query: str,
     *,
     hits: list[dict],
-    max_tokens: int | None = None,
-    temperature: float | None = None,
-) -> dict:
+) -> dict[str, Any]:
     settings = get_settings()
 
     if not hits:
@@ -75,11 +75,17 @@ def rag_answer(
     ]
 
     llm = get_llm()
-    answer_text = llm.generate(
-        prompt,
-        max_tokens or settings.llm.max_tokens,
-        temperature or settings.llm.temperature,
-    )
+
+    if settings.stream:
+        answer_text = llm.stream(
+            prompt,
+            line_width=settings.line_width,
+        )
+    else :
+        answer_text = llm.generate(
+            prompt,
+            line_width=settings.line_width,
+        )
 
     return {
         "answer": answer_text,

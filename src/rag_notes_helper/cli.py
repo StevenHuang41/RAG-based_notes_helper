@@ -1,6 +1,7 @@
 import argparse
-from pydantic import ValidationError
 import sys
+from pydantic import ValidationError
+from collections.abc import Iterable
 
 from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.rag.index import (
@@ -45,6 +46,10 @@ def show_config():
     print(f"    TOP_K      : {settings.top_k}")
     print(f"    Min Score  : {settings.min_retrieval_score}")
 
+    print("\nFormat:")
+    print(f"    stream     : {settings.stream}")
+    print(f"    line_width : {settings.line_width}")
+
     print("\nPaths:")
     print(f"    Notes dir  : {settings.notes_dir}")
     print(f"    Storage dir: {settings.storage_dir}")
@@ -77,6 +82,19 @@ def show_citations(result, show_full: bool = False):
 
 
 @deco_time_block
+def display_ansewr(answer):
+    print("\nANSWER:\n")
+
+    if isinstance(answer, Iterable) and not isinstance(answer, str):
+        for chunk in answer:
+            print(chunk, end="", flush=True)
+
+        print()
+
+    else :
+        print(answer)
+
+
 def run_onetime(
     rag: RagIndex,
     meta_store: MetaStore,
@@ -90,8 +108,7 @@ def run_onetime(
     logger.info((f"query: {query[:20]}{' ...' if len(query) > 20 else ''}"))
     result = rag_answer(query, hits=hits)
 
-    print("\nANSWER:\n")
-    print(result["answer"])
+    display_ansewr(result["answer"])
 
     if citations and result['citations']:
         show_citations(result)
@@ -178,8 +195,7 @@ def repl(
 
             result = rag_answer(query, hits=hits)
 
-            print("\nANSWER:\n")
-            print(result["answer"])
+            display_ansewr(result["answer"])
 
             if citations and result["citations"]:
                 show_citations(result, show_full=True)

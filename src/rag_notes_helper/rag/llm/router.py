@@ -10,17 +10,24 @@ def get_llm():
     provider = settings.llm.provider
     model = settings.llm.model
     api_key = settings.llm.api_key_str
+    max_tokens = settings.llm.max_tokens
+    temperature = settings.llm.temperature
+
 
     if provider == "hf":
         return HuggingFaceLLM(
             model=model,
             api_key=api_key,
+            # max_tokens=max_tokens,
+            # temperature=temperature,
         )
 
     elif provider == "openai":
         return OpenAILLM(
             model=model,
-            api_key=api_key
+            api_key=api_key,
+            max_tokens=max_tokens,
+            temperature=temperature,
         )
 
     elif provider == "ollama":
@@ -31,6 +38,8 @@ def get_llm():
         return OllamaLLM(
             model=model,
             base_url=settings.ollama_base_url,
+            max_tokens=max_tokens,
+            temperature=temperature,
         )
 
     raise ValueError(f"Unknown LLM_PROVIDER: {settings.llm.provider}")

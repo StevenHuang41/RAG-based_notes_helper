@@ -1,6 +1,7 @@
 from collections import deque
 from dataclasses import dataclass
-from typing import TextIO, Iterable
+from io import TextIOBase
+from collections.abc import Iterable
 
 @dataclass(frozen=True)
 class Chunk:
@@ -11,7 +12,7 @@ class Chunk:
 
 def chunk_text(
     *,
-    file_object: TextIO,
+    file_object: TextIOBase,
     doc_id: str,
     source: str,
     chunk_size: int,
