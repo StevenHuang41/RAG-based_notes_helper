@@ -20,7 +20,7 @@ class LLMSettings(BaseSettings):
         extra="ignore",
     )
 
-    provider: Literal["hf", "openai", "ollama"]
+    provider: Literal["hf", "openai", "ollama", "gemini"]
     model: str
     api_key: SecretStr | None = None
 
@@ -70,7 +70,7 @@ class Settings(BaseSettings):
 
     # format
     stream: bool = True
-    line_width: int = Field(80, gt=10, le=100)
+    line_width: int = 80
 
     # path
     project_root: Path = Path(__file__).resolve().parents[3]

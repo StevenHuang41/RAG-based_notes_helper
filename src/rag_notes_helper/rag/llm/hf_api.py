@@ -1,32 +1,31 @@
 from collections.abc import Iterable, Iterator, Mapping
-from typing import Any, cast
+from typing import Any
 
-from openai import OpenAI
-from openai.types.chat import ChatCompletionMessageParam
-
+from huggingface_hub import InferenceClient
 from rag_notes_helper.rag.llm.base import BaseLLM
 
 
-class OpenAILLM(BaseLLM):
+class HuggingFaceLLM(BaseLLM):
     def __init__(
         self,
         api_key: str | None,
         **kws,
     ):
         super().__init__(**kws)
-        self.client = OpenAI(api_key=api_key, timeout=120)
-
+        self.client = InferenceClient(
+            provider="auto", # pick the best hardware avaliable on HF
+            api_key = api_key,
+            timeout=120,
+        )
 
     def _generate(
         self,
         prompt: Iterable[Mapping[str, Any]],
         **kws,
     ) -> str:
-        messages = cast(list[ChatCompletionMessageParam], list(prompt))
-
         response = self.client.chat.completions.create(
             model = self.model,
-            messages=messages,
+            messages=list(prompt),
             max_tokens=kws.get("max_tokens", self.max_tokens),
             temperature=kws.get("temperature", self.temperature),
         )
@@ -40,7 +39,6 @@ class OpenAILLM(BaseLLM):
         prompt: Iterable[Mapping[str, Any]],
         **kws,
     ) -> Iterator[str]:
-
         response = self.client.chat.completions.create(
             model = self.model,
             messages=list(prompt),
