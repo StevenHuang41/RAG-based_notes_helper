@@ -77,28 +77,46 @@ class OllamaLLM:
         response.raise_for_status()
 
         current_len = 0
+        buffer = ""
         has_content = False
         for line in response.iter_lines():
             if not line:
                 continue
 
             chunk = json.loads(line.decode("utf-8"))
+            content = chunk.get("message", {}).get("content", "")
 
-            if text := chunk.get("message", {}).get("content", ""):
+            if content:
                 has_content = True
-                words = text.split(" ")
-                for i, word in enumerate(words):
-                    display_word = word if i == 0 else " " + word
+                for char in content:
+                    if char == "\n":
+                        yield buffer + "\n"
+                        buffer = ""
+                        current_len = 0
 
-                    if current_len + len(display_word) > line_width:
-                        yield "\n"
+                    elif char == " ":
+                        # buffer is a complete word
+                        if current_len + len(buffer) + 1 > line_width:
+                            # last word of line exceed
+                            yield "\n" + buffer.lstrip() + " "
+                            current_len = len(buffer.lstrip()) + 1
+                        else :
+                            # last word of line fits
+                            yield buffer + " "
+                            current_len += len(buffer) + 1
 
-                        display_word = word.lstrip()
-                        current_len = len(display_word)
+                        buffer = ""
+
                     else :
-                        current_len += len(display_word)
+                        # buffer is not complete for a word
+                        buffer += char
 
-                    yield display_word
+        if buffer:
+            if current_len + len(buffer) > line_width:
+                yield "\n" + buffer.lstrip()
+            else :
+                yield buffer
 
         if not has_content:
             yield "LLM return empty response"
+

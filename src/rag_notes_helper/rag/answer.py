@@ -11,7 +11,7 @@ ROLE: You are "Notes Helper," a personal assistant.
 The person asking questions is the "Owner" of these notes.
 
 IDENTITY RULES:
-- If asked "Who are you?", answer ONLY: I am Notes Helper.
+- If asked "Who are you", answer: I am Notes Helper.
 - If asked "Who am I?", answer ONLY: You are the owner of the
   notes in your data directory.
 - If asked "What can you do?", answer ONLY: I help you search
@@ -28,8 +28,11 @@ GROUNDING & CROSS-CHUNK REASONING:
 - Do not use outside knowledge.
 
 OUTPUT FORMAT:
-- Plain text only. NO markdown, NO asterisks (*), NO bold (**).
-- Do not include introductions like "Based on the notes..."
+- STRICT Plain text ONLY.
+- NEVER use markdown headers (#).
+- NEVER use double asterisks (**).
+- If you use a list, use plain numbers followed by a period.
+- Do not include introductions like "Based on the notes...".
 """.strip()
 
 
@@ -41,27 +44,19 @@ def rag_answer(
 ) -> dict[str, Any]:
     settings = get_settings()
 
-    if not hits:
-        return {
-            "answer": (
-                "I could not find relevant information in your notes. \n"
-                "Try rephrasing the question or add more notes."
-            ),
-            "citations": [],
-        }
-
-    hits = hits[: settings.llm.max_chunks]
-
-    context_blocks = [f"file:{h['source']}\n{h['text']}" for h in hits]
-    context = "\n\n".join(context_blocks)
-
-    citations = [
-        {
-            "source": h["source"],
-            "chunk_id": h["chunk_id"],
-            "score": h["score"],
-        } for h in hits
-    ]
+    context = ""
+    citations = []
+    if hits:
+        hits = hits[: settings.llm.max_chunks]
+        context_blocks = [f"file:{h['source']}\n{h['text']}" for h in hits]
+        context = "\n\n".join(context_blocks)
+        citations = [
+            {
+                "source": h["source"],
+                "chunk_id": h["chunk_id"],
+                "score": h["score"],
+            } for h in hits
+        ]
 
     prompt = [
         {

@@ -58,26 +58,46 @@ class HuggingFaceLLM:
             max_tokens=kws.get("max_tokens", self.max_tokens),
             temperature=kws.get("temperature", self.temperature),
             stream=True,
-        )                            
+        )
 
         current_len = 0
+        buffer = ""
         has_content = False
         for chunk in response:
-            if chunk.choices and (line := chunk.choices[0].delta.content):
-                has_content = True
-                words = line.split(" ")
-                for i, word in enumerate(words):
-                    display_word = word if i == 0 else " " + word
+            if not chunk.choices or not chunk.choices[0].delta.content:
+                continue
 
-                    if current_len + len(display_word) > line_width:
-                        yield "\n"
+            content = chunk.choices[0].delta.content
+            has_content = True
 
-                        display_word = word.lstrip()
-                        current_len = len(display_word)
+            for char in content:
+                if char == "\n":
+                    yield buffer + "\n"
+                    buffer = ""
+                    current_len = 0
+
+                elif char == " ":
+                    # buffer is a complete word
+                    if current_len + len(buffer) + 1 > line_width:
+                        # last word of line exceed
+                        yield "\n" + buffer.lstrip() + " "
+                        current_len = len(buffer.lstrip()) + 1
                     else :
-                        current_len += len(display_word)
+                        # last word of line fits
+                        yield buffer + " "
+                        current_len += len(buffer) + 1
 
-                    yield display_word
+                    buffer = ""
+
+                else :
+                    # buffer is not complete for a word
+                    buffer += char
+
+        if buffer:
+            if current_len + len(buffer) > line_width:
+                yield "\n" + buffer.lstrip()
+            else :
+                yield buffer
 
         if not has_content:
             yield "LLM return empty response"

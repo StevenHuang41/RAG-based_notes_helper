@@ -35,13 +35,6 @@ def mock_hits():
     return hits
 
 
-def test_rag_answer_no_hits():
-    result = rag_answer(query="q", hits=[])
-
-    assert "could not find relevant information" in result["answer"].lower()
-    assert result["citations"] == []
-
-
 def test_rag_answer_generate(monkeypatch, mock_dependencies, mock_hits):
 
     monkeypatch.setenv("STREAM", "false")

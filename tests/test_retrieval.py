@@ -25,7 +25,7 @@ def test_retrieve_filters_by_score(monkeypatch, mock_meta_store):
     index = faiss.IndexFlatIP(dim)
     vectors = np.array([[1, 0, 0], [0.1, 0, 0]]).astype("float32")
 
-    index.add(vectors)
+    index.add(vectors) # type: ignore
 
     mock_model = MagicMock()
     mock_model.encode.return_value = np.array(

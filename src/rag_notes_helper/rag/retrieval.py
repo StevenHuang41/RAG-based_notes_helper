@@ -22,7 +22,7 @@ def retrieve(
         convert_to_numpy=True,
     ).astype("float32")
 
-    scores, indices = rag.index.search(q_emb, top_k)
+    scores, indices = rag.index.search(q_emb, top_k) # type: ignore
 
     results: list[dict] = []
     for score, idx in zip(scores[0], indices[0]):
