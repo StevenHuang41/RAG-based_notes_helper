@@ -1,7 +1,8 @@
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterator
 from typing import Any
 
 from huggingface_hub import InferenceClient
+
 from rag_notes_helper.rag.llm.base import BaseLLM
 
 
@@ -20,28 +21,30 @@ class HuggingFaceLLM(BaseLLM):
 
     def _generate(
         self,
-        prompt: Iterable[Mapping[str, Any]],
+        prompt: list[dict[str, Any]],
         **kws,
     ) -> str:
+
         response = self.client.chat.completions.create(
             model = self.model,
-            messages=list(prompt),
+            messages=prompt,
             max_tokens=kws.get("max_tokens", self.max_tokens),
             temperature=kws.get("temperature", self.temperature),
         )
 
-        content = str(response.choices[0].message.content)
+        content = response.choices[0].message.content
         return content or ""
 
 
     def _stream(
         self,
-        prompt: Iterable[Mapping[str, Any]],
+        prompt: list[dict[str, Any]],
         **kws,
     ) -> Iterator[str]:
+        
         response = self.client.chat.completions.create(
             model = self.model,
-            messages=list(prompt),
+            messages=prompt,
             max_tokens=kws.get("max_tokens", self.max_tokens),
             temperature=kws.get("temperature", self.temperature),
             stream=True,

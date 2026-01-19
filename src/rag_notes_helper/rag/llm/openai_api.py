@@ -2,7 +2,6 @@ from collections.abc import Iterable, Iterator, Mapping
 from typing import Any, cast
 
 from openai import OpenAI
-from openai.types.chat import ChatCompletionMessageParam
 
 from rag_notes_helper.rag.llm.base import BaseLLM
 
@@ -14,44 +13,46 @@ class OpenAILLM(BaseLLM):
         **kws,
     ):
         super().__init__(**kws)
-        self.client = OpenAI(api_key=api_key, timeout=120)
+        self.client = OpenAI(
+            api_key=api_key,
+            timeout=120
+        )
 
 
     def _generate(
         self,
-        prompt: Iterable[Mapping[str, Any]],
+        prompt: list[dict[str, Any]],
         **kws,
     ) -> str:
-        messages = cast(list[ChatCompletionMessageParam], list(prompt))
 
-        response = self.client.chat.completions.create(
-            model = self.model,
-            messages=messages,
-            max_tokens=kws.get("max_tokens", self.max_tokens),
+        response = self.client.responses.create(
+            model=self.model,
+            input=prompt, # type: ignore
+            max_output_tokens=kws.get("max_tokens", self.max_tokens),
             temperature=kws.get("temperature", self.temperature),
         )
 
-        content = str(response.choices[0].message.content)
+        content = response.output_text
         return content or ""
 
 
     def _stream(
         self,
-        prompt: Iterable[Mapping[str, Any]],
+        prompt: list[dict[str, Any]],
         **kws,
     ) -> Iterator[str]:
 
-        response = self.client.chat.completions.create(
-            model = self.model,
-            messages=list(prompt),
-            max_tokens=kws.get("max_tokens", self.max_tokens),
+        response = self.client.responses.create(
+            model=self.model,
+            input=prompt, # type: ignore
+            max_output_tokens=kws.get("max_tokens", self.max_tokens),
             temperature=kws.get("temperature", self.temperature),
             stream=True,
         )
 
-        for chunk in response:
-            if not chunk.choices or not chunk.choices[0].delta.content:
-                continue
+        for event in response:
+            if event.type == "response.output_text.delt":
+                yield from event.delta
 
-            for char in chunk.choices[0].delta.content:
-                yield char
+            elif event.type == "response.error":
+                yield f"\n[API Error]: {event.error.message}"

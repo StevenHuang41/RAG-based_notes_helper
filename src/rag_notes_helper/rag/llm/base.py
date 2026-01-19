@@ -1,6 +1,7 @@
+from typing import Any
+from typing import Iterator
 import textwrap
 from abc import ABC, abstractmethod
-from typing import Iterable, Iterator, Mapping, Any
 
 
 class BaseLLM(ABC):
@@ -20,7 +21,7 @@ class BaseLLM(ABC):
     @abstractmethod
     def _generate(
         self,
-        prompt: Iterable[Mapping[str, Any]],
+        prompt: list[dict[str, Any]],
         **kws,
     ) -> str:
         raise NotImplementedError
@@ -28,7 +29,7 @@ class BaseLLM(ABC):
 
     def generate(
         self,
-        prompt: Iterable[Mapping[str, Any]],
+        prompt: list[dict[str, Any]],
         **kws,
     ) -> str:
         line_width = kws.get("line_width", self.line_width)
@@ -43,7 +44,7 @@ class BaseLLM(ABC):
     @abstractmethod
     def _stream(
         self,
-        prompt: Iterable[Mapping[str, Any]],
+        prompt: list[dict[str, Any]],
         **kws,
     ) -> Iterator[str]:
         raise NotImplementedError
@@ -51,7 +52,7 @@ class BaseLLM(ABC):
 
     def stream(
         self,
-        prompt: Iterable[Mapping[str, Any]],
+        prompt: list[dict[str, Any]],
         **kws,
     ) -> Iterator[str]:
 
@@ -61,7 +62,7 @@ class BaseLLM(ABC):
         buffer = ""
         has_content = False
 
-        for char in self._stream(prompt, stream=True, **kws):
+        for char in self._stream(prompt, **kws):
             has_content = True
             if char == "\n":
                 yield buffer + "\n"

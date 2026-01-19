@@ -9,10 +9,10 @@ from rag_notes_helper.rag.llm.base import BaseLLM
 class OllamaLLM(BaseLLM):
     def __init__(
         self,
-        api_key: str | None,
         base_url: str = "http://localhost:11434",
         **kws,
     ) -> None:
+        kws.pop("api_key", None)
         super().__init__(**kws)
         self.base_url = base_url.rstrip("/")
 
@@ -20,7 +20,7 @@ class OllamaLLM(BaseLLM):
     def _get_payload(self, prompt, *, stream=False):
         payload = {
             "model": self.model,
-            "messages": list(prompt),
+            "messages": prompt,
             "stream": stream,
             "options": {
                 "num_predict": self.max_tokens,
@@ -32,7 +32,7 @@ class OllamaLLM(BaseLLM):
 
     def _generate(
         self,
-        prompt: Iterable[Mapping[str, Any]],
+        prompt: list[dict[str, Any]],
         **kws,
     ) -> str:
 
@@ -51,7 +51,7 @@ class OllamaLLM(BaseLLM):
 
     def _stream(
         self,
-        prompt: Iterable[Mapping[str, Any]],
+        prompt: list[dict[str, Any]],
         **kws,
     ) -> Iterator[str]:
 
