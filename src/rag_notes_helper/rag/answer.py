@@ -41,6 +41,7 @@ def rag_answer(
     query: str,
     *,
     hits: list[dict],
+    stream: bool = False,
 ) -> dict[str, Any]:
     settings = get_settings()
 
@@ -71,7 +72,7 @@ def rag_answer(
 
     llm = get_llm()
 
-    if settings.stream:
+    if stream:
         answer_text = llm.stream(
             prompt,
             line_width=settings.line_width,

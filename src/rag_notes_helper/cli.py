@@ -122,14 +122,17 @@ def repl(
     meta_store: MetaStore | None = None,
     *,
     citations: bool = False,
+
 ):
     rag = rag or load_or_build_index()
     meta_store = meta_store or MetaStore()
+    stream_response: bool = get_settings().stream
 
     print(
         "\nRAG-based Notes Helper\n"
         "(enter ':h' for help)\n"
-    )
+    )    
+
 
     try :
         while True:
@@ -180,6 +183,15 @@ def repl(
                 citations = not citations
                 continue
 
+            if query in {":stream", ":s"}:
+                if stream_response:
+                    print("\n/Batch response\n")
+                else :
+                    print("\n/Stream response\n")
+
+                stream_response = not stream_response
+                continue
+
             if query in {":help", ":h"}:
                 print(
                     "\nCommands:\n"
@@ -197,7 +209,7 @@ def repl(
 
             hits = retrieve(rag, meta_store, query=query)
 
-            result = rag_answer(query, hits=hits)
+            result = rag_answer(query, hits=hits, stream=stream_response)
 
             display_ansewr(result["answer"])
 

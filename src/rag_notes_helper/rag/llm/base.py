@@ -8,11 +8,13 @@ class BaseLLM(ABC):
     def __init__(
         self,
         model: str,
+        api_key: str | None,
         max_tokens: int = 1024,
         temperature: float = 0.3,
         line_width: int = 80,
     ):
         self.model = model
+        self.api_key = api_key
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.line_width = line_width

@@ -7,11 +7,7 @@ from rag_notes_helper.rag.llm.base import BaseLLM
 
 
 class OllamaLLM(BaseLLM):
-    def __init__(
-        self,
-        base_url: str = "http://localhost:11434",
-        **kws,
-    ) -> None:
+    def __init__(self, base_url: str = "http://localhost:11434", **kws) -> None:
         kws.pop("api_key", None)
         super().__init__(**kws)
         self.base_url = base_url.rstrip("/")
@@ -30,12 +26,7 @@ class OllamaLLM(BaseLLM):
         return payload
 
 
-    def _generate(
-        self,
-        prompt: list[dict[str, Any]],
-        **kws,
-    ) -> str:
-
+    def _generate(self, prompt: list[dict[str, Any]], **kws) -> str:
         payload = self._get_payload(prompt)
 
         response = requests.post(
@@ -49,12 +40,7 @@ class OllamaLLM(BaseLLM):
         return content or ""
 
 
-    def _stream(
-        self,
-        prompt: list[dict[str, Any]],
-        **kws,
-    ) -> Iterator[str]:
-
+    def _stream(self, prompt: list[dict[str, Any]], **kws) -> Iterator[str]:
         payload = self._get_payload(prompt, stream=True)
 
         response = requests.post(

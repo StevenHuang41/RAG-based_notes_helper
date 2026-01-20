@@ -7,24 +7,15 @@ from rag_notes_helper.rag.llm.base import BaseLLM
 
 
 class HuggingFaceLLM(BaseLLM):
-    def __init__(
-        self,
-        api_key: str | None,
-        **kws,
-    ):
+    def __init__(self, **kws):
         super().__init__(**kws)
         self.client = InferenceClient(
             provider="auto", # pick the best hardware avaliable on HF
-            api_key = api_key,
+            api_key=self.api_key,
             timeout=120,
         )
 
-    def _generate(
-        self,
-        prompt: list[dict[str, Any]],
-        **kws,
-    ) -> str:
-
+    def _generate(self, prompt: list[dict[str, Any]], **kws) -> str:
         response = self.client.chat.completions.create(
             model = self.model,
             messages=prompt,
@@ -36,12 +27,7 @@ class HuggingFaceLLM(BaseLLM):
         return content or ""
 
 
-    def _stream(
-        self,
-        prompt: list[dict[str, Any]],
-        **kws,
-    ) -> Iterator[str]:
-        
+    def _stream(self, prompt: list[dict[str, Any]], **kws) -> Iterator[str]:
         response = self.client.chat.completions.create(
             model = self.model,
             messages=prompt,

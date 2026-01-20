@@ -1,5 +1,5 @@
-from collections.abc import Iterable, Iterator, Mapping
-from typing import Any, cast
+from collections.abc import Iterator
+from typing import Any
 
 from openai import OpenAI
 
@@ -7,24 +7,15 @@ from rag_notes_helper.rag.llm.base import BaseLLM
 
 
 class OpenAILLM(BaseLLM):
-    def __init__(
-        self,
-        api_key: str | None,
-        **kws,
-    ):
+    def __init__(self, **kws):
         super().__init__(**kws)
         self.client = OpenAI(
-            api_key=api_key,
+            api_key=self.api_key,
             timeout=120
         )
 
 
-    def _generate(
-        self,
-        prompt: list[dict[str, Any]],
-        **kws,
-    ) -> str:
-
+    def _generate(self, prompt: list[dict[str, Any]], **kws) -> str:
         response = self.client.responses.create(
             model=self.model,
             input=prompt, # type: ignore
@@ -36,12 +27,7 @@ class OpenAILLM(BaseLLM):
         return content or ""
 
 
-    def _stream(
-        self,
-        prompt: list[dict[str, Any]],
-        **kws,
-    ) -> Iterator[str]:
-
+    def _stream(self, prompt: list[dict[str, Any]], **kws) -> Iterator[str]:
         response = self.client.responses.create(
             model=self.model,
             input=prompt, # type: ignore
