@@ -36,11 +36,15 @@ class BaseLLM(ABC):
     ) -> str:
         line_width = kws.get("line_width", self.line_width)
 
-        content = self._generate(prompt, **kws)
+        if not (content := self._generate(prompt, **kws)):
+            return "LLM return empty response"
 
-        response_text = content or "LLM return empty response"
+        paragraphs = content.splitlines()
+        wrap_paragraphs = [
+            textwrap.fill(p, width=line_width) for p in paragraphs
+        ]
 
-        return textwrap.fill(response_text, width=line_width)
+        return "\n".join(wrap_paragraphs)
 
 
     @abstractmethod

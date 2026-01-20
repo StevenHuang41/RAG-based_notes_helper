@@ -8,7 +8,6 @@ from rag_notes_helper.rag.llm.base import BaseLLM
 
 class OllamaLLM(BaseLLM):
     def __init__(self, base_url: str = "http://localhost:11434", **kws) -> None:
-        kws.pop("api_key", None)
         super().__init__(**kws)
         self.base_url = base_url.rstrip("/")
 

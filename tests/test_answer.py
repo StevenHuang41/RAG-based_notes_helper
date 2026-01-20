@@ -49,7 +49,7 @@ def test_rag_answer_stream(monkeypatch, mock_dependencies, mock_hits):
 
     monkeypatch.setenv("STREAM", "true")
 
-    result = rag_answer(query="q", hits=mock_hits)
+    result = rag_answer(query="q", hits=mock_hits, stream=True)
     stream_answer = result["answer"]
 
     assert next(stream_answer) == "stream"

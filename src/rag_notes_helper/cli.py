@@ -131,7 +131,7 @@ def repl(
     print(
         "\nRAG-based Notes Helper\n"
         "(enter ':h' for help)\n"
-    )    
+    )
 
 
     try :
@@ -202,6 +202,7 @@ def repl(
                         "   :citations or  :ci   -> show citation files\n"
                         "   :sources   or  :so   -> show all source files\n"
                         "   :config    or  :co   -> check configuration\n"
+                        "   :stream    or  :s    -> toggle stream mode\n"
                 )
                 continue
 

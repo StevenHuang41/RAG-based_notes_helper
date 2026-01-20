@@ -45,6 +45,8 @@
 
 ### Commands:
 
+#### CLI
+
 * `--help` or `-h`
     - Show help message
 
@@ -80,6 +82,7 @@ for faster interaction
 - `:citations`  /   `:ci`     (toggle citations display)
 - `:sources`    /   `:so`     (show indexed files)
 - `:config`     /   `:co`     (check configuration)
+- `:stream`     /   `:s`      (toggle stream mode)
 
 You do **NOT** need to restart the system to update or reindex
 

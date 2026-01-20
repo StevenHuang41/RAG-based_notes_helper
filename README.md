@@ -372,6 +372,7 @@ docker run --rm -it \
 - `:citations`  /   `:ci`     (toggle citations display)
 - `:sources`    /   `:so`     (show indexed files)
 - `:config`     /   `:co`     (check configuration)
+- `:stream`     /   `:s`      (toggle stream mode)
 
  ---
 
