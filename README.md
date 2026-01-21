@@ -1,7 +1,7 @@
 # RAG-based Notes Helper
 
 
-A **Retrieval-Augmented Generation (RAG)** assistant for querying and reviewing your own notes using **local embeddings** (Hugging Face), **Vector search** (Faiss), and **LLM backends** (Hugging Face / OpenAI / Ollama).
+A **Retrieval-Augmented Generation (RAG)** assistant for querying and reviewing your own notes using **local embeddings** (Hugging Face), **Vector search** (Faiss), and **LLM backends** (Hugging Face / Gemini / OpenAI / Ollama).
 
 This project emphasizes **correct RAG design**, **memory-safe ingestion**, **testable**, and **real-world workflows** (Docker + CI).
 
@@ -71,9 +71,10 @@ Fine-tuning is often **costly** and **unnecessary** for note-based knowledge sys
 - Sentence-Transformer embeddings
 - Dense vector retrieval using **Faiss**
 - **LLM** backends:
-    - Hugging Face (free tier token availiable)
-    - Ollama (free and runs locally)
-    - OpenAI (paid API)
+    - Hugging Face
+    - Ollama
+    - Gemini
+    - OpenAI
 - Source-aware answers with citation
 - Interactive CLI with explicit startup phase and live re-indexing
 - **Latency logging** for RAG components
@@ -134,10 +135,10 @@ RAG-based_notes_helper/
 │           ├── answer.py
 │           │
 │           └── llm/
-│               ├── hf.py
-│               ├── ollama.py
+│               ├── hf_api.py
+│               ├── ollama_api.py
 │               ├── openai_api.py
-│               └── router.py
+│               └── gemini_api.py
 │
 ├── tests/                          # unit tests
 │   ├── test_ingest.py
