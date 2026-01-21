@@ -146,64 +146,72 @@ def repl(
             if query == "":
                 continue
 
-            if query in {":quit", ":q"}:
-                print("\nBye~")
-                break
-
-            if query in {":update", ":u", ":reindex", ":ri"}:
-                meta_store.close()
-
-                do_force = query in {":reindex", ":ri"}
-                with time_block(
-                    f"rebuild_index({'force' if do_force else 'smart'})"
-                ):
-                    rag = rebuild_index(force=do_force)
-
-                meta_store = MetaStore()
-
-                print()
+            if query.startswith(';'):
+                print("\nCommand Typo:\n  commands should start with a colon\n")
                 continue
 
-            if query in {":sources", ":so"}:
-                show_sources(meta_store)
-                print()
-                continue
+            if query.startswith(':'):
+                if query in {":quit", ":q"}:
+                    print("\nBye~")
+                    break
 
-            if query in {":config", ":co"}:
-                show_config()
-                print()
-                continue
+                if query in {":update", ":u", ":reindex", ":ri"}:
+                    meta_store.close()
 
-            if query in {":citations", ":ci"}:
-                if citations:
-                    print("\n/Hide Citations\n")
-                else :
-                    print("\n/Show Citations\n")
+                    do_force = query in {":reindex", ":ri"}
+                    with time_block(
+                        f"rebuild_index({'force' if do_force else 'smart'})"
+                    ):
+                        rag = rebuild_index(force=do_force)
 
-                citations = not citations
-                continue
+                    meta_store = MetaStore()
 
-            if query in {":stream", ":s"}:
-                if stream_response:
-                    print("\n/Batch response\n")
-                else :
-                    print("\n/Stream response\n")
+                    print()
+                    continue
 
-                stream_response = not stream_response
-                continue
+                if query in {":sources", ":so"}:
+                    show_sources(meta_store)
+                    print()
+                    continue
 
-            if query in {":help", ":h"}:
-                print(
-                    "\nCommands:\n"
-                        "   :quit      or  :q    -> exit app\n"
-                        "   :help      or  :h    -> show instructions\n"
-                        "   :reindex   or  :ri   -> reindex rag\n"
-                        "   :update    or  :u    -> update index\n"
-                        "   :citations or  :ci   -> show citation files\n"
-                        "   :sources   or  :so   -> show all source files\n"
-                        "   :config    or  :co   -> check configuration\n"
-                        "   :stream    or  :s    -> toggle stream mode\n"
-                )
+                if query in {":config", ":co"}:
+                    show_config()
+                    print()
+                    continue
+
+                if query in {":citations", ":ci"}:
+                    if citations:
+                        print("\n/Hide Citations\n")
+                    else :
+                        print("\n/Show Citations\n")
+
+                    citations = not citations
+                    continue
+
+                if query in {":stream", ":s"}:
+                    if stream_response:
+                        print("\n/Batch response\n")
+                    else :
+                        print("\n/Stream response\n")
+
+                    stream_response = not stream_response
+                    continue
+
+                if query in {":help", ":h"}:
+                    print(
+                        "\nCommands:\n"
+                        "  :quit      or  :q    -> exit app\n"
+                        "  :help      or  :h    -> show instructions\n"
+                        "  :reindex   or  :ri   -> reindex rag\n"
+                        "  :update    or  :u    -> update index\n"
+                        "  :citations or  :ci   -> show citation files\n"
+                        "  :sources   or  :so   -> show all source files\n"
+                        "  :config    or  :co   -> check configuration\n"
+                        "  :stream    or  :s    -> toggle stream mode\n"
+                    )
+                    continue
+
+                print("\nUnknown Command:\n  use :help to check valid commands\n")
                 continue
 
             logger.info((f"query: {query[:20]}{' ...' if len(query) > 20 else ''}"))

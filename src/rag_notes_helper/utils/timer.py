@@ -1,6 +1,6 @@
 import time
 from contextlib import contextmanager
-from .logger import get_logger
+from rag_notes_helper.utils.logger import get_logger
 
 
 def _get_logger():

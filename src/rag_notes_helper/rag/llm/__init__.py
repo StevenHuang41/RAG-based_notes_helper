@@ -14,19 +14,19 @@ def get_llm():
     }
 
     if provider == "hf":
-        from .hf_api import HuggingFaceLLM
+        from rag_notes_helper.rag.llm.hf_api import HuggingFaceLLM
         return HuggingFaceLLM(**kws)
 
     elif provider == "gemini":
-        from .gemini_api import GeminiLLM
+        from rag_notes_helper.rag.llm.gemini_api import GeminiLLM
         return GeminiLLM(**kws)
 
     elif provider == "openai":
-        from .openai_api import OpenAILLM
+        from rag_notes_helper.rag.llm.openai_api import OpenAILLM
         return OpenAILLM(**kws)
 
     elif provider == "ollama":
-        from .ollama_api import OllamaLLM
+        from rag_notes_helper.rag.llm.ollama_api import OllamaLLM
         return OllamaLLM(base_url=settings.ollama_base_url, **kws)
 
     raise ValueError(f"Unknown LLM_PROVIDER: {settings.llm.provider}")

@@ -2,15 +2,14 @@
 .github/
 
 .env
-
 .venv/
 
 # python
 **/*.egg_info/
-__pycache__/
+__pycache__
 
 # pytest
-.pytest_cache/
+.pytest_cache
 
 # index
 storage/

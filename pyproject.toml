@@ -1,40 +1,42 @@
 [project]
 name = "rag-notes-helper"
 version = "0.1.0"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 
 dependencies = [
   "fastapi>=0.110",
   "uvicorn[standard]>=0.27",
-  "pydantic>=2.6",
-  "pydantic-settings>=2.2",
-  "numpy>=1.24",
-  "faiss-cpu>=1.7.4",
-  "sentence-transformers>=2.6.1",
+  "pydantic-settings>=2.2.1",
+  "sentence-transformers>=3.0.0",
+  "faiss-cpu>=1.8.0",
+  "google-genai>=1.0.0",
+  "numpy>=1.26.0",
   "huggingface-hub>=0.36.0",
   "openai>=2.14.0",
   "tqdm>=4.67.1",
-  "google-genai>=1.59.0",
 ]
 
 [project.scripts]
 rag-app = "rag_notes_helper.cli:main"
 
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [dependency-groups]
 dev = [
-    "pytest>=9.0.2",
+    "pytest>=8.0.0",
 ]
 
 [tool.uv]
 package = true
+index = [
+    { name = "pytorch-cpu", url = "https://download.pytorch.org/whl/cpu", explicit = true }
+]
 
-[tool.setuptools]
-package-dir = {"" = "src"}
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
 
-[tool.setuptools.packages.find]
-where = ["src"]
-
-[build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
-
+[tool.hatch.build.targets.wheel]
+packages = ["src/rag_notes_helper"]
