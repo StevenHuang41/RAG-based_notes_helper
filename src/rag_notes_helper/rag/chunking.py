@@ -1,6 +1,5 @@
 from collections import deque
 from dataclasses import dataclass
-from io import TextIOBase
 from collections.abc import Iterator
 
 from rag_notes_helper.core.config import get_settings
@@ -12,47 +11,34 @@ class Chunk:
     text: str
     source: str
 
-def chunk_text(
+def chunk_lines(
     *,
-    file_object: TextIOBase,
+    lines: Iterator[str],
     doc_id: str,
     source: str,
     chunk_size: int | None = None,
     overlap: int | None = None,
 ) -> Iterator[Chunk]:
-    settings = get_settings()
 
+    settings = get_settings()
     chunk_size = chunk_size or settings.chunk_size
     overlap = overlap or settings.chunk_overlap
-
-    if chunk_size <= 0:
-        raise ValueError("chunk_size must be > 0")
-    if overlap < 0:
-        raise ValueError("overlap must be >= 0")
-    if overlap >= chunk_size:
-        raise ValueError("overlap must be smaller than chunk_size")
 
     buffer = deque()
     buffer_len = 0
     chunk_id = 0
 
-    for line in file_object:
-        line = line.strip()
-        if not line:
-            continue
-
+    for line in lines:
         line_len = len(line)
 
         if buffer_len + line_len >= chunk_size and buffer:
-            text = ", ".join(buffer)
-            if text:
-                yield Chunk(
-                    doc_id=doc_id,
-                    chunk_id=chunk_id,
-                    text=text,
-                    source=source,
-                )
-                chunk_id += 1
+            yield Chunk(
+                doc_id=doc_id,
+                chunk_id=chunk_id,
+                text=", ".join(buffer),
+                source=source,
+            )
+            chunk_id += 1
 
             tmp_buffer = deque()
             tmp_len = 0
@@ -65,16 +51,14 @@ def chunk_text(
             buffer = tmp_buffer
             buffer_len = tmp_len
 
-
         buffer.append(line)
         buffer_len += line_len
 
     # remain buffer
     if buffer:
-        text = ", ".join(buffer)
         yield Chunk(
             doc_id=doc_id,
             chunk_id=chunk_id,
-            text=text,
+            text=", ".join(buffer),
             source=source,
         )

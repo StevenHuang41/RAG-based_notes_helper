@@ -1,3 +1,4 @@
+from itertools import chain
 from pathlib import Path
 from typing import Iterator
 import json
@@ -8,8 +9,9 @@ import faiss
 from tqdm import tqdm
 
 from rag_notes_helper.core.config import get_settings
-from rag_notes_helper.rag.chunking import Chunk, chunk_text
+from rag_notes_helper.rag.chunking import Chunk
 from rag_notes_helper.rag.ingest import get_changed_doc_ids, load_notes
+from rag_notes_helper.rag.loaders import load_pdf_file, load_text_file
 from rag_notes_helper.rag.meta_store import MetaStore
 from rag_notes_helper.utils.logger import get_logger
 from rag_notes_helper.utils.timer import time_block, deco_time_block
@@ -38,8 +40,15 @@ def build_index(
     chunks: Iterator[Chunk],
     batch_size: int = 1024,
 ) -> RagIndex:
-    if not chunks:
+    # check chunk is not empty
+    chunks = iter(chunks)
+
+    try :
+        first = next(chunks)
+    except StopIteration:
         raise ValueError("No chunks to index")
+
+    chunks = chain([first], chunks)
 
     storage: Path = get_settings().storage_dir
 
@@ -200,28 +209,34 @@ def smart_rebuild(
             for doc_id, path in tqdm(changed_ids, desc="Embedding new chunks ..."):
                 source = str(path.relative_to(notes_dir))
 
-                with path.open("r", encoding="utf-8", errors="ignore") as f:
-                    for chunk in chunk_text(
-                        file_object=f,
+                if source.endswith(".pdf"):
+                    chunk_iter = load_pdf_file(
+                        path,
                         doc_id=doc_id,
                         source=source,
-                        chunk_size=settings.chunk_size,
-                        overlap=settings.chunk_overlap
-                    ):
-                        batch.append(chunk)
+                    )
+                else :
+                    chunk_iter = load_text_file(
+                        path,
+                        doc_id=doc_id,
+                        source=source,
+                    )
 
-                        #  write new chunks into meta and idx
-                        if len(batch) >= batch_size:
-                            new_index = _smart_process_chunks(
-                                batch,
-                                new_index,
-                                meta_f,
-                                idx_f,
-                                packer,
-                                has_new_chunk=True,
-                                model=model,
-                            )
-                            batch.clear()
+                for chunk in chunk_iter:
+                    batch.append(chunk)
+
+                    #  write new chunks into meta and idx
+                    if len(batch) >= batch_size:
+                        new_index = _smart_process_chunks(
+                            batch,
+                            new_index,
+                            meta_f,
+                            idx_f,
+                            packer,
+                            has_new_chunk=True,
+                            model=model,
+                        )
+                        batch.clear()
 
             if batch:
                 new_index = _smart_process_chunks(
@@ -262,7 +277,7 @@ def _smart_process_chunks(
             convert_to_numpy=True,
         ).astype("float32")
     else :
-        embeddings = np.array(embeddings).astype("float32") # type: ignore
+        embeddings = np.asarray(embeddings).astype("float32") # type: ignore
 
     if index is None:
         index = faiss.IndexFlatIP(embeddings.shape[1]) # type: ignore

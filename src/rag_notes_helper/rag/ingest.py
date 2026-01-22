@@ -55,8 +55,6 @@ def load_notes(
             yield from load_text_file(file_path, doc_id, source)
 
 
-
-
 @deco_time_block
 def get_changed_doc_ids(
     old_doc_ids: set[str],
