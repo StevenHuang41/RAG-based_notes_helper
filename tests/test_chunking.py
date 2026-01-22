@@ -27,6 +27,4 @@ def test_chunk_ids():
 
     prev = chunks[0].text
     curr = chunks[1].text
-    print(prev)
-    print(curr)
     assert curr.startswith(prev.split(", ")[-1])

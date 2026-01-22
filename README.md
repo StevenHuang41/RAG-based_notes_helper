@@ -1,11 +1,6 @@
 # RAG-based Notes Helper
 
-
-A **Retrieval-Augmented Generation (RAG)** assistant for querying and reviewing your own notes using **local embeddings** (Hugging Face), **Vector search** (Faiss), and **LLM backends** (Hugging Face / Gemini / OpenAI / Ollama).
-
-This project emphasizes **correct RAG design**, **memory-safe ingestion**, **testable**, and **real-world workflows** (Docker + CI).
-
-[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+A **Retrieval-Augmented Generation (RAG)** assistant for querying and reviewing your personal knowledge base. Using **local embeddings**, **Vector search (Faiss)**, and flexible **LLM backends** (Hugging Face / Gemini / OpenAI / Ollama), it turns static notes into an interactive, cited intelligence.
 
 <p align="center">
     <a href="docs/demo.mp4">
@@ -15,8 +10,13 @@ This project emphasizes **correct RAG design**, **memory-safe ingestion**, **tes
 
 [**Quick Start**](#running-via-docker)
 
-
 ---
+
+## What's New
+
+- **PDF Support**: Native extraction and indexing of `.pdf` files using `pymupdf`
+
+- **Enhanced CLI**: New `--update` command for smart, delta-only indexing
 
 ## Overview
 
@@ -65,27 +65,26 @@ Fine-tuning is often **costly** and **unnecessary** for note-based knowledge sys
 
 ## Features
 
-- Retrieval-Augmented Generation (**RAG**) over notes
-- **Memory-safe & streaming ingestion** for large note files
-- Overlapping chunking with configurable window size
-- Sentence-Transformer embeddings
-- Dense vector retrieval using **Faiss**
-- **LLM** backends:
-    - Hugging Face
-    - Ollama
-    - Gemini
-    - OpenAI
-- Source-aware answers with citation
-- Interactive CLI with explicit startup phase and live re-indexing
-- **Latency logging** for RAG components
-- **Smart and force index rebuild modes** for efficient updates
-- Runtime configuration validation with clear error reporting
-- Import-safe architecture with runtime-only validation (CI-friendly)
-- Unit-tested components
-- **Dockerized** for reproducible execution
-- **CI/CD-enabled** (GitHub Actions)
-    - Automatic test on push and pull requests
-    - Docker build validation
+- **Multi-Format Ingestion**: Seamlessly processes text files, and now `.pdf` files
+
+- **Local Embeddings**: Uses Hugging Face Sentence-Transformer for private, high-speed vectorization
+
+- **Memory-Safe Processing**: Streaming chunking architecture designed for large note files without memory spikes
+
+- **Flexible Backends**: Native support for OpenAI, Gemini, Ollama (local), and Hugging Face
+
+- **Source Citation**: Answers include direct links to the source files used in the context
+
+- **Smart Indexing**: Detects and updates only changed files to avoid redundant processing
+
+- **Interactive REPL**: A live shell with stream mode, live re-indexing, and configuration inspection
+
+- **Dockerized Workflow**: Full container support for reproducible execution and easy deployment
+
+- **Production-Ready Tooling**:
+    - **CI/CD**: Automated testing and Docker builds using GitHub Actions
+    - **Validation**: Strict runtime configuration validation (Pydantic style)
+    - **Loggin**: Built-in latency logging and performance monitoring
 
 ---
 
@@ -175,10 +174,9 @@ RAG-based_notes_helper/
     - Configuration is validated at runtime
     - Index is loaded or rebuilt if requested
 
-1. **Ingestion**
-    - Files in `data/` are scanned
-    - Binary files are skipped via null-byte detection
-    - Text is processed **line-by-line** to avoid memory exhaustion
+1. **Ingestion & Parsing**
+    - Files in `data/` are scanned for supported extensions (`.txt`, `.md`, `.pdf`, `.py`)
+    - Content is processed **line-by-line** to avoid memory exhaustion
 
 2. **Chunking**
     - Streaming chunk generator splits text into overlapping windows
@@ -205,14 +203,13 @@ RAG-based_notes_helper/
 
 Make sure the following requirements have been setup before running the app
 
-### Prerequisites
+### 1. Prerequisites
 
-- **python** >= 3.10
-- `pip` or **uv** (recommended)
-- **Docker** >= 20.10
-- **git** (optional)
+- **`python`** >= 3.11
+- **`pip`** or **`uv`** (recommended)
+- **`Docker`** (optional, for containerized runs)
 
-### 1. Configuration (`.env`)
+### 2. Configuration (`.env`)
 
 Create `.env` at project root based on `.env.example`:
 
@@ -236,7 +233,7 @@ You can also customize other configuration values in `.env`
 
 See [Hugging Face Token](https://huggingface.co/docs/hub/security-tokens) to create an API key.
 
-### 2. Notes directory (`data/`)
+### 3. Notes directory (`data/`)
 
 Create a `data/` and place your notes inside it:
 ```bash
@@ -266,18 +263,28 @@ You must have **at least one text file** in `data/` to avoid no chunk to index e
 
 ### Running from Source:
 
+- Clone and enter the directory
 ```bash
 git clone https://github.com/StevenHuang41/RAG-based_notes_helper.git
 cd RAG-based_notes_helper
-# get into venv
-uv pip install -e .
 ```
 
-[Setup `.env`](#1-configuration-env)
+- Enter virtural environment and install dependencies
+```bash
+uv sync
+source .venv/bin/activate
+# or pip
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+```
 
-[Setup `data/`](#2-notes-directory-data)
+[Setup `.env`](#2-configuration-env)
+
+[Setup `data/`](#3-notes-directory-data)
 
 #### One time query
+
 ```bash
 rag-app what is xxx
 rag-app "what is ..."
@@ -317,7 +324,7 @@ docker pull ghcr.io/stevenhuang41/rag-based-notes-helper:latest
 ```
 
 [Setup `.env`](#1-configuration-env)
-    - !! remember to use docker url for `OLLAMA_BASE_URL` in .env
+- remember to use docker url for `OLLAMA_BASE_URL` in .env
 
 [Setup `data/`](#2-notes-directory-data)
 
@@ -390,7 +397,6 @@ pytest
 ## Limitations
 
 - No conversation memory (single-turn only)
-- PDF ingestion not implemented
 - Designed for personal note collections
 
 ---
@@ -398,7 +404,7 @@ pytest
 ## Future Work
 
 - Conversational memory
-- PDF loaders
+- Agentic RAG
 
 ## License
 
