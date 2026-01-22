@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from io import TextIOBase
 from collections.abc import Iterator
 
+from rag_notes_helper.core.config import get_settings
+
 @dataclass(frozen=True)
 class Chunk:
     doc_id: str
@@ -15,9 +17,13 @@ def chunk_text(
     file_object: TextIOBase,
     doc_id: str,
     source: str,
-    chunk_size: int,
-    overlap: int,
+    chunk_size: int | None = None,
+    overlap: int | None = None,
 ) -> Iterator[Chunk]:
+    settings = get_settings()
+
+    chunk_size = chunk_size or settings.chunk_size
+    overlap = overlap or settings.chunk_overlap
 
     if chunk_size <= 0:
         raise ValueError("chunk_size must be > 0")

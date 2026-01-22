@@ -163,12 +163,12 @@ def smart_rebuild(
             # 1. migrate unchanged files' chunks
             with MetaStore() as meta_store:
                 for i in tqdm(
-                    range(old_rag.index.ntotal),
+                    range(old_rag.index.ntotal), # type: ignore
                     desc="Migrating existing chunks ..."
                 ):
                     chunk_dict = meta_store.get(i)
                     if chunk_dict["doc_id"] in unchanged_ids:
-                        embeddings.append(old_rag.index.reconstruct(i))
+                        embeddings.append(old_rag.index.reconstruct(i)) # type: ignore
                         batch.append(Chunk(**chunk_dict))
 
                     # write unchanged chunks into meta and idx
@@ -256,18 +256,18 @@ def _smart_process_chunks(
     model = None,
 ):
     if has_new_chunk:
-        embeddings = model.encode(
+        embeddings = model.encode( # type: ignore
             [c.text for c in batch],
             normalize_embeddings=True,
             convert_to_numpy=True,
         ).astype("float32")
     else :
-        embeddings = np.array(embeddings).astype("float32")
+        embeddings = np.array(embeddings).astype("float32") # type: ignore
 
     if index is None:
-        index = faiss.IndexFlatIP(embeddings.shape[1])
+        index = faiss.IndexFlatIP(embeddings.shape[1]) # type: ignore
 
-    index.add(embeddings)
+    index.add(embeddings) # type: ignore
 
     for chunk in batch:
         offset = meta_f.tell()
