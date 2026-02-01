@@ -77,7 +77,7 @@ def show_citations(result, show_full: bool = False):
     else :
         print("\nCITATIONS:")
         print("- ", end="")
-        source_set = {c['source'] for c in result["citations"]}
+        source_set = {c["source"] for c in result["citations"]}
         print(", ".join(source_set))
 
 
@@ -106,7 +106,6 @@ def run_onetime(
     query: str,
     citations: bool = False,
 ) -> None:
-
     hits = retrieve(rag, meta_store, query=query)
 
     logger.info((f"query: {query[:20]}{' ...' if len(query) > 20 else ''}"))
@@ -114,15 +113,15 @@ def run_onetime(
 
     display_ansewr(result["answer"])
 
-    if citations and result['citations']:
+    if citations and result["citations"]:
         show_citations(result)
+
 
 def repl(
     rag: RagIndex | None = None,
     meta_store: MetaStore | None = None,
     *,
     citations: bool = False,
-
 ):
     rag = rag or load_or_build_index()
     meta_store = meta_store or MetaStore()
@@ -146,11 +145,11 @@ def repl(
             if query == "":
                 continue
 
-            if query.startswith(';'):
+            if query.startswith(";"):
                 print("\nCommand Typo:\n  commands should start with a colon\n")
                 continue
 
-            if query.startswith(':'):
+            if query.startswith(":"):
                 if query in {":quit", ":q"}:
                     print("\nBye~")
                     break
@@ -249,31 +248,36 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "-u", "--update",
+        "-u",
+        "--update",
         action="store_true",
         help="Update index",
     )
 
     parser.add_argument(
-        "-r", "--reindex",
+        "-r",
+        "--reindex",
         action="store_true",
         help="Rebuild index",
     )
 
     parser.add_argument(
-        "-co", "--config",
+        "-co",
+        "--config",
         action="store_true",
         help="Check configuration",
     )
 
     parser.add_argument(
-        "-ci", "--citations",
+        "-ci",
+        "--citations",
         action="store_true",
         help="Show citations",
     )
 
     parser.add_argument(
-        "-so", "--sources",
+        "-so",
+        "--sources",
         action="store_true",
         help="Show source files",
     )
@@ -297,8 +301,11 @@ def main():
     logger.info(f"config: {get_settings().model_dump_json()}")
 
     with time_block("start up preparation"):
-        rag = rebuild_index(force=args.reindex) \
-              if args.update or args.reindex else load_or_build_index()
+        rag = (
+            rebuild_index(force=args.reindex)
+            if args.update or args.reindex
+            else load_or_build_index()
+        )
 
         meta_store = MetaStore()
 
