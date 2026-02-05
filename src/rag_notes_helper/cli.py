@@ -238,48 +238,48 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "query",
         nargs="*",
-        help="Question to ask RAG (default mode)",
+        help="Question to ask the RAG system (default mode).",
     )
 
     parser.add_argument(
         "--repl",
         action="store_true",
-        help="Start interactive REPL",
+        help="Start interactive REPL mode",
     )
 
     parser.add_argument(
         "-u",
         "--update",
         action="store_true",
-        help="Update index",
+        help="Update the existing index without a full rebuild.",
     )
 
     parser.add_argument(
         "-r",
         "--reindex",
         action="store_true",
-        help="Rebuild index",
+        help="Rebuild the index from scratch.",
     )
 
     parser.add_argument(
         "-co",
         "--config",
         action="store_true",
-        help="Check configuration",
+        help="Display the current configuration.",
     )
 
     parser.add_argument(
         "-ci",
         "--citations",
         action="store_true",
-        help="Show citations",
+        help="Show citation information with query results.",
     )
 
     parser.add_argument(
         "-so",
         "--sources",
         action="store_true",
-        help="Show source files",
+        help="List all source files that have been indexed.",
     )
 
     return parser
