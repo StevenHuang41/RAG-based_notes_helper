@@ -25,7 +25,7 @@ A **Retrieval-Augmented Generation (RAG)** assistant for querying and reviewing 
  - [Architecture](#architecture)
  - [Project Structure](#project-structure)
  - [How It Works](#how-it-works)
- - [Installation & Setup](#installation-setup)
+ - [Installation & Setup](#installation--setup)
  - [Usage](#usage)
  - [Testing](#testing)
  - [Limitations](#limitations)
@@ -391,6 +391,9 @@ Runs unit tests at project root:
 ```bash
 pytest
 ```
+
+Results:
+[test result](#./docs/test.png)
 
 ---
 
