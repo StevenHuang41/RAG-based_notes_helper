@@ -77,6 +77,9 @@ class Settings(BaseSettings):
     notes_dir: Path = project_root / "data"
     storage_dir: Path = project_root / "storage"
     logs_dir: Path = project_root / "logs"
+    eval_dir: Path = project_root / "src/rag_notes_helper/eval"
+    reports_dir: Path = eval_dir / "reports"
+    
 
     @model_validator(mode="after")
     def validate_cross_logic(self) -> Settings:

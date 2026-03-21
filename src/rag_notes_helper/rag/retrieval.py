@@ -24,8 +24,15 @@ def retrieve(
 
     scores, indices = rag.index.search(q_emb, top_k) # type: ignore
 
+    # max_score = scores[0][0]
+    #
+    # if max_score < settings.min_retrieval_score:
+    #     print(f"[REJECTED QUERY] {query} score={max_score}")
+    #     return []
+
     results: list[dict] = []
     for score, idx in zip(scores[0], indices[0]):
+
         if idx < 0:
             continue
 

@@ -15,6 +15,14 @@ dependencies = [
   "pymupdf>=1.26.7",
 ]
 
+[dependency-groups]
+dev = [
+  "datasets>=4.8.3",
+  "langchain-google-genai>=4.2.1",
+  "pytest>=8.0.0",
+  "ragas>=0.4.3",
+]
+
 [project.scripts]
 rag-app = "rag_notes_helper.cli:main"
 
@@ -31,11 +39,6 @@ filterwarnings = [
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
-[dependency-groups]
-dev = [
-    "pytest>=8.0.0",
-]
 
 [tool.uv]
 package = true

@@ -186,6 +186,8 @@ RAG-based_notes_helper/
 3. **Indexing**
     - Each chunk is embedded using SentenceTransformer
     - Embeddings are normalized and indexed with faiss
+    - Chunk metadata (text, source, IDs) is stored separately in a JSONL file
+    - A lightweight offset index maps vector IDs to metadata positions for efficient lookup
 
 4. **Retrieval**
     - User query is embedded with the same embedding model

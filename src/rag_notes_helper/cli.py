@@ -9,6 +9,7 @@ from rag_notes_helper.rag.index import (
     load_or_build_index,
     rebuild_index,
 )
+from rag_notes_helper.eval.eval_runner import run_evaluation
 from rag_notes_helper.rag.meta_store import MetaStore
 from rag_notes_helper.rag.retrieval import retrieve
 from rag_notes_helper.rag.answer import rag_answer
@@ -248,6 +249,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--eval",
+        action="store_true",
+        help="Run RAG evaluation (RAGAS)",
+    )
+
+    parser.add_argument(
         "-u",
         "--update",
         action="store_true",
@@ -297,6 +304,7 @@ def main():
         f"{' --citations' if args.citations else ''}"
         f"{' --sources' if args.sources else ''}"
         f"{' --config' if args.config else ''}"
+        f"{' --eval' if args.eval else ''}"
     )
     logger.info(f"config: {get_settings().model_dump_json()}")
 
@@ -308,6 +316,10 @@ def main():
         )
 
         meta_store = MetaStore()
+
+    if args.eval:
+        run_evaluation()
+        return
 
     if args.config:
         show_config()

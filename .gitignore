@@ -19,6 +19,7 @@ hf_cache/
 
 # notes
 data/*
+data_bak/
 !data/notes_helper.md
 
 # log
@@ -26,4 +27,5 @@ logs/
 
 .DS_Store
 
-
+**/eval/reports/*
+!**/eval/reports/.gitkeep
