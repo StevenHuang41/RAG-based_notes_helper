@@ -15,12 +15,13 @@ storage/
 
 # cache
 hf_cache/
+.ruff_cache/
 
 # notes
 data/*
 !data/notes_helper.md
 
-# log 
+# log
 logs/
 
 .DS_Store
