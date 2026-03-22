@@ -44,7 +44,6 @@ class LLMSettings(BaseSettings):
         return self
 
 
-
 class Settings(BaseSettings):
     # read .env file configuration variables
     model_config = SettingsConfigDict(

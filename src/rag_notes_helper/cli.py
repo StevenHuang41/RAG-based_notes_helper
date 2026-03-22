@@ -155,7 +155,7 @@ def repl(
                     print("\nBye~")
                     break
 
-                if query in {":update", ":u", ":reindex", ":ri"}:
+                if query in {":update", ":ud", ":reindex", ":ri"}:
                     meta_store.close()
 
                     do_force = query in {":reindex", ":ri"}
@@ -197,17 +197,22 @@ def repl(
                     stream_response = not stream_response
                     continue
 
+                if query in {":evaluate", ":ev"}:
+                    run_evaluation()
+                    continue
+
                 if query in {":help", ":h"}:
                     print(
                         "\nCommands:\n"
                         "  :quit      or  :q    -> exit app\n"
                         "  :help      or  :h    -> show instructions\n"
-                        "  :reindex   or  :ri   -> reindex rag\n"
-                        "  :update    or  :u    -> update index\n"
+                        "  :reindex   or  :ri   -> rebuild rag (hard update)\n"
+                        "  :update    or  :ud   -> update data (soft update)\n"
                         "  :citations or  :ci   -> show citation files\n"
                         "  :sources   or  :so   -> show all source files\n"
                         "  :config    or  :co   -> check configuration\n"
                         "  :stream    or  :s    -> toggle stream mode\n"
+                        "  :evaluate  or  :ev   -> evaluate rag\n"
                     )
                     continue
 
@@ -243,26 +248,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "-rp",
         "--repl",
         action="store_true",
         help="Start interactive REPL mode",
     )
 
     parser.add_argument(
+        "-ev",
         "--eval",
         action="store_true",
         help="Run RAG evaluation (RAGAS)",
     )
 
     parser.add_argument(
-        "-u",
+        "-ud",
         "--update",
         action="store_true",
         help="Update the existing index without a full rebuild.",
     )
 
     parser.add_argument(
-        "-r",
+        "-ri",
         "--reindex",
         action="store_true",
         help="Rebuild the index from scratch.",

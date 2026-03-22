@@ -49,13 +49,13 @@
 * `--help` or `-h`
     - Show help message
 
-* `--repl`
+* `--repl` or `-rp`
     - Run in REPL mode
 
-* `--reindex` or `-r`
+* `--reindex` or `-ri`
     - Process all files in data/ to rebuild rag index
 
-* `--update` or `-u`
+* `--update` or `-ud`
     - Only process files that changed its content, faster than `--reindex` if only few changes
 
 * `--citations` or `-ci`
@@ -77,11 +77,12 @@ for faster interaction
 - `:quit`       /   `:q`      (exit)
 - `:help`       /   `:h`      (show instructions)
 - `:reindex`    /   `:ri`     (reindex all files without exiting)
-- `:update`     /   `:u`      (update only changed files)
+- `:update`     /   `ud`      (update only changed files)
 - `:citations`  /   `:ci`     (toggle citations display)
 - `:sources`    /   `:so`     (show indexed files)
 - `:config`     /   `:co`     (check configuration)
 - `:stream`     /   `:s`      (toggle stream mode)
+- `:evaluate`   /   `:ev`     (evaluate rag)
 
 You do **NOT** need to restart the system to update or reindex
 

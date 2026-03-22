@@ -297,6 +297,7 @@ rag-app "what is xxx" --reindex             # reindex before answering
 rag-app "what is xxx" --config              # check configuration
 rag-app "what is xxx" --citaions            # including citations in answer
 rag-app "what is xxx" --sources             # show indexed source files
+rag-app --eval                              # evaluate rag with RAGAS
 rag-app "I wanna know ..." > answer.txt     # save generated answer
 ```
 
@@ -378,11 +379,12 @@ docker run --rm -it \
 - `:quit`       /   `:q`      (exit)
 - `:help`       /   `:h`      (show instructions)
 - `:reindex`    /   `:ri`     (reindex all files without exiting)
-- `:update`     /   `:u`      (update only changed files)
+- `:update`     /   `:ud`      (update only changed files)
 - `:citations`  /   `:ci`     (toggle citations display)
 - `:sources`    /   `:so`     (show indexed files)
 - `:config`     /   `:co`     (check configuration)
 - `:stream`     /   `:s`      (toggle stream mode)
+- `:evaluate`   /   `:ev`     (evaluate rag)
 
  ---
 

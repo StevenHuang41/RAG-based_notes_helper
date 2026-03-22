@@ -22,15 +22,18 @@ def run_evaluation():
         print("\nDataset built. Running evaluation...\n")
 
         result = run_ragas(dataset)
+        df = pd.DataFrame(result.scores)
 
         print("\n=== RAGAS RESULT ===\n")
-        print(result)
+        for col in df.columns:
+            print(f"{col}: {df[col].mean()}")
 
-        df = pd.DataFrame(result.scores)
         print("\n=== DETAIL ===\n")
+        print("Each question:")
         print(df)
 
         settings = get_settings()
+        project_root_dir = settings.project_root
         reports_dir = settings.reports_dir
 
         time_stamp = datetime.now().strftime("%Y%m%d_%H%M")
@@ -39,7 +42,7 @@ def run_evaluation():
 
         # run file
         df.to_csv(run_fpath, index=False)
-        print(f"\nSaved run to {run_fpath}")
+        print(f"\nSaved run to {run_fpath.relative_to(project_root_dir)}")
 
         # summary file
         summary_row = {
@@ -49,10 +52,10 @@ def run_evaluation():
             "min_retrieval_score": settings.min_retrieval_score,
             "chunk_size": settings.chunk_size,
             "chunk_overlap": settings.chunk_overlap,
-            "faithfulness": result["faithfulness"],
-            "answer_relevancy": result["answer_relevancy"],
-            "context_precision": result["context_precision"],
-            "context_recall": result["context_recall"],
+            "faithfulness": df["faithfulness"].mean(),
+            "answer_relevancy": df["answer_relevancy"].mean(),
+            "context_precision": df["context_precision"].mean(),
+            "context_recall": df["context_recall"].mean(),
         }
 
         summary_df = pd.DataFrame([summary_row])
@@ -64,7 +67,7 @@ def run_evaluation():
 
         # save summary
         summary_df.to_csv(summary_fpath, index=False)
-        print(f"Updated summary to {summary_fpath}")
+        print(f"Updated summary to {summary_fpath.relative_to(project_root_dir)}\n")
 
     finally :
         meta_store.close()
