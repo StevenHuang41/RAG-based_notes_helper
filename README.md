@@ -14,9 +14,7 @@ A **Retrieval-Augmented Generation (RAG)** assistant for querying and reviewing 
 
 ## What's New
 
-- **PDF Support**: Native extraction and indexing of `.pdf` files using `pymupdf`
-
-- **Enhanced CLI**: New `--update` command for smart, delta-only indexing
+- **Enhanced CLI**: New `--eval` command for evaluation
 
 ## Overview
 
@@ -326,10 +324,11 @@ https://raw.githubusercontent.com/StevenHuang41/Rag-based_notes_helper/main/dock
 docker pull ghcr.io/stevenhuang41/rag-based-notes-helper:latest
 ```
 
-[Setup `.env`](#1-configuration-env)
+
+[Setup `.env`](#2-configuration-env)
 - remember to use docker url for `OLLAMA_BASE_URL` in .env
 
-[Setup `data/`](#2-notes-directory-data)
+[Setup `data/`](#3-notes-directory-data)
 
 Runs at project root:
 ```bash

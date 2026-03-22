@@ -22,11 +22,11 @@ def run_single_query(rag, meta_store, query: str) -> QAResult:
     result = rag_answer(query, hits=hits)
 
     # extract contexts
-    contexts = [h["text"] for h in hits]
+    contexts = [hit["text"] for hit in hits]
 
     # optional meta
-    sources = [h["source"] for h in hits]
-    scores = [h["score"] for h in hits]
+    sources = [hit["source"] for hit in hits]
+    scores = [hit["score"] for hit in hits]
 
     return QAResult(
         question=query,

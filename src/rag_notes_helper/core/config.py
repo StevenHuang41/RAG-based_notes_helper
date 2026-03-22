@@ -28,6 +28,10 @@ class LLMSettings(BaseSettings):
     max_tokens: int = Field(1024, gt=0)
     temperature: float = Field(0.3, gt=0, le=1)
 
+    eval_provider: Literal["openai", "ollama", "gemini"] = "gemini"
+    eval_model: str = "gemini-2.0-flash"
+    eval_api_key: SecretStr | None = None
+
 
     @property
     def api_key_str(self) -> str | None:
@@ -78,7 +82,7 @@ class Settings(BaseSettings):
     logs_dir: Path = project_root / "logs"
     eval_dir: Path = project_root / "src/rag_notes_helper/eval"
     reports_dir: Path = eval_dir / "reports"
-    
+
 
     @model_validator(mode="after")
     def validate_cross_logic(self) -> Settings:

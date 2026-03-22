@@ -47,6 +47,7 @@ def run_evaluation():
         # summary file
         summary_row = {
             "time": time_stamp,
+            "eval_provider": settings.llm.eval_provider,
             "top_k": settings.top_k,
             "temperature": settings.llm.temperature,
             "min_retrieval_score": settings.min_retrieval_score,

@@ -7,29 +7,17 @@ from ragas.metrics import (
 )
 
 from rag_notes_helper.core.config import get_settings
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from rag_notes_helper.eval.llm import get_eval_llm
+from rag_notes_helper.eval.embedding import get_embeddings
+from rag_notes_helper.utils.logger import get_logger
 
-
-def get_llm():
-    settings = get_settings()
-    return ChatGoogleGenerativeAI(
-        model=settings.llm.model,
-        temperature=0,  # need to be deterministic
-        google_api_key=settings.llm.api_key,
-    )
-
-
-def get_embeddings():
-    settings = get_settings()
-    return GoogleGenerativeAIEmbeddings(
-        model="gemini-embedding-001",
-        api_key=settings.llm.api_key,
-    )
-
+logger = get_logger("cli")
 
 def run_ragas(dataset):
-    llm = get_llm()
+    settings = get_settings()
+    logger.info(f"[EVAL] {settings.llm.eval_model} {settings.llm.eval_provider}")
+
+    llm = get_eval_llm()
     embeddings = get_embeddings()
 
     result = evaluate(

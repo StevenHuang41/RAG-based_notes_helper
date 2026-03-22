@@ -1,4 +1,3 @@
-
 def get_llm():
     from rag_notes_helper.core.config import get_settings
     settings = get_settings()
