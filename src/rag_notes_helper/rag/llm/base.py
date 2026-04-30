@@ -40,9 +40,7 @@ class BaseLLM(ABC):
             return "LLM return empty response"
 
         paragraphs = content.splitlines()
-        wrap_paragraphs = [
-            textwrap.fill(p, width=line_width) for p in paragraphs
-        ]
+        wrap_paragraphs = [textwrap.fill(p, width=line_width) for p in paragraphs]
 
         return "\n".join(wrap_paragraphs)
 

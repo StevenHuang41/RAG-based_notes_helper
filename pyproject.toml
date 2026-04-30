@@ -1,6 +1,9 @@
 [project]
 name = "rag-notes-helper"
 version = "0.2.0"
+description = "Local-first RAG CLI for querying personal notes with FAISS, SentenceTransformer embeddings, configurable LLM backends, citations, Docker support, and RAGAS evaluation."
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11"
 
 dependencies = [

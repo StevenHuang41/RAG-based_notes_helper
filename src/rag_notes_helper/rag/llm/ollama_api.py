@@ -1,7 +1,7 @@
 import requests
 import json
 from typing import Any
-from collections.abc import Iterator, Iterable, Mapping
+from collections.abc import Iterator
 
 from rag_notes_helper.rag.llm.base import BaseLLM
 
