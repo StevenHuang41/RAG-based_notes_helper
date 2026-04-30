@@ -46,11 +46,11 @@ A note assistant should answer from the current knowledge base without requiring
 
 Fine-tuning is usually a poor fit for personal notes because:
 
-- knowledge updates require additional training runs;
-- model behavior becomes harder to debug and reproduce;
-- private notes may be mixed into model weights;
-- hallucination sources are harder to inspect;
-- infrastructure cost increases for a problem that can be solved with retrieval.
+- knowledge updates require additional training runs
+- model behavior becomes harder to debug and reproduce
+- private notes may be mixed into model weights
+- hallucination sources are harder to inspect
+- infrastructure cost increases for a problem that can be solved with retrieval
 
 This project keeps knowledge external and inspectable. Notes are chunked, embedded, indexed, retrieved at query time, and passed to the LLM as explicit context.
 
