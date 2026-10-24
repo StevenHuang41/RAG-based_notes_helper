@@ -27,7 +27,8 @@ from rag_notes_helper.rag.meta_store import MetaStore
 
 
 Workflow = Literal["classic", "agentic"]
-CATEGORY_COUNTS = {
+# Minimum reviewed seed cases per category; the fixture may grow beyond this baseline.
+BASELINE_CATEGORY_COUNTS = {
     "direct": 4,
     "multi_hop": 4,
     "unanswerable": 4,
@@ -167,7 +168,7 @@ def load_qa_fixture(path: Path = QA_FIXTURE) -> list[dict[str, Any]]:
 
     for record in records:
         category = record["category"]
-        if not isinstance(category, str) or category not in CATEGORY_COUNTS:
+        if not isinstance(category, str) or category not in BASELINE_CATEGORY_COUNTS:
             raise ValueError(
                 f"QA case {record.get('id', '<unknown>')} has unsupported category."
             )
@@ -175,7 +176,7 @@ def load_qa_fixture(path: Path = QA_FIXTURE) -> list[dict[str, Any]]:
     counts = Counter(record["category"] for record in records)
     missing_baseline = {
         category: minimum
-        for category, minimum in CATEGORY_COUNTS.items()
+        for category, minimum in BASELINE_CATEGORY_COUNTS.items()
         if counts[category] < minimum
     }
     if missing_baseline:

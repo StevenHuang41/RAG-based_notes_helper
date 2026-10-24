@@ -239,6 +239,8 @@ def _huggingface_judge(
 
 
 def _instantiate_ragas_adapter(adapter_type, **kwargs):
+    # Defer Ragas and its torch stack until judge creation to keep FAISS-backed
+    # startup and evaluation isolated.
     from ragas.llms import InstructorBaseRagasLLM
 
     ragas_adapter = type(
