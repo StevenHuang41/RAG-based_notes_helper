@@ -97,6 +97,8 @@ class AgenticWorkflowError(RuntimeError):
 SearchFunction = Callable[[str], list[dict]]
 AnswerFunction = Callable[..., dict[str, Any]]
 UsageFunction = Callable[[dict[str, Any]], None]
+ProgressStage = Literal["searching", "reviewing", "generating", "abstaining"]
+ProgressFunction = Callable[[ProgressStage, int], None]
 
 
 def search_notes(
@@ -244,6 +246,7 @@ def agentic_answer(
     controller: Any | None = None,
     answer_fn: AnswerFunction | None = None,
     on_generation: UsageFunction | None = None,
+    on_progress: ProgressFunction | None = None,
 ) -> dict[str, Any]:
     """Iteratively search local notes, then answer from selected evidence."""
     search = (
@@ -253,8 +256,12 @@ def agentic_answer(
     )
     answer = answer_fn if answer_fn is not None else rag_answer
 
+    if on_progress is not None:
+        on_progress("searching", 1)
     hits = _deduplicate_hits(search(query))
     if not hits:
+        if on_progress is not None:
+            on_progress("abstaining", 1)
         return {
             "answer": ABSTENTION_MESSAGE,
             "citations": [],
@@ -265,6 +272,8 @@ def agentic_answer(
     searches_used = 1
 
     while True:
+        if on_progress is not None:
+            on_progress("reviewing", searches_used)
         action = _request_action(
             controller=controller,
             query=query,
@@ -274,6 +283,8 @@ def agentic_answer(
         )
 
         if isinstance(action, AbstainAction):
+            if on_progress is not None:
+                on_progress("abstaining", searches_used)
             return {
                 "answer": ABSTENTION_MESSAGE,
                 "citations": [],
@@ -281,8 +292,11 @@ def agentic_answer(
             }
 
         if isinstance(action, SearchAction):
+            next_search_count = searches_used + 1
+            if on_progress is not None:
+                on_progress("searching", next_search_count)
             hits = _deduplicate_hits(hits + search(action.query))
-            searches_used += 1
+            searches_used = next_search_count
             continue
 
         hits_by_reference = {
@@ -297,6 +311,8 @@ def agentic_answer(
                 selected_hits.append(hits_by_reference[key])
                 selected_references.add(key)
 
+        if on_progress is not None:
+            on_progress("generating", searches_used)
         if on_generation is not None and answer_fn is None:
             result = answer(
                 query,

@@ -16,7 +16,12 @@ from rag_notes_helper.rag.index import (
 from rag_notes_helper.rag.meta_store import MetaStore
 from rag_notes_helper.rag.retrieval import retrieve
 from rag_notes_helper.rag.answer import rag_answer
-from rag_notes_helper.rag.agentic import AgenticWorkflowError, agentic_answer
+from rag_notes_helper.rag.agentic import (
+    MAX_SEARCHES,
+    AgenticWorkflowError,
+    ProgressStage,
+    agentic_answer,
+)
 from rag_notes_helper.utils.logger import get_logger
 from rag_notes_helper.utils.timer import time_block, deco_time_block
 
@@ -26,6 +31,22 @@ logger = get_logger("cli")
 
 class EvaluationUnavailableError(RuntimeError):
     """Raised when a source-checkout-only evaluation command is unavailable."""
+
+
+def _render_agentic_progress(stage: ProgressStage, search_count: int) -> None:
+    if not sys.stderr.isatty():
+        return
+
+    if stage == "searching":
+        message = f"Searching notes ({search_count}/{MAX_SEARCHES})"
+    elif stage == "reviewing":
+        message = "Reviewing evidence"
+    elif stage == "generating":
+        message = "Generating answer"
+    else:
+        message = "Insufficient evidence; abstaining"
+
+    print(f"[Agentic] {message}", file=sys.stderr, flush=True)
 
 
 def _load_evaluation_function(
@@ -149,6 +170,7 @@ def run_onetime(
         meta_store,
         query=query,
         agentic=agentic,
+        on_progress=_render_agentic_progress if agentic else None,
     )
 
     display_ansewr(result["answer"])
@@ -165,6 +187,7 @@ def run_query(
     agentic: bool = False,
     stream: bool = False,
     on_generation: Callable[[dict[str, Any]], None] | None = None,
+    on_progress: Callable[[ProgressStage, int], None] | None = None,
 ) -> dict[str, Any]:
     if agentic:
         kwargs = {
@@ -174,6 +197,8 @@ def run_query(
         }
         if on_generation is not None:
             kwargs["on_generation"] = on_generation
+        if on_progress is not None:
+            kwargs["on_progress"] = on_progress
         return agentic_answer(query, **kwargs)
 
     hits = retrieve(rag, meta_store, query=query)
@@ -299,6 +324,7 @@ def repl(
                     query=query,
                     agentic=agentic,
                     stream=stream_response,
+                    on_progress=_render_agentic_progress if agentic else None,
                 )
             except AgenticWorkflowError as exc:
                 logger.error(f"Agentic workflow error: {exc}")
