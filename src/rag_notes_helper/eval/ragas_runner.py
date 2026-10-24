@@ -12,6 +12,13 @@ from rag_notes_helper.rag.llm.base import (
 
 logger = get_logger("cli")
 
+METRIC_NAMES = (
+    "faithfulness",
+    "answer_relevancy",
+    "context_precision",
+    "context_recall",
+)
+
 
 def evaluate(*args, **kwargs):
     """Load Ragas lazily so CLI startup and FAISS retrieval stay lightweight."""
@@ -97,12 +104,13 @@ def run_ragas(
             output_tokens=usage["output_tokens"] or 0,
         )
 
-    metrics_by_name = {
-        "faithfulness": faithfulness,
-        "answer_relevancy": answer_relevancy,
-        "context_precision": context_precision,
-        "context_recall": context_recall,
-    }
+    metric_objects = (
+        faithfulness,
+        answer_relevancy,
+        context_precision,
+        context_recall,
+    )
+    metrics_by_name = dict(zip(METRIC_NAMES, metric_objects, strict=True))
     result = evaluate(
         dataset=dataset,
         metrics=[metrics_by_name[name] for name in metric_names],

@@ -45,6 +45,30 @@ def test_rag_answer_generate(monkeypatch, mock_dependencies, mock_hits):
     assert result["answer"] == "generate dummy answer"
     assert result["citations"][0]["source"] == "note.md"
 
+
+def test_rag_answer_does_not_assume_the_user_owns_the_notes(
+    monkeypatch,
+    mock_hits,
+):
+    captured_prompts = []
+
+    class PromptLLM:
+        def generate(self, prompt, line_width):
+            captured_prompts.append(prompt)
+            return "I cannot find the answers in the notes."
+
+    monkeypatch.setattr(
+        "rag_notes_helper.rag.answer.get_llm",
+        lambda: PromptLLM(),
+    )
+
+    rag_answer(query="Who am I?", hits=mock_hits)
+
+    system_prompt = captured_prompts[0][0]["content"]
+    assert "You are the owner of the notes" not in system_prompt
+    assert "Who am I" in system_prompt
+
+
 def test_rag_answer_stream(monkeypatch, mock_dependencies, mock_hits):
 
     monkeypatch.setenv("STREAM", "true")

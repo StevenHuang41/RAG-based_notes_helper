@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 
 from rag_notes_helper.eval import eval_runner
+from rag_notes_helper.rag.agentic import MAX_SEARCHES
 from rag_notes_helper.rag.index import RagIndex
 
 
@@ -146,6 +147,7 @@ def test_paired_benchmark_uses_synthetic_notes_and_writes_run_artifacts(
     results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
     summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
     assert results["judge_usage"] == summary["judge_usage"]
+    assert summary["run_metadata"]["agentic_max_searches"] == MAX_SEARCHES
     assert len(results["cases"]) == 32
     assert {case["workflow"] for case in results["cases"]} == {
         "classic",

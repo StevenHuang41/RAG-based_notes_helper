@@ -19,17 +19,13 @@ import pandas as pd
 
 from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.eval.dataset_builder import build_dataset
+from rag_notes_helper.eval.ragas_runner import METRIC_NAMES
 from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE
+from rag_notes_helper.rag.agentic import MAX_SEARCHES
 from rag_notes_helper.rag.index import RagIndex, load_or_build_index
 from rag_notes_helper.rag.meta_store import MetaStore
 
 
-METRIC_NAMES = (
-    "faithfulness",
-    "answer_relevancy",
-    "context_precision",
-    "context_recall",
-)
 Workflow = Literal["classic", "agentic"]
 CATEGORY_COUNTS = {
     "direct": 4,
@@ -519,7 +515,7 @@ def run_evaluation(*, output_root: Path | None = None) -> Path:
                 "top_k": settings.top_k,
                 "min_retrieval_score": settings.min_retrieval_score,
                 "max_answer_chunks": settings.llm.max_chunks,
-                "agentic_max_searches": 3,
+                "agentic_max_searches": MAX_SEARCHES,
             }
             workflow_results: dict[Workflow, list[dict[str, Any]]] = {}
             judge_usage_by_workflow: dict[Workflow, list[dict[str, Any]]] = {}
