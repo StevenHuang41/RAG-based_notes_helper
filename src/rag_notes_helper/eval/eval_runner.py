@@ -87,7 +87,6 @@ def _run_ragas_isolated(
             "question": case["question"],
             "answer": case["answer"] or "",
             "contexts": case["contexts"],
-            "ground_truth": case["reference_answer"],
         }
         for case in scored_cases
     ]
@@ -96,14 +95,12 @@ def _run_ragas_isolated(
             "question": case["question"],
             "answer": case["answer"] or "",
             "contexts": case["answer_contexts"],
-            "ground_truth": case["reference_answer"],
         }
         for case in scored_cases
     ]
     retrieval_metrics = [
         "answer_relevancy",
-        "context_precision",
-        "context_recall",
+        "context_utilization",
     ]
     score_sets = _run_ragas_batches_isolated(
         [

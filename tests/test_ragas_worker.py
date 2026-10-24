@@ -11,7 +11,7 @@ def test_ragas_worker_preserves_results_for_each_metric_batch(monkeypatch):
         "batches": [
             {
                 "rows": [{"question": "Q1"}, {"question": "Q2"}],
-                "metric_names": ["context_precision"],
+                "metric_names": ["context_utilization"],
             },
             {
                 "rows": [{"question": "Q1"}],
@@ -50,12 +50,12 @@ def test_ragas_worker_preserves_results_for_each_metric_batch(monkeypatch):
 
     response = json.loads(stdout.getvalue())
     assert calls == [
-        (request["batches"][0]["rows"], ["context_precision"]),
+        (request["batches"][0]["rows"], ["context_utilization"]),
         (request["batches"][1]["rows"], ["faithfulness"]),
     ]
     assert response == {
         "scores": [
-            [{"context_precision": 0.5}, {"context_precision": 0.5}],
+            [{"context_utilization": 0.5}, {"context_utilization": 0.5}],
             [{"faithfulness": 0.5}],
         ],
         "judge_calls": [{"total_tokens": 2}, {"total_tokens": 1}],

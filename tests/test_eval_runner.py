@@ -159,12 +159,15 @@ def test_paired_benchmark_uses_synthetic_notes_and_writes_run_artifacts(
     assert all(case["answer"] for case in results["cases"])
     assert all(case["citations"] for case in results["cases"])
     assert all(case["retrieved_evidence"] for case in results["cases"])
+    assert all(case["reference_answer"] for case in results["cases"])
+    assert all("expected_source_coverage" in case for case in results["cases"])
+    assert all("expected_evidence_coverage" in case for case in results["cases"])
+    assert all("answerability_correct" in case for case in results["cases"])
     assert all(
         set(case["metrics"]) == {
             "faithfulness",
             "answer_relevancy",
-            "context_precision",
-            "context_recall",
+            "context_utilization",
         }
         for case in results["cases"]
     )
@@ -175,6 +178,17 @@ def test_paired_benchmark_uses_synthetic_notes_and_writes_run_artifacts(
     )
     assert all(
         all(value is None for value in case["metrics"].values())
+        for case in results["cases"]
+        if not case["expected_answerable"]
+    )
+    assert all(
+        case["answerability_correct"] is True
+        for case in results["cases"]
+        if case["expected_answerable"]
+    )
+    assert all(
+        case["answerability_correct"] is False
+        and case["correct_abstention"] is False
         for case in results["cases"]
         if not case["expected_answerable"]
     )
@@ -245,10 +259,16 @@ def test_paired_benchmark_uses_synthetic_notes_and_writes_run_artifacts(
     assert len(retrieved_rows) == 8
     assert agentic_batches[0]["metric_names"] == [
         "answer_relevancy",
-        "context_precision",
-        "context_recall",
+        "context_utilization",
     ]
     assert agentic_batches[1]["metric_names"] == ["faithfulness"]
+    assert all(
+        not {"ground_truth", "reference", "reference_answer"}.intersection(row)
+        for row in [*retrieved_rows, *answer_rows]
+    )
+    assert agentic_case["reference_answer"] == (
+        "Lena Ortiz is the product owner for Aurora Planner."
+    )
     assert [row["contexts"] for row in answer_rows] == [
         case["answer_contexts"]
         for case in results["cases"]

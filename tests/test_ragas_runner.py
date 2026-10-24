@@ -19,8 +19,7 @@ def test_ragas_runner_scores_only_requested_current_metrics(monkeypatch):
     collections = ModuleType("ragas.metrics.collections")
     collections.Faithfulness = FakeMetric
     collections.AnswerRelevancy = FakeMetric
-    collections.ContextPrecision = FakeMetric
-    collections.ContextRecall = FakeMetric
+    collections.ContextUtilization = FakeMetric
     fake_ragas = ModuleType("ragas")
     fake_ragas.__path__ = []
     fake_metrics_package = ModuleType("ragas.metrics")
@@ -70,7 +69,7 @@ def test_ragas_runner_scores_only_requested_current_metrics(monkeypatch):
     assert usage == [{"status": "unavailable"}]
 
 
-def test_ragas_runner_passes_only_fields_supported_by_each_metric(monkeypatch):
+def test_ragas_runner_uses_reference_free_metric_signatures(monkeypatch):
     metric_calls = {}
 
     def record(metric_name, **kwargs):
@@ -100,35 +99,22 @@ def test_ragas_runner_passes_only_fields_supported_by_each_metric(monkeypatch):
                 response=response,
             )
 
-    class FakeContextPrecision:
+    class FakeContextUtilization:
         def __init__(self, llm, embeddings=None):
             pass
 
-        async def ascore(self, *, user_input, reference, retrieved_contexts):
+        async def ascore(self, *, user_input, response, retrieved_contexts):
             return record(
-                "context_precision",
+                "context_utilization",
                 user_input=user_input,
-                reference=reference,
-                retrieved_contexts=retrieved_contexts,
-            )
-
-    class FakeContextRecall:
-        def __init__(self, llm, embeddings=None):
-            pass
-
-        async def ascore(self, *, user_input, reference, retrieved_contexts):
-            return record(
-                "context_recall",
-                user_input=user_input,
-                reference=reference,
+                response=response,
                 retrieved_contexts=retrieved_contexts,
             )
 
     collections = ModuleType("ragas.metrics.collections")
     collections.Faithfulness = FakeFaithfulness
     collections.AnswerRelevancy = FakeAnswerRelevancy
-    collections.ContextPrecision = FakeContextPrecision
-    collections.ContextRecall = FakeContextRecall
+    collections.ContextUtilization = FakeContextUtilization
     fake_ragas = ModuleType("ragas")
     fake_ragas.__path__ = []
     fake_metrics_package = ModuleType("ragas.metrics")
@@ -160,16 +146,14 @@ def test_ragas_runner_passes_only_fields_supported_by_each_metric(monkeypatch):
         metric_names=[
             "faithfulness",
             "answer_relevancy",
-            "context_precision",
-            "context_recall",
+            "context_utilization",
         ],
     )
 
     assert result.scores == [{
         "faithfulness": 0.5,
         "answer_relevancy": 0.5,
-        "context_precision": 0.5,
-        "context_recall": 0.5,
+        "context_utilization": 0.5,
     }]
     assert metric_calls == {
         "faithfulness": {
@@ -181,14 +165,9 @@ def test_ragas_runner_passes_only_fields_supported_by_each_metric(monkeypatch):
             "user_input": "What happened?",
             "response": "The launch was delayed.",
         },
-        "context_precision": {
+        "context_utilization": {
             "user_input": "What happened?",
-            "reference": "The launch was delayed because validation is unfinished.",
-            "retrieved_contexts": ["Validation is still in progress."],
-        },
-        "context_recall": {
-            "user_input": "What happened?",
-            "reference": "The launch was delayed because validation is unfinished.",
+            "response": "The launch was delayed.",
             "retrieved_contexts": ["Validation is still in progress."],
         },
     }

@@ -11,8 +11,7 @@ logger = get_logger("cli")
 METRIC_NAMES = (
     "faithfulness",
     "answer_relevancy",
-    "context_precision",
-    "context_recall",
+    "context_utilization",
 )
 
 
@@ -47,10 +46,10 @@ def _metric_inputs(metric_name: str, row: dict) -> dict:
             "response": response,
             "retrieved_contexts": retrieved_contexts,
         }
-    if metric_name in {"context_precision", "context_recall"}:
+    if metric_name == "context_utilization":
         return {
             "user_input": user_input,
-            "reference": row.get("reference", row.get("ground_truth")),
+            "response": response,
             "retrieved_contexts": retrieved_contexts,
         }
     raise ValueError(f"Unsupported Ragas metric: {metric_name}")
@@ -65,8 +64,7 @@ def run_ragas(
     """Run Ragas 0.4 collection metrics over a batch of dataset rows."""
     from ragas.metrics.collections import (
         AnswerRelevancy,
-        ContextPrecision,
-        ContextRecall,
+        ContextUtilization,
         Faithfulness,
     )
 
@@ -80,8 +78,7 @@ def run_ragas(
     metric_types = {
         "faithfulness": Faithfulness,
         "answer_relevancy": AnswerRelevancy,
-        "context_precision": ContextPrecision,
-        "context_recall": ContextRecall,
+        "context_utilization": ContextUtilization,
     }
     metrics = {}
     for name in metric_names:
