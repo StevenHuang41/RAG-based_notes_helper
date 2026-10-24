@@ -220,6 +220,21 @@ def test_eval_command_runs_benchmark_without_loading_user_index(monkeypatch):
     assert calls == ["benchmark"]
 
 
+def test_eval_command_explains_its_source_checkout_requirement(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["rag-app", "--eval"])
+
+    def missing_evaluator(_module_name):
+        raise ModuleNotFoundError("No module named 'rag_notes_helper.eval'")
+
+    monkeypatch.setattr(cli.importlib, "import_module", missing_evaluator)
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == 2
+    assert "source checkout" in capsys.readouterr().err
+
+
 def test_eval_base_command_keeps_legacy_smoke_separate(monkeypatch):
     calls = []
     monkeypatch.setattr(sys, "argv", ["rag-app", "--eval-base"])

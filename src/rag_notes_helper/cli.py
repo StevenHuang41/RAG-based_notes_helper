@@ -1,8 +1,9 @@
 import argparse
+import importlib
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from pydantic import ValidationError
 from collections.abc import Iterator
 
@@ -23,9 +24,26 @@ from rag_notes_helper.utils.timer import time_block, deco_time_block
 logger = get_logger("cli")
 
 
+class EvaluationUnavailableError(RuntimeError):
+    """Raised when a source-checkout-only evaluation command is unavailable."""
+
+
+def _load_evaluation_function(
+    function_name: Literal["run_evaluation", "run_base_smoke_evaluation"],
+) -> Callable[..., Any]:
+    try:
+        module = importlib.import_module("rag_notes_helper.eval.eval_runner")
+    except ModuleNotFoundError as exc:
+        raise EvaluationUnavailableError(
+            "Evaluation commands require a source checkout with development "
+            "dependencies installed."
+        ) from exc
+    return getattr(module, function_name)
+
+
 def run_evaluation(*, output_root: Path | None = None) -> Path:
     """Load the development-only evaluator only when the benchmark is requested."""
-    from rag_notes_helper.eval.eval_runner import run_evaluation as evaluate
+    evaluate = _load_evaluation_function("run_evaluation")
 
     if output_root is None:
         return evaluate()
@@ -33,9 +51,8 @@ def run_evaluation(*, output_root: Path | None = None) -> Path:
 
 
 def run_base_smoke_evaluation() -> None:
-    from rag_notes_helper.eval.eval_runner import run_base_smoke_evaluation as evaluate
-
-    return evaluate()
+    evaluate = _load_evaluation_function("run_base_smoke_evaluation")
+    evaluate()
 
 @deco_time_block
 def show_config():
@@ -249,7 +266,10 @@ def repl(
                     continue
 
                 if query in {":evaluate", ":ev"}:
-                    run_evaluation()
+                    try:
+                        run_evaluation()
+                    except EvaluationUnavailableError as exc:
+                        print(f"rag-app: {exc}", file=sys.stderr)
                     continue
 
                 if query in {":help", ":h"}:
@@ -377,10 +397,16 @@ def main():
     args = parser.parse_args()
 
     if args.eval:
-        run_evaluation()
+        try:
+            run_evaluation()
+        except EvaluationUnavailableError as exc:
+            parser.error(str(exc))
         return
     if args.eval_base:
-        run_base_smoke_evaluation()
+        try:
+            run_base_smoke_evaluation()
+        except EvaluationUnavailableError as exc:
+            parser.error(str(exc))
         return
 
     query = (" ".join(args.query)).strip()

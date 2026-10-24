@@ -2,7 +2,13 @@ from collections.abc import Callable, Mapping, Sequence
 
 from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.utils.logger import get_logger
-from rag_notes_helper.rag.llm.base import BaseLLM, normalize_token_usage
+from rag_notes_helper.rag.llm.base import (
+    INPUT_TOKEN_ALIASES,
+    OUTPUT_TOKEN_ALIASES,
+    TOTAL_TOKEN_ALIASES,
+    BaseLLM,
+    normalize_token_usage,
+)
 
 logger = get_logger("cli")
 
@@ -56,16 +62,9 @@ def _read_usage(response) -> dict:
         )
 
     return normalize_token_usage({
-        "input_tokens": first_value(
-            "input_tokens", "prompt_tokens", "prompt_token_count", "prompt_eval_count"
-        ),
-        "output_tokens": first_value(
-            "output_tokens",
-            "completion_tokens",
-            "candidates_token_count",
-            "eval_count",
-        ),
-        "total_tokens": first_value("total_tokens", "total_token_count"),
+        "input_tokens": first_value(*INPUT_TOKEN_ALIASES),
+        "output_tokens": first_value(*OUTPUT_TOKEN_ALIASES),
+        "total_tokens": first_value(*TOTAL_TOKEN_ALIASES),
     })
 
 

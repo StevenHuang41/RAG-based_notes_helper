@@ -164,6 +164,16 @@ def test_paired_benchmark_uses_synthetic_notes_and_writes_run_artifacts(
         }
         for case in results["cases"]
     )
+    assert all(
+        all(value == 1.0 for value in case["metrics"].values())
+        for case in results["cases"]
+        if case["expected_answerable"]
+    )
+    assert all(
+        all(value is None for value in case["metrics"].values())
+        for case in results["cases"]
+        if not case["expected_answerable"]
+    )
     assert summary["workflows"]["classic"]["case_count"] == 16
     assert summary["workflows"]["agentic"]["case_count"] == 16
     assert summary["judge_usage"]["total"]["token_usage"] == {
@@ -222,6 +232,7 @@ def test_paired_benchmark_uses_synthetic_notes_and_writes_run_artifacts(
     agentic_batches = worker_requests[1]["batches"]
     retrieved_rows = agentic_batches[0]["rows"]
     answer_rows = agentic_batches[1]["rows"]
+    assert len(retrieved_rows) == 8
     assert agentic_batches[0]["metric_names"] == [
         "answer_relevancy",
         "context_precision",
@@ -231,7 +242,7 @@ def test_paired_benchmark_uses_synthetic_notes_and_writes_run_artifacts(
     assert [row["contexts"] for row in answer_rows] == [
         case["answer_contexts"]
         for case in results["cases"]
-        if case["workflow"] == "agentic"
+        if case["workflow"] == "agentic" and case["expected_answerable"]
     ]
     assert any(
         len(answer_row["contexts"]) < len(retrieved_row["contexts"])

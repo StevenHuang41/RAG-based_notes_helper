@@ -55,5 +55,9 @@ index = [
 torch = { index = "pytorch-cpu" }
 torchvision = { index = "pytorch-cpu" }
 
+[tool.hatch.build]
+dev-mode-dirs = ["src"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/rag_notes_helper"]
+exclude = ["src/rag_notes_helper/eval/**"]

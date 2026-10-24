@@ -5,25 +5,27 @@ import textwrap
 from abc import ABC, abstractmethod
 
 
+INPUT_TOKEN_ALIASES = (
+    "input_tokens",
+    "prompt_tokens",
+    "prompt_token_count",
+    "prompt_eval_count",
+)
+OUTPUT_TOKEN_ALIASES = (
+    "output_tokens",
+    "completion_tokens",
+    "candidates_token_count",
+    "eval_count",
+)
+TOTAL_TOKEN_ALIASES = ("total_tokens", "total_token_count")
+
+
 def normalize_token_usage(
     source: Any,
     *,
-    input_names: tuple[str, ...] = (
-        "input_tokens",
-        "prompt_tokens",
-        "prompt_token_count",
-        "prompt_eval_count",
-    ),
-    output_names: tuple[str, ...] = (
-        "output_tokens",
-        "completion_tokens",
-        "candidates_token_count",
-        "eval_count",
-    ),
-    total_names: tuple[str, ...] = (
-        "total_tokens",
-        "total_token_count",
-    ),
+    input_names: tuple[str, ...] = INPUT_TOKEN_ALIASES,
+    output_names: tuple[str, ...] = OUTPUT_TOKEN_ALIASES,
+    total_names: tuple[str, ...] = TOTAL_TOKEN_ALIASES,
 ) -> dict[str, Any]:
     input_tokens = _usage_value(source, *input_names)
     output_tokens = _usage_value(source, *output_names)
@@ -99,22 +101,9 @@ class BaseLLM(ABC):
         self,
         usage: Any,
         *,
-        input_names: tuple[str, ...] = (
-            "input_tokens",
-            "prompt_tokens",
-            "prompt_token_count",
-            "prompt_eval_count",
-        ),
-        output_names: tuple[str, ...] = (
-            "output_tokens",
-            "completion_tokens",
-            "candidates_token_count",
-            "eval_count",
-        ),
-        total_names: tuple[str, ...] = (
-            "total_tokens",
-            "total_token_count",
-        ),
+        input_names: tuple[str, ...] = INPUT_TOKEN_ALIASES,
+        output_names: tuple[str, ...] = OUTPUT_TOKEN_ALIASES,
+        total_names: tuple[str, ...] = TOTAL_TOKEN_ALIASES,
     ) -> None:
         self.last_usage = normalize_token_usage(
             usage,

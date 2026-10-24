@@ -82,6 +82,10 @@ def _run_ragas_isolated(
     *,
     usage_recorder: Callable[[dict[str, Any]], None],
 ) -> list[dict[str, Any]]:
+    scored_cases = [case for case in cases if case["expected_answerable"]]
+    if not scored_cases:
+        return [{} for _case in cases]
+
     retrieval_rows = [
         {
             "question": case["question"],
@@ -89,7 +93,7 @@ def _run_ragas_isolated(
             "contexts": case["contexts"],
             "ground_truth": case["reference_answer"],
         }
-        for case in cases
+        for case in scored_cases
     ]
     answer_rows = [
         {
@@ -98,7 +102,7 @@ def _run_ragas_isolated(
             "contexts": case["answer_contexts"],
             "ground_truth": case["reference_answer"],
         }
-        for case in cases
+        for case in scored_cases
     ]
     retrieval_metrics = [
         "answer_relevancy",
@@ -112,11 +116,16 @@ def _run_ragas_isolated(
         ],
         usage_recorder=usage_recorder,
     )
-    if any(len(scores) != len(cases) for scores in score_sets):
+    if any(len(scores) != len(scored_cases) for scores in score_sets):
         raise ValueError("Ragas returned a different number of scores than cases.")
-    return [
+    scored_results = [
         {**retrieval_scores, **faithfulness_scores}
         for retrieval_scores, faithfulness_scores in zip(*score_sets)
+    ]
+    scored_iter = iter(scored_results)
+    return [
+        next(scored_iter) if case["expected_answerable"] else {}
+        for case in cases
     ]
 
 
@@ -424,6 +433,10 @@ def _workflow_summary(cases: list[dict[str, Any]]) -> dict[str, Any]:
     def summarize_group(group: list[dict[str, Any]]) -> dict[str, Any]:
         return {
             "case_count": len(group),
+        "ragas_case_count": sum(
+            case["metrics"].get("faithfulness") is not None
+            for case in group
+        ),
             "metrics": {
                 metric: _mean([case["metrics"].get(metric) for case in group])
                 for metric in METRIC_NAMES
@@ -568,7 +581,9 @@ def run_evaluation(*, output_root: Path | None = None) -> Path:
                 "category_counts": results["category_counts"],
                 "interpretation": (
                     "This 16-case fixture is a regression seed, not a statistically "
-                    "representative benchmark. Inspect multi_hop and abstention cases."
+                    "representative benchmark. Ragas metrics apply only to expected-"
+                    "answerable cases; inspect abstention cases through answerability "
+                    "and evidence coverage."
                 ),
                 "workflows": {
                     workflow: _workflow_summary(records)
