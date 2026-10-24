@@ -4,7 +4,7 @@
 
 **Blocked by:** 07: Workflow token and character usage.
 
-**Status:** ready-for-agent
+Status: ready-for-agent
 
 - [ ] Evaluation artifacts record provider-reported input, output, and total token usage for Ragas judge calls when available.
 - [ ] Judge usage is shown in its own per-run and summary fields, separate from per-question Classic and Agentic usage.

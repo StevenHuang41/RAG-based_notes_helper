@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+Status: ready-for-agent
 
 - [ ] An empty retrieval result produces a deterministic, user-visible abstention.
 - [ ] The LLM is not called and no citations are shown when retrieval returns no chunks.

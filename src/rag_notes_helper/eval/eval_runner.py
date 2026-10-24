@@ -13,14 +13,14 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from typing import Any, Iterator
+from typing import Any, Iterator, Literal
 
 import pandas as pd
 
 from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.eval.dataset_builder import build_dataset
 from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE
-from rag_notes_helper.rag.index import load_or_build_index
+from rag_notes_helper.rag.index import RagIndex, load_or_build_index
 from rag_notes_helper.rag.meta_store import MetaStore
 
 
@@ -30,6 +30,7 @@ METRIC_NAMES = (
     "context_precision",
     "context_recall",
 )
+Workflow = Literal["classic", "agentic"]
 CATEGORY_COUNTS = {
     "direct": 4,
     "multi_hop": 4,
@@ -45,9 +46,20 @@ def _run_ragas_rows_isolated(
     *,
     usage_recorder: Callable[[dict[str, Any]], None],
 ) -> list[dict[str, Any]]:
+    return _run_ragas_batches_isolated(
+        [{"rows": rows, "metric_names": list(METRIC_NAMES)}],
+        usage_recorder=usage_recorder,
+    )[0]
+
+
+def _run_ragas_batches_isolated(
+    batches: list[dict[str, Any]],
+    *,
+    usage_recorder: Callable[[dict[str, Any]], None],
+) -> list[list[dict[str, Any]]]:
     completed = subprocess.run(
         [sys.executable, "-m", "rag_notes_helper.eval.ragas_worker"],
-        input=json.dumps({"rows": rows}),
+        input=json.dumps({"batches": batches}),
         capture_output=True,
         text=True,
         check=False,
@@ -70,7 +82,7 @@ def _run_ragas_isolated(
     *,
     usage_recorder: Callable[[dict[str, Any]], None],
 ) -> list[dict[str, Any]]:
-    rows = [
+    retrieval_rows = [
         {
             "question": case["question"],
             "answer": case["answer"] or "",
@@ -79,7 +91,33 @@ def _run_ragas_isolated(
         }
         for case in cases
     ]
-    return _run_ragas_rows_isolated(rows, usage_recorder=usage_recorder)
+    answer_rows = [
+        {
+            "question": case["question"],
+            "answer": case["answer"] or "",
+            "contexts": case["answer_contexts"],
+            "ground_truth": case["reference_answer"],
+        }
+        for case in cases
+    ]
+    retrieval_metrics = [
+        "answer_relevancy",
+        "context_precision",
+        "context_recall",
+    ]
+    score_sets = _run_ragas_batches_isolated(
+        [
+            {"rows": retrieval_rows, "metric_names": retrieval_metrics},
+            {"rows": answer_rows, "metric_names": ["faithfulness"]},
+        ],
+        usage_recorder=usage_recorder,
+    )
+    if any(len(scores) != len(cases) for scores in score_sets):
+        raise ValueError("Ragas returned a different number of scores than cases.")
+    return [
+        {**retrieval_scores, **faithfulness_scores}
+        for retrieval_scores, faithfulness_scores in zip(*score_sets)
+    ]
 
 
 def _read_qa_fixture() -> list[dict[str, Any]]:
@@ -127,6 +165,8 @@ def _isolated_fixture_index() -> Iterator[tuple[Any, Any, Any]]:
     """Build the real notes index under a temporary fixture-only runtime."""
     environment_keys = ("NOTES_DIR", "STORAGE_DIR")
     previous = {key: os.environ.get(key) for key in environment_keys}
+    previous_embedding_model = RagIndex._model
+    RagIndex._model = None
     try:
         with tempfile.TemporaryDirectory(prefix="notes-rag-eval-") as temp_dir:
             root = Path(temp_dir)
@@ -152,6 +192,7 @@ def _isolated_fixture_index() -> Iterator[tuple[Any, Any, Any]]:
             else:
                 os.environ[key] = value
         get_settings.cache_clear()
+        RagIndex._model = previous_embedding_model
 
 
 def _new_run_directory(output_root: Path) -> tuple[str, Path]:
@@ -282,7 +323,7 @@ def _retrieval_coverage(
 def _record_case(
     case: dict[str, Any],
     *,
-    workflow: str,
+    workflow: Workflow,
     rag: Any,
     meta_store: Any,
 ) -> dict[str, Any]:
@@ -325,6 +366,15 @@ def _record_case(
         }
         for citation in citations
     ]
+    citation_references = {
+        (citation["source"], citation["chunk_id"])
+        for citation in citation_records
+    }
+    answer_contexts = [
+        item["text"]
+        for item in evidence_records
+        if (item["source"], item["chunk_id"]) in citation_references
+    ]
     record = {
         "case_id": case["id"],
         "category": case["category"],
@@ -334,6 +384,7 @@ def _record_case(
         "citations": citation_records,
         "retrieved_evidence": evidence_records,
         "contexts": [item["text"] for item in evidence_records],
+        "answer_contexts": answer_contexts,
         "reference_answer": case["reference_answer"],
         "expected_sources": case["expected_sources"],
         "expected_evidence": case["expected_evidence"],
@@ -457,8 +508,8 @@ def run_evaluation(*, output_root: Path | None = None) -> Path:
                 "max_answer_chunks": settings.llm.max_chunks,
                 "agentic_max_searches": 3,
             }
-            workflow_results: dict[str, list[dict[str, Any]]] = {}
-            judge_usage_by_workflow: dict[str, list[dict[str, Any]]] = {}
+            workflow_results: dict[Workflow, list[dict[str, Any]]] = {}
+            judge_usage_by_workflow: dict[Workflow, list[dict[str, Any]]] = {}
 
             for workflow in ("classic", "agentic"):
                 workflow_cases = []

@@ -1,8 +1,8 @@
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 
 from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.utils.logger import get_logger
-from rag_notes_helper.rag.llm.base import BaseLLM
+from rag_notes_helper.rag.llm.base import BaseLLM, normalize_token_usage
 
 logger = get_logger("cli")
 
@@ -26,7 +26,7 @@ def get_embeddings():
     return create_embeddings()
 
 
-def _containers(source):
+def _usage_sources(source):
     if source is None:
         return
     yield source
@@ -41,9 +41,9 @@ def _read_usage(response) -> dict:
     for group in getattr(response, "generations", []) or []:
         for generation in group:
             message = getattr(generation, "message", None)
-            sources.extend(_containers(getattr(message, "usage_metadata", None)))
-            sources.extend(_containers(getattr(message, "response_metadata", None)))
-    sources.extend(_containers(getattr(response, "llm_output", None)))
+            sources.extend(_usage_sources(getattr(message, "usage_metadata", None)))
+            sources.extend(_usage_sources(getattr(message, "response_metadata", None)))
+    sources.extend(_usage_sources(getattr(response, "llm_output", None)))
 
     def first_value(*names):
         return next(
@@ -55,42 +55,24 @@ def _read_usage(response) -> dict:
             None,
         )
 
-    input_tokens = first_value(
-        "input_tokens", "prompt_tokens", "prompt_token_count", "prompt_eval_count"
-    )
-    output_tokens = first_value(
-        "output_tokens",
-        "completion_tokens",
-        "candidates_token_count",
-        "eval_count",
-    )
-    total_tokens = first_value("total_tokens", "total_token_count")
-    status = (
-        "available"
-        if all(value is not None for value in (
-            input_tokens,
-            output_tokens,
-            total_tokens,
-        ))
-        else "partial"
-        if any(value is not None for value in (
-            input_tokens,
-            output_tokens,
-            total_tokens,
-        ))
-        else "unavailable"
-    )
-    return {
-        "status": status,
-        "input_tokens": input_tokens,
-        "output_tokens": output_tokens,
-        "total_tokens": total_tokens,
-    }
+    return normalize_token_usage({
+        "input_tokens": first_value(
+            "input_tokens", "prompt_tokens", "prompt_token_count", "prompt_eval_count"
+        ),
+        "output_tokens": first_value(
+            "output_tokens",
+            "completion_tokens",
+            "candidates_token_count",
+            "eval_count",
+        ),
+        "total_tokens": first_value("total_tokens", "total_token_count"),
+    })
 
 
 def run_ragas(
     dataset,
     *,
+    metric_names: Sequence[str],
     usage_recorder: Callable[[dict], None] | None = None,
 ):
     from ragas.cost import TokenUsage
@@ -116,14 +98,15 @@ def run_ragas(
             output_tokens=usage["output_tokens"] or 0,
         )
 
+    metrics_by_name = {
+        "faithfulness": faithfulness,
+        "answer_relevancy": answer_relevancy,
+        "context_precision": context_precision,
+        "context_recall": context_recall,
+    }
     result = evaluate(
         dataset=dataset,
-        metrics=[
-            faithfulness,
-            answer_relevancy,
-            context_precision,
-            context_recall,
-        ],
+        metrics=[metrics_by_name[name] for name in metric_names],
         llm=llm,
         embeddings=embeddings,
         token_usage_parser=token_usage_parser,

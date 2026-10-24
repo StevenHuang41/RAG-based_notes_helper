@@ -4,7 +4,7 @@
 
 **Blocked by:** 03: Agentic RAG one-shot workflow; 05: Synthetic notes corpus and Classic evaluation baseline.
 
-**Status:** ready-for-agent
+Status: ready-for-agent
 
 - [ ] --eval runs every QA case through both workflows against the same isolated indexed fixture corpus.
 - [ ] Each case records the workflow's answer or abstention, citations, retrieved evidence, and evaluation results.

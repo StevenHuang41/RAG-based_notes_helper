@@ -2,6 +2,7 @@ import json
 import os
 from pathlib import Path
 import re
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -51,7 +52,7 @@ class FixtureController:
             "action": "answer",
             "evidence": [
                 {"source": hit["source"], "chunk_id": hit["chunk_id"]}
-                for hit in evidence
+                for hit in evidence[:1]
             ],
         })
         return self.last_output
@@ -68,6 +69,8 @@ def test_paired_benchmark_uses_synthetic_notes_and_writes_run_artifacts(
     private_storage_file = user_storage / "user-index-sentinel"
     private_storage_file.write_text("Keep this index untouched.", encoding="utf-8")
 
+    embedding_cache_sentinel = object()
+    monkeypatch.setattr(RagIndex, "_model", embedding_cache_sentinel)
     monkeypatch.setattr(
         RagIndex,
         "embed_model",
@@ -82,32 +85,55 @@ def test_paired_benchmark_uses_synthetic_notes_and_writes_run_artifacts(
         lambda: FixtureController(),
     )
 
-    def fake_ragas(cases, *, usage_recorder):
-        if cases[0]["workflow"] == "classic":
-            usage_recorder({
+    fixture_index_observations = []
+    real_load_or_build_index = eval_runner.load_or_build_index
+
+    def observe_fixture_index_build():
+        fixture_index_observations.append(RagIndex._model is None)
+        return real_load_or_build_index()
+
+    monkeypatch.setattr(
+        eval_runner,
+        "load_or_build_index",
+        observe_fixture_index_build,
+    )
+
+    worker_requests = []
+
+    def fake_ragas_worker(_command, *, input, capture_output, text, check):
+        request = json.loads(input)
+        worker_requests.append(request)
+        score_sets = [
+            [
+                {metric: 1.0 for metric in batch["metric_names"]}
+                for _row in batch["rows"]
+            ]
+            for batch in request["batches"]
+        ]
+        judge_usage = (
+            {
                 "status": "available",
                 "input_tokens": 100,
                 "output_tokens": 20,
                 "total_tokens": 120,
-            })
-        else:
-            usage_recorder({
+            }
+            if len(worker_requests) == 1
+            else {
                 "status": "unavailable",
                 "input_tokens": None,
                 "output_tokens": None,
                 "total_tokens": None,
-            })
-        return [
-            {
-                "faithfulness": 1.0,
-                "answer_relevancy": 1.0,
-                "context_precision": 1.0,
-                "context_recall": 1.0,
             }
-            for _ in cases
-        ]
+        )
+        return SimpleNamespace(
+            stdout=json.dumps({
+                "scores": score_sets,
+                "judge_calls": [judge_usage],
+            }),
+            returncode=0,
+        )
 
-    monkeypatch.setattr(eval_runner, "_run_ragas_isolated", fake_ragas)
+    monkeypatch.setattr(eval_runner.subprocess, "run", fake_ragas_worker)
     output_root = tmp_path / "eval-runs"
 
     run_dir = eval_runner.run_evaluation(output_root=output_root)
@@ -190,3 +216,24 @@ def test_paired_benchmark_uses_synthetic_notes_and_writes_run_artifacts(
     assert Path(os.environ["NOTES_DIR"]) == user_notes
     assert Path(os.environ["STORAGE_DIR"]) == user_storage
     assert "api_key" not in json.dumps(summary["run_metadata"]).lower()
+    assert fixture_index_observations == [True]
+    assert RagIndex._model is embedding_cache_sentinel
+
+    agentic_batches = worker_requests[1]["batches"]
+    retrieved_rows = agentic_batches[0]["rows"]
+    answer_rows = agentic_batches[1]["rows"]
+    assert agentic_batches[0]["metric_names"] == [
+        "answer_relevancy",
+        "context_precision",
+        "context_recall",
+    ]
+    assert agentic_batches[1]["metric_names"] == ["faithfulness"]
+    assert [row["contexts"] for row in answer_rows] == [
+        case["answer_contexts"]
+        for case in results["cases"]
+        if case["workflow"] == "agentic"
+    ]
+    assert any(
+        len(answer_row["contexts"]) < len(retrieved_row["contexts"])
+        for answer_row, retrieved_row in zip(answer_rows, retrieved_rows)
+    )

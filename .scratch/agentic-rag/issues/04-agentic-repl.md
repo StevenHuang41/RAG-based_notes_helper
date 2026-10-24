@@ -4,7 +4,7 @@
 
 **Blocked by:** 03: Agentic RAG one-shot workflow.
 
-**Status:** ready-for-agent
+Status: ready-for-agent
 
 - [ ] --repl and --agentic can be combined to start an Agentic REPL.
 - [ ] --repl alone continues to start a Classic REPL.

@@ -4,7 +4,7 @@
 
 **Blocked by:** 02: Classic RAG empty-evidence abstention.
 
-**Status:** ready-for-agent
+Status: ready-for-agent
 
 - [ ] Classic remains the default; --agentic selects Agentic RAG for a one-shot query.
 - [ ] The first search uses the user's original question, and one query performs no more than three searches total.

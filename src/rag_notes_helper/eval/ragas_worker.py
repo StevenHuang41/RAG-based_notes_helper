@@ -25,17 +25,18 @@ def main() -> None:
         from rag_notes_helper.eval.ragas_runner import run_ragas
 
         with redirect_stdout(io.StringIO()):
-            result = run_ragas(
-                Dataset.from_list(request["rows"]),
-                usage_recorder=judge_calls.append,
-            )
-        response = {
-            "scores": [
-                {key: _json_score(value) for key, value in row.items()}
-                for row in result.scores
-            ],
-            "judge_calls": judge_calls,
-        }
+            score_sets = []
+            for batch in request["batches"]:
+                result = run_ragas(
+                    Dataset.from_list(batch["rows"]),
+                    metric_names=batch["metric_names"],
+                    usage_recorder=judge_calls.append,
+                )
+                score_sets.append([
+                    {key: _json_score(value) for key, value in row.items()}
+                    for row in result.scores
+                ])
+            response = {"scores": score_sets, "judge_calls": judge_calls}
     except Exception as exc:
         response = {
             "error": type(exc).__name__,

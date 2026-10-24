@@ -4,7 +4,7 @@
 
 **Blocked by:** 02: Classic RAG empty-evidence abstention.
 
-**Status:** ready-for-agent
+Status: ready-for-agent
 
 - [ ] A fixed synthetic notes corpus and 16 human-reviewed QA cases cover direct lookup, multi-hop integration, unanswerable, and ambiguous questions, with four cases per category.
 - [ ] Each QA case records expected answerability, a reference answer, expected source paths, and optional evidence snippets; ground truth does not depend on chunk IDs.

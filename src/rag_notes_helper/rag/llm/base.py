@@ -5,6 +5,61 @@ import textwrap
 from abc import ABC, abstractmethod
 
 
+def normalize_token_usage(
+    source: Any,
+    *,
+    input_names: tuple[str, ...] = (
+        "input_tokens",
+        "prompt_tokens",
+        "prompt_token_count",
+        "prompt_eval_count",
+    ),
+    output_names: tuple[str, ...] = (
+        "output_tokens",
+        "completion_tokens",
+        "candidates_token_count",
+        "eval_count",
+    ),
+    total_names: tuple[str, ...] = (
+        "total_tokens",
+        "total_token_count",
+    ),
+) -> dict[str, Any]:
+    input_tokens = _usage_value(source, *input_names)
+    output_tokens = _usage_value(source, *output_names)
+    total_tokens = _usage_value(source, *total_names)
+    status = (
+        "available"
+        if input_tokens is not None
+        and output_tokens is not None
+        and total_tokens is not None
+        else "partial"
+        if any(value is not None for value in (
+            input_tokens,
+            output_tokens,
+            total_tokens,
+        ))
+        else "unavailable"
+    )
+    return {
+        "status": status,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+    }
+
+
+def _usage_value(source: Any, *names: str) -> int | None:
+    for name in names:
+        if isinstance(source, Mapping):
+            value = source.get(name)
+        else:
+            value = getattr(source, name, None)
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+    return None
+
+
 class BaseLLM(ABC):
     provider_name = "unknown"
 
@@ -37,14 +92,7 @@ class BaseLLM(ABC):
 
     @staticmethod
     def _value(source: Any, *names: str) -> int | None:
-        for name in names:
-            if isinstance(source, Mapping):
-                value = source.get(name)
-            else:
-                value = getattr(source, name, None)
-            if isinstance(value, int) and not isinstance(value, bool):
-                return value
-        return None
+        return _usage_value(source, *names)
 
 
     def _capture_usage(
@@ -68,32 +116,12 @@ class BaseLLM(ABC):
             "total_token_count",
         ),
     ) -> None:
-        if usage is None:
-            self.last_usage = self._unavailable_usage()
-            return
-
-        input_tokens = self._value(usage, *input_names)
-        output_tokens = self._value(usage, *output_names)
-        total_tokens = self._value(usage, *total_names)
-        status = (
-            "available"
-            if input_tokens is not None
-            and output_tokens is not None
-            and total_tokens is not None
-            else "partial"
-            if any(value is not None for value in (
-                input_tokens,
-                output_tokens,
-                total_tokens,
-            ))
-            else "unavailable"
+        self.last_usage = normalize_token_usage(
+            usage,
+            input_names=input_names,
+            output_names=output_names,
+            total_names=total_names,
         )
-        self.last_usage = {
-            "status": status,
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "total_tokens": total_tokens,
-        }
 
 
     @abstractmethod

@@ -4,7 +4,7 @@
 
 **Blocked by:** 06: Paired Classic and Agentic evaluation.
 
-**Status:** ready-for-agent
+Status: ready-for-agent
 
 - [ ] The supported generation providers expose normalized input, output, and total token usage when the provider reports it, without changing existing answer text or streaming behavior.
 - [ ] Evaluation results record usage per generation call and aggregate it per question and workflow, including Agentic controller and final-answer calls.
