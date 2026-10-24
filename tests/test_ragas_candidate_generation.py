@@ -152,4 +152,3 @@ def test_existing_draft_path_is_rejected_before_model_setup(monkeypatch, tmp_pat
         )
 
     assert output_path.read_text(encoding="utf-8") == "preserve this draft"
-

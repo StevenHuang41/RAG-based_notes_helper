@@ -120,4 +120,3 @@ def test_fixture_loader_requires_source_for_answerable_cases(tmp_path):
 
     with pytest.raises(ValueError, match="expected source"):
         eval_runner.load_qa_fixture(_write_fixture(tmp_path, records))
-
