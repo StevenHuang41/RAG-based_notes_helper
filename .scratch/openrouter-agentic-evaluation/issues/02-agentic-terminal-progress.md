@@ -4,12 +4,16 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Agentic one-shot queries and Agentic REPL queries report search count and workflow stages.
-- [ ] Progress is written to stderr only when stderr is attached to a terminal.
-- [ ] Progress messages do not include note text, retrieved chunks, or evidence content.
-- [ ] Answer text and streamed answer content remain on stdout.
-- [ ] Insufficient-evidence abstention has a clear progress stage.
-- [ ] Classic RAG output remains unchanged.
-- [ ] Automated tests capture stdout and stderr for terminal and non-terminal behavior and verify no note content appears in progress.
+- [x] Agentic one-shot queries and Agentic REPL queries report search count and workflow stages.
+- [x] Progress is written to stderr only when stderr is attached to a terminal.
+- [x] Progress messages do not include note text, retrieved chunks, or evidence content.
+- [x] Answer text and streamed answer content remain on stdout.
+- [x] Insufficient-evidence abstention has a clear progress stage.
+- [x] Classic RAG output remains unchanged.
+- [x] Automated tests capture stdout and stderr for terminal and non-terminal behavior and verify no note content appears in progress.
+
+## Comments
+
+- Resolved in commit 7ccf67c. Agentic stage progress is terminal-only on stderr; the focused progress and CLI suite passed (51 tests).
