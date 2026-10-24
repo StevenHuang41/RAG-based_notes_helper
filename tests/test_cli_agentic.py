@@ -1,4 +1,5 @@
 import sys
+from io import StringIO
 
 import pytest
 
@@ -27,7 +28,9 @@ def test_run_onetime_dispatches_to_agentic_workflow(monkeypatch):
     calls = []
     displayed = []
 
-    def fake_agentic_answer(query, *, rag, meta_store, stream=False):
+    def fake_agentic_answer(
+        query, *, rag, meta_store, stream=False, on_progress=None
+    ):
         calls.append((query, rag, meta_store))
         return answer
 
@@ -88,7 +91,9 @@ def test_agentic_repl_uses_selected_workflow_for_initial_and_followup_queries(
     calls = []
     displayed = []
 
-    def fake_agentic_answer(query, *, rag, meta_store, stream=False):
+    def fake_agentic_answer(
+        query, *, rag, meta_store, stream=False, on_progress=None
+    ):
         calls.append((query, rag, meta_store, stream))
         return {"answer": f"answer for {query}", "citations": []}
 
@@ -134,7 +139,9 @@ def test_agentic_repl_reports_invalid_action_and_accepts_next_query(
     queries = iter(["bad action", "valid follow-up", ":q"])
     calls = []
 
-    def fake_agentic_answer(query, *, rag, meta_store, stream=False):
+    def fake_agentic_answer(
+        query, *, rag, meta_store, stream=False, on_progress=None
+    ):
         calls.append(query)
         if query == "bad action":
             raise AgenticWorkflowError("The Agentic action remained invalid after one retry.")
@@ -198,6 +205,126 @@ def test_repl_alone_keeps_classic_workflow(monkeypatch):
     assert answers == [
         ("classic question", [{"source": "note.md"}], False),
     ]
+
+
+class _TerminalStream(StringIO):
+    def __init__(self, *, terminal):
+        super().__init__()
+        self.terminal = terminal
+
+    def isatty(self):
+        return self.terminal
+
+
+def test_agentic_one_shot_renders_safe_progress_only_on_terminal_stderr(
+    monkeypatch, capsys
+):
+    note_text = "PRIVATE NOTE TEXT"
+    stderr = _TerminalStream(terminal=True)
+
+    def fake_agentic_answer(
+        query, *, rag, meta_store, stream=False, on_progress=None
+    ):
+        assert on_progress is not None
+        for stage, search_count in [
+            ("searching", 1),
+            ("reviewing", 1),
+            ("generating", 1),
+        ]:
+            on_progress(stage, search_count)
+        return {
+            "answer": "Grounded answer.",
+            "citations": [],
+            "retrieved_evidence": [{"text": note_text}],
+        }
+
+    monkeypatch.setattr(cli.sys, "stderr", stderr)
+    monkeypatch.setattr(cli, "agentic_answer", fake_agentic_answer)
+    monkeypatch.setattr(cli, "display_ansewr", lambda answer: print(answer))
+
+    cli.run_onetime(
+        rag="index",
+        meta_store="metadata",
+        query="Question containing private details",
+        agentic=True,
+    )
+
+    assert capsys.readouterr().out == "Grounded answer.\n"
+    assert stderr.getvalue().splitlines() == [
+        "[Agentic] Searching notes (1/3)",
+        "[Agentic] Reviewing evidence",
+        "[Agentic] Generating answer",
+    ]
+    assert note_text not in stderr.getvalue()
+    assert "Question containing private details" not in stderr.getvalue()
+
+
+def test_agentic_one_shot_suppresses_progress_when_stderr_is_redirected(
+    monkeypatch, capsys
+):
+    stderr = _TerminalStream(terminal=False)
+
+    def fake_agentic_answer(
+        query, *, rag, meta_store, stream=False, on_progress=None
+    ):
+        on_progress("searching", 1)
+        on_progress("abstaining", 1)
+        return {"answer": "I cannot find the answers in the notes.", "citations": []}
+
+    monkeypatch.setattr(cli.sys, "stderr", stderr)
+    monkeypatch.setattr(cli, "agentic_answer", fake_agentic_answer)
+    monkeypatch.setattr(cli, "display_ansewr", lambda answer: print(answer))
+
+    cli.run_onetime(
+        rag="index",
+        meta_store="metadata",
+        query="Question",
+        agentic=True,
+    )
+
+    assert capsys.readouterr().out == "I cannot find the answers in the notes.\n"
+    assert stderr.getvalue() == ""
+
+
+def test_agentic_repl_renders_progress_for_each_query(monkeypatch):
+    class DummySettings:
+        stream = False
+
+    class DummyMetaStore:
+        def close(self):
+            pass
+
+    stderr = _TerminalStream(terminal=True)
+    answers = []
+    queries = iter(["Question one", "Question two", ":q"])
+
+    def fake_agentic_answer(
+        query, *, rag, meta_store, stream=False, on_progress=None
+    ):
+        on_progress("searching", 1)
+        on_progress("abstaining", 1)
+        return {
+            "answer": f"Answer for {query}",
+            "citations": [],
+            "retrieved_evidence": [{"text": "PRIVATE NOTE TEXT"}],
+        }
+
+    monkeypatch.setattr(cli.sys, "stderr", stderr)
+    monkeypatch.setattr(cli, "get_settings", lambda: DummySettings())
+    monkeypatch.setattr(cli, "agentic_answer", fake_agentic_answer)
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(queries))
+    monkeypatch.setattr(cli, "display_ansewr", answers.append)
+
+    cli.repl("index", DummyMetaStore(), agentic=True)
+
+    assert answers == ["Answer for Question one", "Answer for Question two"]
+    assert stderr.getvalue().splitlines() == [
+        "[Agentic] Searching notes (1/3)",
+        "[Agentic] Insufficient evidence; abstaining",
+        "[Agentic] Searching notes (1/3)",
+        "[Agentic] Insufficient evidence; abstaining",
+    ]
+    assert "PRIVATE NOTE TEXT" not in stderr.getvalue()
 
 
 def test_eval_command_runs_benchmark_without_loading_user_index(monkeypatch):

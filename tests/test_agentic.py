@@ -151,6 +151,69 @@ def test_agentic_answer_refines_search_and_deduplicates_evidence():
     assert result["answer"] == "Two phases; 20,000 budget."
 
 
+def test_agentic_answer_reports_progress_for_each_search_and_decision():
+    first_hit = make_hit("plan.md", 0, "The project has two phases.")
+    second_hit = make_hit("budget.md", 0, "The budget is 20,000.")
+    progress = []
+    controller = FakeController(
+        [
+            action_json({"action": "search", "query": "project budget"}),
+            action_json(
+                {
+                    "action": "answer",
+                    "evidence": [
+                        {"source": "plan.md", "chunk_id": 0},
+                        {"source": "budget.md", "chunk_id": 0},
+                    ],
+                }
+            ),
+        ]
+    )
+
+    def search(query):
+        return [first_hit] if query == "original question" else [second_hit]
+
+    agentic_answer(
+        "original question",
+        rag=None,
+        meta_store=None,
+        search_fn=search,
+        controller=controller,
+        answer_fn=lambda query, *, hits, stream: {
+            "answer": "Two phases; 20,000 budget.",
+            "citations": [],
+        },
+        on_progress=lambda stage, search_count: progress.append(
+            (stage, search_count)
+        ),
+    )
+
+    assert progress == [
+        ("searching", 1),
+        ("reviewing", 1),
+        ("searching", 2),
+        ("reviewing", 2),
+        ("generating", 2),
+    ]
+
+
+def test_agentic_empty_search_reports_abstention_progress():
+    progress = []
+
+    result = agentic_answer(
+        "Question without note evidence",
+        rag=None,
+        meta_store=None,
+        search_fn=lambda query: [],
+        on_progress=lambda stage, search_count: progress.append(
+            (stage, search_count)
+        ),
+    )
+
+    assert result["answer"] == ABSTENTION_MESSAGE
+    assert progress == [("searching", 1), ("abstaining", 1)]
+
+
 def test_agentic_empty_initial_search_abstains_without_llm(monkeypatch):
     def unexpected_controller():
         pytest.fail("controller should not be created for empty retrieval")
