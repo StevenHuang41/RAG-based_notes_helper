@@ -73,6 +73,7 @@ This project keeps knowledge external and inspectable. Notes are chunked, embedd
   - Hugging Face Inference API
   - Google Gemini
   - OpenAI
+  - OpenRouter
   - Ollama for local inference
 - Grounds answers in retrieved context.
 - Offers an opt-in Agentic RAG workflow that can inspect evidence and search again up to three times for one query.
@@ -190,7 +191,7 @@ The 16 cases cover direct lookup, multi-hop integration, unanswerable questions,
 |---|---|
 | CLI / runtime | Python, argparse, Pydantic Settings |
 | Retrieval | FAISS, SentenceTransformer, NumPy |
-| LLM backends | Hugging Face, Gemini, OpenAI, Ollama |
+| LLM backends | Hugging Face, Gemini, OpenAI, OpenRouter, Ollama |
 | Evaluation | RAGAS, LangChain integrations |
 | Document parsing | PyMuPDF for PDF support, text/markdown/python loaders |
 | Packaging | uv, hatchling, pyproject.toml |
@@ -396,11 +397,21 @@ LLM_API_KEY=not-used
 OLLAMA_BASE_URL=http://localhost:11434
 ```
 
+Minimal OpenRouter configuration:
+
+```text
+LLM_PROVIDER=openrouter
+LLM_MODEL=provider/model
+LLM_API_KEY=your-openrouter-api-key
+```
+
+Use an OpenRouter model identifier in `provider/model` form. See the [OpenRouter quickstart](https://openrouter.ai/docs/quickstart) for account and model setup.
+
 Common settings:
 
 | Variable | Purpose | Default / example |
 |---|---|---|
-| `LLM_PROVIDER` | LLM backend | `hf`, `gemini`, `openai`, `ollama` |
+| `LLM_PROVIDER` | LLM backend | `hf`, `gemini`, `openai`, `openrouter`, `ollama` |
 | `LLM_MODEL` | Model name for selected provider | `gemini-2.0-flash` |
 | `LLM_API_KEY` | API key for remote providers | required except Ollama |
 | `LLM_MAX_CHUNKS` | Maximum retrieved chunks sent to LLM | `5` |

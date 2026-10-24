@@ -20,7 +20,7 @@ class LLMSettings(BaseSettings):
         extra="ignore",
     )
 
-    provider: Literal["hf", "openai", "ollama", "gemini"]
+    provider: Literal["hf", "openai", "ollama", "gemini", "openrouter"]
     model: str
     api_key: SecretStr | None = None
 

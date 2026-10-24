@@ -24,6 +24,10 @@ def get_llm():
         from rag_notes_helper.rag.llm.openai_api import OpenAILLM
         return OpenAILLM(**kws)
 
+    elif provider == "openrouter":
+        from rag_notes_helper.rag.llm.openrouter_api import OpenRouterLLM
+        return OpenRouterLLM(**kws)
+
     elif provider == "ollama":
         from rag_notes_helper.rag.llm.ollama_api import OllamaLLM
         return OllamaLLM(base_url=settings.ollama_base_url, **kws)
