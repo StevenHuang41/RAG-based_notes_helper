@@ -22,14 +22,10 @@ TOTAL_TOKEN_ALIASES = ("total_tokens", "total_token_count")
 
 def normalize_token_usage(
     source: Any,
-    *,
-    input_names: tuple[str, ...] = INPUT_TOKEN_ALIASES,
-    output_names: tuple[str, ...] = OUTPUT_TOKEN_ALIASES,
-    total_names: tuple[str, ...] = TOTAL_TOKEN_ALIASES,
 ) -> dict[str, Any]:
-    input_tokens = _usage_value(source, *input_names)
-    output_tokens = _usage_value(source, *output_names)
-    total_tokens = _usage_value(source, *total_names)
+    input_tokens = _usage_value(source, *INPUT_TOKEN_ALIASES)
+    output_tokens = _usage_value(source, *OUTPUT_TOKEN_ALIASES)
+    total_tokens = _usage_value(source, *TOTAL_TOKEN_ALIASES)
     status = (
         "available"
         if input_tokens is not None
@@ -97,20 +93,8 @@ class BaseLLM(ABC):
         return _usage_value(source, *names)
 
 
-    def _capture_usage(
-        self,
-        usage: Any,
-        *,
-        input_names: tuple[str, ...] = INPUT_TOKEN_ALIASES,
-        output_names: tuple[str, ...] = OUTPUT_TOKEN_ALIASES,
-        total_names: tuple[str, ...] = TOTAL_TOKEN_ALIASES,
-    ) -> None:
-        self.last_usage = normalize_token_usage(
-            usage,
-            input_names=input_names,
-            output_names=output_names,
-            total_names=total_names,
-        )
+    def _capture_usage(self, usage: Any) -> None:
+        self.last_usage = normalize_token_usage(usage)
 
 
     @abstractmethod

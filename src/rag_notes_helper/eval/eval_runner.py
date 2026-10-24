@@ -233,12 +233,33 @@ def _mean(values: list[Any]) -> float | None:
     return sum(clean_values) / len(clean_values)
 
 
+def _aggregate_usage_fields(
+    calls: list[dict[str, Any]],
+    section: str,
+    fields: tuple[str, ...],
+) -> tuple[dict[str, list[Any]], dict[str, Any]]:
+    values = {
+        field: [call.get(section, {}).get(field) for call in calls]
+        for field in fields
+    }
+    totals = {
+        field: (
+            sum(value for value in field_values if value is not None)
+            if any(value is not None for value in field_values)
+            else None
+        )
+        for field, field_values in values.items()
+    }
+    return values, totals
+
+
 def _aggregate_usage(calls: list[dict[str, Any]]) -> dict[str, Any]:
     token_fields = ("input_tokens", "output_tokens", "total_tokens")
-    token_values = {
-        field: [call.get("token_usage", {}).get(field) for call in calls]
-        for field in token_fields
-    }
+    token_values, token_totals = _aggregate_usage_fields(
+        calls,
+        "token_usage",
+        token_fields,
+    )
     token_status = (
         "unavailable"
         if not any(value is not None for values in token_values.values() for value in values)
@@ -250,27 +271,12 @@ def _aggregate_usage(calls: list[dict[str, Any]]) -> dict[str, Any]:
         )
         else "partial"
     )
-    token_totals = {
-        field: (
-            sum(value for value in values if value is not None)
-            if any(value is not None for value in values)
-            else None
-        )
-        for field, values in token_values.items()
-    }
     character_fields = ("input", "output")
-    character_values = {
-        field: [call.get("characters", {}).get(field) for call in calls]
-        for field in character_fields
-    }
-    character_totals = {
-        field: (
-            sum(value for value in values if value is not None)
-            if any(value is not None for value in values)
-            else None
-        )
-        for field, values in character_values.items()
-    }
+    _, character_totals = _aggregate_usage_fields(
+        calls,
+        "characters",
+        character_fields,
+    )
     return {
         "call_count": len(calls),
         "token_usage": {"status": token_status, **token_totals},
