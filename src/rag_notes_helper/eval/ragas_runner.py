@@ -1,14 +1,10 @@
-from collections.abc import Callable, Mapping, Sequence
+import asyncio
+from collections.abc import Callable, Sequence
+from types import SimpleNamespace
 
 from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.utils.logger import get_logger
-from rag_notes_helper.rag.llm.base import (
-    INPUT_TOKEN_ALIASES,
-    OUTPUT_TOKEN_ALIASES,
-    TOTAL_TOKEN_ALIASES,
-    BaseLLM,
-    normalize_token_usage,
-)
+
 
 logger = get_logger("cli")
 
@@ -20,17 +16,10 @@ METRIC_NAMES = (
 )
 
 
-def evaluate(*args, **kwargs):
-    """Load Ragas lazily so CLI startup and FAISS retrieval stay lightweight."""
-    from ragas import evaluate as ragas_evaluate
-
-    return ragas_evaluate(*args, **kwargs)
-
-
-def get_eval_llm():
+def get_eval_llm(*, usage_recorder: Callable[[dict], None] | None = None):
     from rag_notes_helper.eval.llm import get_eval_llm as create_llm
 
-    return create_llm()
+    return create_llm(usage_recorder=usage_recorder)
 
 
 def get_embeddings():
@@ -39,40 +28,32 @@ def get_embeddings():
     return create_embeddings()
 
 
-def _usage_sources(source):
-    if source is None:
-        return
-    yield source
-    for key in ("usage", "token_usage"):
-        nested = source.get(key) if isinstance(source, Mapping) else getattr(source, key, None)
-        if nested is not None:
-            yield nested
+def _dataset_rows(dataset) -> list[dict]:
+    if hasattr(dataset, "to_list"):
+        return dataset.to_list()
+    return list(dataset)
 
 
-def _read_usage(response) -> dict:
-    sources = []
-    for group in getattr(response, "generations", []) or []:
-        for generation in group:
-            message = getattr(generation, "message", None)
-            sources.extend(_usage_sources(getattr(message, "usage_metadata", None)))
-            sources.extend(_usage_sources(getattr(message, "response_metadata", None)))
-    sources.extend(_usage_sources(getattr(response, "llm_output", None)))
+def _metric_inputs(metric_name: str, row: dict) -> dict:
+    user_input = row.get("question", row.get("user_input"))
+    response = row.get("answer", row.get("response"))
+    retrieved_contexts = row.get("contexts", row.get("retrieved_contexts"))
 
-    def first_value(*names):
-        return next(
-            (
-                value
-                for source in sources
-                if (value := BaseLLM._value(source, *names)) is not None
-            ),
-            None,
-        )
-
-    return normalize_token_usage({
-        "input_tokens": first_value(*INPUT_TOKEN_ALIASES),
-        "output_tokens": first_value(*OUTPUT_TOKEN_ALIASES),
-        "total_tokens": first_value(*TOTAL_TOKEN_ALIASES),
-    })
+    if metric_name == "answer_relevancy":
+        return {"user_input": user_input, "response": response}
+    if metric_name == "faithfulness":
+        return {
+            "user_input": user_input,
+            "response": response,
+            "retrieved_contexts": retrieved_contexts,
+        }
+    if metric_name in {"context_precision", "context_recall"}:
+        return {
+            "user_input": user_input,
+            "reference": row.get("reference", row.get("ground_truth")),
+            "retrieved_contexts": retrieved_contexts,
+        }
+    raise ValueError(f"Unsupported Ragas metric: {metric_name}")
 
 
 def run_ragas(
@@ -81,43 +62,43 @@ def run_ragas(
     metric_names: Sequence[str],
     usage_recorder: Callable[[dict], None] | None = None,
 ):
-    from ragas.cost import TokenUsage
-    from ragas.metrics import (
-        faithfulness,
-        answer_relevancy,
-        context_precision,
-        context_recall,
+    """Run Ragas 0.4 collection metrics over a batch of dataset rows."""
+    from ragas.metrics.collections import (
+        AnswerRelevancy,
+        ContextPrecision,
+        ContextRecall,
+        Faithfulness,
     )
 
     settings = get_settings()
-    logger.info(f"[EVAL] {settings.llm.eval_model} {settings.llm.eval_provider}")
+    provider = settings.llm.effective_eval_provider
+    model = settings.llm.effective_eval_model
+    logger.info(f"[EVAL] {model} {provider}")
 
-    llm = get_eval_llm()
-    embeddings = get_embeddings()
+    llm = get_eval_llm(usage_recorder=usage_recorder)
+    embeddings = get_embeddings() if "answer_relevancy" in metric_names else None
+    metric_types = {
+        "faithfulness": Faithfulness,
+        "answer_relevancy": AnswerRelevancy,
+        "context_precision": ContextPrecision,
+        "context_recall": ContextRecall,
+    }
+    metrics = {}
+    for name in metric_names:
+        metric_type = metric_types[name]
+        if name == "answer_relevancy":
+            metrics[name] = metric_type(llm=llm, embeddings=embeddings)
+        else:
+            metrics[name] = metric_type(llm=llm)
 
-    def token_usage_parser(response):
-        usage = _read_usage(response)
-        if usage_recorder is not None:
-            usage_recorder(usage)
-        return TokenUsage(
-            input_tokens=usage["input_tokens"] or 0,
-            output_tokens=usage["output_tokens"] or 0,
-        )
+    async def score_rows():
+        results = []
+        for row in _dataset_rows(dataset):
+            row_scores = {}
+            for name in metric_names:
+                result = await metrics[name].ascore(**_metric_inputs(name, row))
+                row_scores[name] = result.value
+            results.append(row_scores)
+        return results
 
-    metric_objects = (
-        faithfulness,
-        answer_relevancy,
-        context_precision,
-        context_recall,
-    )
-    metrics_by_name = dict(zip(METRIC_NAMES, metric_objects, strict=True))
-    result = evaluate(
-        dataset=dataset,
-        metrics=[metrics_by_name[name] for name in metric_names],
-        llm=llm,
-        embeddings=embeddings,
-        token_usage_parser=token_usage_parser,
-        show_progress=False,
-    )
-
-    return result
+    return SimpleNamespace(scores=asyncio.run(score_rows()))

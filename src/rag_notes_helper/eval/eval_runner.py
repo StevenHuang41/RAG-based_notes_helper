@@ -477,8 +477,8 @@ def _workflow_summary(cases: list[dict[str, Any]]) -> dict[str, Any]:
 def _judge_usage_call(record: dict[str, Any], settings: Any) -> dict[str, Any]:
     return {
         "call_type": "ragas_judge",
-        "provider": settings.llm.eval_provider,
-        "model": settings.llm.eval_model,
+        "provider": settings.llm.effective_eval_provider,
+        "model": settings.llm.effective_eval_model,
         "token_usage": record,
     }
 
@@ -513,8 +513,8 @@ def run_evaluation(*, output_root: Path | None = None) -> Path:
                 "fixture_sha256": _fixture_digest(),
                 "answer_provider": settings.llm.provider,
                 "answer_model": settings.llm.model,
-                "judge_provider": settings.llm.eval_provider,
-                "judge_model": settings.llm.eval_model,
+                "judge_provider": settings.llm.effective_eval_provider,
+                "judge_model": settings.llm.effective_eval_model,
                 "embedding_model": settings.embed_model_name,
                 "chunk_size": settings.chunk_size,
                 "chunk_overlap": settings.chunk_overlap,

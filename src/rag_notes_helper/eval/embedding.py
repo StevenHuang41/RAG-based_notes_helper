@@ -1,13 +1,17 @@
 _embedding = None
 
+
 def get_embeddings():
     global _embedding
 
     if _embedding is None:
-        from langchain_huggingface import HuggingFaceEmbeddings
+        from ragas.embeddings import HuggingFaceEmbeddings
+
+        from rag_notes_helper.core.config import get_settings
 
         _embedding = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2"
+            model=get_settings().embed_model_name,
+            normalize_embeddings=True,
         )
 
     return _embedding

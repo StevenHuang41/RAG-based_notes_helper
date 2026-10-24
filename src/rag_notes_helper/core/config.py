@@ -11,6 +11,9 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+LLMProvider = Literal["hf", "openai", "ollama", "gemini", "openrouter"]
+
+
 class LLMSettings(BaseSettings):
 
     model_config = SettingsConfigDict(
@@ -20,7 +23,7 @@ class LLMSettings(BaseSettings):
         extra="ignore",
     )
 
-    provider: Literal["hf", "openai", "ollama", "gemini", "openrouter"]
+    provider: LLMProvider
     model: str
     api_key: SecretStr | None = None
 
@@ -28,14 +31,34 @@ class LLMSettings(BaseSettings):
     max_tokens: int = Field(1024, gt=0)
     temperature: float = Field(0.3, gt=0, le=1)
 
-    eval_provider: Literal["openai", "ollama", "gemini"] = "gemini"
-    eval_model: str = "gemini-2.0-flash"
+    eval_provider: LLMProvider | None = None
+    eval_model: str | None = None
     eval_api_key: SecretStr | None = None
-
 
     @property
     def api_key_str(self) -> str | None:
         return self.api_key.get_secret_value() if self.api_key else None
+
+    @property
+    def effective_eval_provider(self) -> LLMProvider:
+        return self.eval_provider or self.provider
+
+    @property
+    def effective_eval_model(self) -> str:
+        return self.eval_model or self.model
+
+    @property
+    def effective_eval_api_key_str(self) -> str | None:
+        if self.effective_eval_provider == "ollama":
+            return None
+        if self.eval_api_key:
+            return self.eval_api_key.get_secret_value()
+        if self.effective_eval_provider == self.provider:
+            return self.api_key_str
+        raise ValueError(
+            "LLM_EVAL_API_KEY is required when the evaluation provider differs "
+            "from the generation provider."
+        )
 
     @model_validator(mode="after")
     def validate_llm(self) -> LLMSettings:
@@ -44,6 +67,27 @@ class LLMSettings(BaseSettings):
 
         if self.provider == "ollama" and "/" in self.model:
             raise ValueError("Ollama model name should be like 'llama3'")
+
+        if (self.eval_provider is None) != (self.eval_model is None):
+            raise ValueError(
+                "Set LLM_EVAL_PROVIDER and LLM_EVAL_MODEL together, or leave both unset."
+            )
+
+        if (
+            self.effective_eval_provider != self.provider
+            and self.effective_eval_provider != "ollama"
+            and not self.eval_api_key
+        ):
+            raise ValueError(
+                "LLM_EVAL_API_KEY is required when the evaluation provider differs "
+                "from the generation provider."
+            )
+
+        if (
+            self.effective_eval_provider == "ollama"
+            and "/" in self.effective_eval_model
+        ):
+            raise ValueError("Ollama evaluation model name should be like 'llama3'")
 
         return self
 
@@ -82,7 +126,6 @@ class Settings(BaseSettings):
     logs_dir: Path = project_root / "logs"
     eval_dir: Path = project_root / "src/rag_notes_helper/eval"
     reports_dir: Path = eval_dir / "reports"
-
 
     @model_validator(mode="after")
     def validate_cross_logic(self) -> Settings:

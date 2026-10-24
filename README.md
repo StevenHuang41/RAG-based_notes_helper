@@ -192,7 +192,7 @@ The 16 cases cover direct lookup, multi-hop integration, unanswerable questions,
 | CLI / runtime | Python, argparse, Pydantic Settings |
 | Retrieval | FAISS, SentenceTransformer, NumPy |
 | LLM backends | Hugging Face, Gemini, OpenAI, OpenRouter, Ollama |
-| Evaluation | RAGAS, LangChain integrations |
+| Evaluation | Ragas 0.4 collections metrics and provider adapters |
 | Document parsing | PyMuPDF for PDF support, text/markdown/python loaders |
 | Packaging | uv, hatchling, pyproject.toml |
 | Testing | pytest |
@@ -407,6 +407,22 @@ LLM_API_KEY=your-openrouter-api-key
 
 Use an OpenRouter model identifier in `provider/model` form. See the [OpenRouter quickstart](https://openrouter.ai/docs/quickstart) for account and model setup.
 
+Ragas evaluation uses the generation provider and model as its judge by default. To select a different judge, set both `LLM_EVAL_PROVIDER` and `LLM_EVAL_MODEL`. `LLM_EVAL_PROVIDER` accepts `hf`, `openai`, `ollama`, `gemini`, or `openrouter`. A same-provider judge reuses `LLM_API_KEY` unless `LLM_EVAL_API_KEY` is set; a different remote provider requires `LLM_EVAL_API_KEY`. Ollama judges do not require an evaluation API key.
+
+For example, use OpenRouter for answers and a different provider for evaluation:
+
+```text
+LLM_PROVIDER=openrouter
+LLM_MODEL=provider/answer-model
+LLM_API_KEY=your-openrouter-api-key
+
+LLM_EVAL_PROVIDER=gemini
+LLM_EVAL_MODEL=gemini-2.5-flash
+LLM_EVAL_API_KEY=your-gemini-api-key
+```
+
+If only one of `LLM_EVAL_PROVIDER` or `LLM_EVAL_MODEL` is set, configuration fails instead of pairing it with an unintended default.
+
 Common settings:
 
 | Variable | Purpose | Default / example |
@@ -414,6 +430,9 @@ Common settings:
 | `LLM_PROVIDER` | LLM backend | `hf`, `gemini`, `openai`, `openrouter`, `ollama` |
 | `LLM_MODEL` | Model name for selected provider | `gemini-2.0-flash` |
 | `LLM_API_KEY` | API key for remote providers | required except Ollama |
+| `LLM_EVAL_PROVIDER` | Optional Ragas judge provider; defaults to `LLM_PROVIDER` | `hf`, `openai`, `ollama`, `gemini`, `openrouter` |
+| `LLM_EVAL_MODEL` | Optional Ragas judge model; defaults to `LLM_MODEL`; set with `LLM_EVAL_PROVIDER` | provider-specific model name |
+| `LLM_EVAL_API_KEY` | Optional judge key; required for a different remote judge provider | `your-evaluation-provider-api-key` |
 | `LLM_MAX_CHUNKS` | Maximum retrieved chunks sent to LLM | `5` |
 | `LLM_MAX_TOKENS` | Generation token budget | `1024` |
 | `LLM_TEMPERATURE` | Generation temperature | `0.1` |
