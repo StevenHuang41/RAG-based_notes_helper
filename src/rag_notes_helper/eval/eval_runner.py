@@ -1,74 +1,569 @@
+from __future__ import annotations
+
+from collections import Counter, defaultdict
+from collections.abc import Callable
+from contextlib import contextmanager
+from datetime import datetime, timezone
+import hashlib
+import json
+import math
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+from typing import Any, Iterator
+
 import pandas as pd
-from datetime import datetime
 
 from rag_notes_helper.core.config import get_settings
+from rag_notes_helper.eval.dataset_builder import build_dataset
+from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE
 from rag_notes_helper.rag.index import load_or_build_index
 from rag_notes_helper.rag.meta_store import MetaStore
-from rag_notes_helper.eval.dataset_builder import build_dataset
-from rag_notes_helper.eval.ragas_runner import run_ragas
 
 
-def run_evaluation():
+METRIC_NAMES = (
+    "faithfulness",
+    "answer_relevancy",
+    "context_precision",
+    "context_recall",
+)
+CATEGORY_COUNTS = {
+    "direct": 4,
+    "multi_hop": 4,
+    "unanswerable": 4,
+    "ambiguous": 4,
+}
+NOTES_FIXTURE = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "notes"
+QA_FIXTURE = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "notes_qa.json"
+
+
+def _run_ragas_rows_isolated(
+    rows: list[dict[str, Any]],
+    *,
+    usage_recorder: Callable[[dict[str, Any]], None],
+) -> list[dict[str, Any]]:
+    completed = subprocess.run(
+        [sys.executable, "-m", "rag_notes_helper.eval.ragas_worker"],
+        input=json.dumps({"rows": rows}),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    try:
+        outcome = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Ragas worker returned an invalid result.") from exc
+    if completed.returncode != 0:
+        raise RuntimeError("Ragas worker exited unexpectedly.")
+    for call in outcome.get("judge_calls", []):
+        usage_recorder(call)
+    if "error" in outcome:
+        raise RuntimeError(f"Ragas worker failed ({outcome['error']}).")
+    return outcome["scores"]
+
+
+def _run_ragas_isolated(
+    cases: list[dict[str, Any]],
+    *,
+    usage_recorder: Callable[[dict[str, Any]], None],
+) -> list[dict[str, Any]]:
+    rows = [
+        {
+            "question": case["question"],
+            "answer": case["answer"] or "",
+            "contexts": case["contexts"],
+            "ground_truth": case["reference_answer"],
+        }
+        for case in cases
+    ]
+    return _run_ragas_rows_isolated(rows, usage_recorder=usage_recorder)
+
+
+def _read_qa_fixture() -> list[dict[str, Any]]:
+    records = json.loads(QA_FIXTURE.read_text(encoding="utf-8"))
+    counts = Counter(record["category"] for record in records)
+    if len(records) != sum(CATEGORY_COUNTS.values()) or dict(counts) != CATEGORY_COUNTS:
+        raise ValueError("Notes QA fixture must contain four cases per category.")
+    required = {
+        "id",
+        "category",
+        "question",
+        "answerable",
+        "reference_answer",
+        "expected_sources",
+        "expected_evidence",
+    }
+    for record in records:
+        missing = required - record.keys()
+        if missing:
+            raise ValueError(
+                f"QA case {record.get('id', '<unknown>')} is missing required fields."
+            )
+    return records
+
+
+def _fixture_digest() -> str:
+    digest = hashlib.sha256()
+    fixture_files = sorted([*NOTES_FIXTURE.rglob("*"), QA_FIXTURE])
+    for path in fixture_files:
+        if not path.is_file():
+            continue
+        if path == QA_FIXTURE:
+            relative = Path("notes_qa.json")
+        else:
+            relative = path.relative_to(NOTES_FIXTURE.parent)
+        digest.update(relative.as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+@contextmanager
+def _isolated_fixture_index() -> Iterator[tuple[Any, Any, Any]]:
+    """Build the real notes index under a temporary fixture-only runtime."""
+    environment_keys = ("NOTES_DIR", "STORAGE_DIR")
+    previous = {key: os.environ.get(key) for key in environment_keys}
+    try:
+        with tempfile.TemporaryDirectory(prefix="notes-rag-eval-") as temp_dir:
+            root = Path(temp_dir)
+            notes_dir = root / "notes"
+            storage_dir = root / "storage"
+            shutil.copytree(NOTES_FIXTURE, notes_dir)
+            storage_dir.mkdir()
+            os.environ["NOTES_DIR"] = str(notes_dir)
+            os.environ["STORAGE_DIR"] = str(storage_dir)
+            get_settings.cache_clear()
+
+            settings = get_settings()
+            rag = load_or_build_index()
+            meta_store = MetaStore(storage_dir=storage_dir)
+            try:
+                yield settings, rag, meta_store
+            finally:
+                meta_store.close()
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        get_settings.cache_clear()
+
+
+def _new_run_directory(output_root: Path) -> tuple[str, Path]:
+    output_root.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    run_dir = output_root / timestamp
+    suffix = 1
+    while run_dir.exists():
+        run_dir = output_root / f"{timestamp}-{suffix}"
+        suffix += 1
+    run_dir.mkdir()
+    return timestamp, run_dir
+
+
+def _log(run_log: Path, message: str) -> None:
+    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with run_log.open("a", encoding="utf-8") as log_file:
+        log_file.write(f"{timestamp} {message}\n")
+
+
+def _safe_score(value: Any) -> float | None:
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return None
+    return score if math.isfinite(score) else None
+
+
+def _mean(values: list[Any]) -> float | None:
+    clean_values = [score for value in values if (score := _safe_score(value)) is not None]
+    if not clean_values:
+        return None
+    return sum(clean_values) / len(clean_values)
+
+
+def _aggregate_usage(calls: list[dict[str, Any]]) -> dict[str, Any]:
+    token_fields = ("input_tokens", "output_tokens", "total_tokens")
+    token_values = {
+        field: [call.get("token_usage", {}).get(field) for call in calls]
+        for field in token_fields
+    }
+    token_status = (
+        "unavailable"
+        if not any(value is not None for values in token_values.values() for value in values)
+        else "available"
+        if calls and all(
+            value is not None
+            for values in token_values.values()
+            for value in values
+        )
+        else "partial"
+    )
+    token_totals = {
+        field: (
+            sum(value for value in values if value is not None)
+            if any(value is not None for value in values)
+            else None
+        )
+        for field, values in token_values.items()
+    }
+    character_fields = ("input", "output")
+    character_values = {
+        field: [call.get("characters", {}).get(field) for call in calls]
+        for field in character_fields
+    }
+    character_totals = {
+        field: (
+            sum(value for value in values if value is not None)
+            if any(value is not None for value in values)
+            else None
+        )
+        for field, values in character_values.items()
+    }
+    return {
+        "call_count": len(calls),
+        "token_usage": {"status": token_status, **token_totals},
+        "character_usage": character_totals,
+        "calls": calls,
+    }
+
+
+def _answerability_fields(case: dict[str, Any], answer: Any) -> dict[str, Any]:
+    expected_answerable = bool(case["answerable"])
+    if answer is None:
+        return {
+            "expected_answerable": expected_answerable,
+            "predicted_answerable": None,
+            "abstained": None,
+            "correct_abstention": None,
+            "answerability_correct": None,
+        }
+    abstained = (
+        isinstance(answer, str)
+        and answer.strip().casefold() == ABSTENTION_MESSAGE.casefold()
+    )
+    predicted_answerable = not abstained
+    return {
+        "expected_answerable": expected_answerable,
+        "predicted_answerable": predicted_answerable,
+        "abstained": abstained,
+        "correct_abstention": not expected_answerable and abstained,
+        "answerability_correct": predicted_answerable == expected_answerable,
+    }
+
+
+def _retrieval_coverage(
+    case: dict[str, Any], evidence: list[dict[str, Any]]
+) -> dict[str, Any]:
+    sources = {item["source"] for item in evidence}
+    combined_text = "\n".join(item["text"] for item in evidence).casefold()
+    expected_sources = case["expected_sources"]
+    expected_evidence = case["expected_evidence"]
+    return {
+        "expected_source_coverage": (
+            sum(source in sources for source in expected_sources) / len(expected_sources)
+            if expected_sources
+            else None
+        ),
+        "expected_evidence_coverage": (
+            sum(snippet.casefold() in combined_text for snippet in expected_evidence)
+            / len(expected_evidence)
+            if expected_evidence
+            else None
+        ),
+    }
+
+
+def _record_case(
+    case: dict[str, Any],
+    *,
+    workflow: str,
+    rag: Any,
+    meta_store: Any,
+) -> dict[str, Any]:
+    from rag_notes_helper.cli import run_query
+
+    generation_calls: list[dict[str, Any]] = []
+    workflow_error = None
+    try:
+        result = run_query(
+            rag,
+            meta_store,
+            query=case["question"],
+            agentic=workflow == "agentic",
+            stream=False,
+            on_generation=generation_calls.append,
+        )
+        answer = result.get("answer")
+        citations = result.get("citations", [])
+        evidence = result.get("retrieved_evidence", [])
+    except Exception as exc:
+        answer = None
+        citations = []
+        evidence = []
+        workflow_error = type(exc).__name__
+
+    evidence_records = [
+        {
+            "source": hit["source"],
+            "chunk_id": hit["chunk_id"],
+            "score": _safe_score(hit.get("score")),
+            "text": hit["text"],
+        }
+        for hit in evidence
+    ]
+    citation_records = [
+        {
+            "source": citation["source"],
+            "chunk_id": citation["chunk_id"],
+            "score": _safe_score(citation.get("score")),
+        }
+        for citation in citations
+    ]
+    record = {
+        "case_id": case["id"],
+        "category": case["category"],
+        "workflow": workflow,
+        "question": case["question"],
+        "answer": answer,
+        "citations": citation_records,
+        "retrieved_evidence": evidence_records,
+        "contexts": [item["text"] for item in evidence_records],
+        "reference_answer": case["reference_answer"],
+        "expected_sources": case["expected_sources"],
+        "expected_evidence": case["expected_evidence"],
+        **_answerability_fields(case, answer),
+        **_retrieval_coverage(case, evidence_records),
+        "metrics": {name: None for name in METRIC_NAMES},
+        "generation_usage": _aggregate_usage(generation_calls),
+    }
+    if workflow_error is not None:
+        record["workflow_error"] = workflow_error
+    return record
+
+
+def _attach_ragas_scores(
+    workflow_cases: list[dict[str, Any]],
+    *,
+    judge_calls: list[dict[str, Any]],
+) -> None:
+    scores = _run_ragas_isolated(
+        workflow_cases,
+        usage_recorder=judge_calls.append,
+    )
+    if len(scores) != len(workflow_cases):
+        raise ValueError("Ragas returned a different number of scores than cases.")
+    for case, case_scores in zip(workflow_cases, scores):
+        case["metrics"] = {
+            metric: _safe_score(case_scores.get(metric))
+            for metric in METRIC_NAMES
+        }
+
+
+def _workflow_summary(cases: list[dict[str, Any]]) -> dict[str, Any]:
+    by_category: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for case in cases:
+        by_category[case["category"]].append(case)
+
+    def summarize_group(group: list[dict[str, Any]]) -> dict[str, Any]:
+        return {
+            "case_count": len(group),
+            "metrics": {
+                metric: _mean([case["metrics"].get(metric) for case in group])
+                for metric in METRIC_NAMES
+            },
+            "expected_source_coverage": _mean(
+                [case["expected_source_coverage"] for case in group]
+            ),
+            "expected_evidence_coverage": _mean(
+                [case["expected_evidence_coverage"] for case in group]
+            ),
+            "answerability_accuracy": _mean(
+                [case["answerability_correct"] for case in group]
+            ),
+            "abstention_rate": _mean([case["abstained"] for case in group]),
+            "correct_abstention_rate": _mean(
+                [case["correct_abstention"] for case in group]
+            ),
+        }
+
+    return {
+        **summarize_group(cases),
+        "by_category": {
+            category: summarize_group(group)
+            for category, group in sorted(by_category.items())
+        },
+        "generation_usage": _aggregate_usage(
+            [
+                call
+                for case in cases
+                for call in case["generation_usage"]["calls"]
+            ]
+        ),
+    }
+
+
+def _judge_usage_call(record: dict[str, Any], settings: Any) -> dict[str, Any]:
+    return {
+        "call_type": "ragas_judge",
+        "provider": settings.llm.eval_provider,
+        "model": settings.llm.eval_model,
+        "token_usage": record,
+    }
+
+
+def _write_json(path: Path, payload: Any) -> None:
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def run_evaluation(*, output_root: Path | None = None) -> Path:
+    """Compare Classic and Agentic against the repository's isolated fixture set."""
+    project_root = Path(__file__).resolve().parents[3]
+    output_root = output_root or project_root / "eval"
+    timestamp, run_dir = _new_run_directory(Path(output_root))
+    run_log = run_dir / "run.log"
+    run_log.touch()
+    results_path = run_dir / "results.json"
+    summary_path = run_dir / "summary.json"
+    _log(run_log, "Starting paired synthetic-notes RAG evaluation.")
+
+    results: dict[str, Any] = {
+        "schema_version": 1,
+        "cases": [],
+    }
+    try:
+        cases = _read_qa_fixture()
+        with _isolated_fixture_index() as (settings, rag, meta_store):
+            results["run_metadata"] = {
+                "timestamp_utc": timestamp,
+                "fixture_sha256": _fixture_digest(),
+                "answer_provider": settings.llm.provider,
+                "answer_model": settings.llm.model,
+                "judge_provider": settings.llm.eval_provider,
+                "judge_model": settings.llm.eval_model,
+                "embedding_model": settings.embed_model_name,
+                "chunk_size": settings.chunk_size,
+                "chunk_overlap": settings.chunk_overlap,
+                "top_k": settings.top_k,
+                "min_retrieval_score": settings.min_retrieval_score,
+                "max_answer_chunks": settings.llm.max_chunks,
+                "agentic_max_searches": 3,
+            }
+            workflow_results: dict[str, list[dict[str, Any]]] = {}
+            judge_usage_by_workflow: dict[str, list[dict[str, Any]]] = {}
+
+            for workflow in ("classic", "agentic"):
+                workflow_cases = []
+                for case in cases:
+                    record = _record_case(
+                        case,
+                        workflow=workflow,
+                        rag=rag,
+                        meta_store=meta_store,
+                    )
+                    workflow_cases.append(record)
+                    results["cases"].append(record)
+                    _log(
+                        run_log,
+                        f"[{workflow}] {case['id']} answerable="
+                        f"{record['predicted_answerable']} abstained="
+                        f"{record['abstained']} calls="
+                        f"{record['generation_usage']['call_count']}",
+                    )
+                workflow_results[workflow] = workflow_cases
+
+            for workflow, workflow_cases in workflow_results.items():
+                judge_calls: list[dict[str, Any]] = []
+                try:
+                    _attach_ragas_scores(workflow_cases, judge_calls=judge_calls)
+                    _log(run_log, f"[{workflow}] Ragas metrics completed.")
+                except Exception as exc:
+                    error_name = type(exc).__name__
+                    for record in workflow_cases:
+                        record["ragas_error"] = error_name
+                    _log(run_log, f"[{workflow}] Ragas failed ({error_name}).")
+
+                judge_usage_by_workflow[workflow] = [
+                    _judge_usage_call(call, settings) for call in judge_calls
+                ]
+
+            results["category_counts"] = dict(Counter(
+                case["category"] for case in cases
+            ))
+            judge_usage = {
+                "by_workflow": {
+                    workflow: _aggregate_usage(calls)
+                    for workflow, calls in judge_usage_by_workflow.items()
+                },
+                "total": _aggregate_usage([
+                    call
+                    for calls in judge_usage_by_workflow.values()
+                    for call in calls
+                ]),
+            }
+            results["judge_usage"] = judge_usage
+            summary = {
+                "schema_version": 1,
+                "run_metadata": results["run_metadata"],
+                "case_count": len(cases),
+                "category_counts": results["category_counts"],
+                "interpretation": (
+                    "This 16-case fixture is a regression seed, not a statistically "
+                    "representative benchmark. Inspect multi_hop and abstention cases."
+                ),
+                "workflows": {
+                    workflow: _workflow_summary(records)
+                    for workflow, records in workflow_results.items()
+                },
+                "judge_usage": judge_usage,
+            }
+            _write_json(results_path, results)
+            _write_json(summary_path, summary)
+            _log(run_log, "Evaluation artifacts written successfully.")
+    except Exception as exc:
+        _log(run_log, f"Evaluation failed ({type(exc).__name__}).")
+        if results.get("run_metadata") is not None:
+            _write_json(results_path, results)
+        _write_json(
+            summary_path,
+            {
+                "schema_version": 1,
+                "timestamp_utc": timestamp,
+                "error": type(exc).__name__,
+            },
+        )
+        raise
+
+    print(f"Evaluation artifacts saved to {run_dir}")
+    return run_dir
+
+
+def run_base_smoke_evaluation() -> None:
+    """Run the legacy application-behavior smoke set separately from notes QA."""
     rag = load_or_build_index()
     meta_store = MetaStore()
-
-    try :
+    try:
         dataset = build_dataset(
             rag,
             meta_store,
-            "src/rag_notes_helper/eval/testset/base.json",
+            str(Path(__file__).resolve().parent / "testset" / "base.json"),
         )
-
-        print("\nDataset built. Running evaluation...\n")
-
-        result = run_ragas(dataset)
-        df = pd.DataFrame(result.scores)
-
-        print("\n=== RAGAS RESULT ===\n")
-        for col in df.columns:
-            print(f"{col}: {df[col].mean()}")
-
-        print("\n=== DETAIL ===\n")
-        print("Each question:")
-        print(df)
-
-        settings = get_settings()
-        project_root_dir = settings.project_root
-        reports_dir = settings.reports_dir
-
-        time_stamp = datetime.now().strftime("%Y%m%d_%H%M")
-        run_fpath = reports_dir / f"run_{time_stamp}"
-        summary_fpath = reports_dir / "summary.csv"
-
-        # run file
-        df.to_csv(run_fpath, index=False)
-        print(f"\nSaved run to {run_fpath.relative_to(project_root_dir)}")
-
-        # summary file
-        summary_row = {
-            "time": time_stamp,
-            "eval_provider": settings.llm.eval_provider,
-            "top_k": settings.top_k,
-            "temperature": settings.llm.temperature,
-            "min_retrieval_score": settings.min_retrieval_score,
-            "chunk_size": settings.chunk_size,
-            "chunk_overlap": settings.chunk_overlap,
-            "faithfulness": df["faithfulness"].mean(),
-            "answer_relevancy": df["answer_relevancy"].mean(),
-            "context_precision": df["context_precision"].mean(),
-            "context_recall": df["context_recall"].mean(),
-        }
-
-        summary_df = pd.DataFrame([summary_row])
-
-        # updated summary
-        if summary_fpath.exists():
-            existing = pd.read_csv(summary_fpath)
-            summary_df = pd.concat([existing, summary_df], ignore_index=True)
-
-        # save summary
-        summary_df.to_csv(summary_fpath, index=False)
-        print(f"Updated summary to {summary_fpath.relative_to(project_root_dir)}\n")
-
-    finally :
+        print("\nLegacy system smoke dataset built. Running Ragas evaluation...\n")
+        scores = _run_ragas_rows_isolated(
+            dataset.to_list(),
+            usage_recorder=lambda _call: None,
+        )
+        df = pd.DataFrame(scores)
+        print("\n=== LEGACY SYSTEM RAGAS RESULT ===\n")
+        for column in df.columns:
+            print(f"{column}: {df[column].mean()}")
+    finally:
         meta_store.close()

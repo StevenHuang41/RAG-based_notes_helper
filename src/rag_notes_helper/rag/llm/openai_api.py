@@ -7,6 +7,8 @@ from rag_notes_helper.rag.llm.base import BaseLLM
 
 
 class OpenAILLM(BaseLLM):
+    provider_name = "openai"
+
     def __init__(self, **kws):
         super().__init__(**kws)
         self.client = OpenAI(
@@ -23,6 +25,7 @@ class OpenAILLM(BaseLLM):
             temperature=kws.get("temperature", self.temperature),
         )
 
+        self._capture_usage(getattr(response, "usage", None))
         content = response.output_text
         return content or ""
 

@@ -1,8 +1,13 @@
+from collections.abc import Callable
 from typing import Any
 
 from rag_notes_helper.rag.llm import get_llm
+from rag_notes_helper.rag.llm.base import make_generation_usage_record
 from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.utils.timer import deco_time_block
+
+
+ABSTENTION_MESSAGE = "I cannot find the answers in the notes."
 
 
 SYSTEM_PROMPT = """
@@ -40,16 +45,14 @@ def rag_answer(
     *,
     hits: list[dict],
     stream: bool = False,
+    on_generation: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
 
-    # if not hits:
-    #     return {
-    #         "answer": (
-    #             "I could not find relevant information in your notes. \n"
-    #                 "Try rephrasing the question or add more notes."
-    #         ),
-    #         "citations": [],
-    #     }
+    if not hits:
+        return {
+            "answer": ABSTENTION_MESSAGE,
+            "citations": [],
+        }
 
     settings = get_settings()
 
@@ -100,6 +103,15 @@ def rag_answer(
             prompt,
             line_width=settings.line_width,
         )
+        if on_generation is not None:
+            on_generation(
+                make_generation_usage_record(
+                    llm,
+                    prompt,
+                    answer_text,
+                    call_type="final_answer",
+                )
+            )
 
     return {
         "answer": answer_text,

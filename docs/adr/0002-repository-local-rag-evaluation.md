@@ -1,0 +1,3 @@
+# Keep the notes benchmark local to the repository
+
+The notes QA benchmark will use synthetic, reviewed note fixtures under `tests/fixtures/` and will never read user notes from `data/`; `--eval` is a source-checkout development workflow because test fixtures and Ragas are not part of the installed runtime package. Each run writes its log, per-case results, token usage, and summary to a timestamped directory under the repository-root `eval/`, with generated runs ignored by Git and benchmark fixtures kept under version control. The Ragas judge runs in a separate Python process to isolate its ML/OpenMP runtime from FAISS and avoid native runtime conflicts observed on macOS.

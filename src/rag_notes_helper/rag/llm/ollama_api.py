@@ -7,6 +7,8 @@ from rag_notes_helper.rag.llm.base import BaseLLM
 
 
 class OllamaLLM(BaseLLM):
+    provider_name = "ollama"
+
     def __init__(self, base_url: str = "http://localhost:11434", **kws) -> None:
         super().__init__(**kws)
         self.base_url = base_url.rstrip("/")
@@ -35,7 +37,9 @@ class OllamaLLM(BaseLLM):
         )
         response.raise_for_status()
 
-        content = response.json().get("message", {}).get("content", "")
+        payload = response.json()
+        self._capture_usage(payload)
+        content = payload.get("message", {}).get("content", "")
         return content or ""
 
 

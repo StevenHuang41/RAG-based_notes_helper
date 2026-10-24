@@ -1,0 +1,146 @@
+[
+  {
+    "id": "direct-01",
+    "category": "direct",
+    "question": "Who is the product owner for Aurora Planner?",
+    "answerable": true,
+    "reference_answer": "Lena Ortiz is the product owner for Aurora Planner.",
+    "expected_sources": ["product_overview.md"],
+    "expected_evidence": ["Product owner: Lena Ortiz."]
+  },
+  {
+    "id": "direct-02",
+    "category": "direct",
+    "question": "When did the customer pilot begin?",
+    "answerable": true,
+    "reference_answer": "The customer pilot began on April 6, 2026.",
+    "expected_sources": ["product_overview.md"],
+    "expected_evidence": ["The customer pilot began on April 6, 2026."]
+  },
+  {
+    "id": "direct-03",
+    "category": "direct",
+    "question": "What is the total approved budget?",
+    "answerable": true,
+    "reference_answer": "The approved total budget is $24,000.",
+    "expected_sources": ["budget.md"],
+    "expected_evidence": ["The approved total budget is $24,000."]
+  },
+  {
+    "id": "direct-04",
+    "category": "direct",
+    "question": "Where should customers send support requests?",
+    "answerable": true,
+    "reference_answer": "Customers should email support@northstar.example.",
+    "expected_sources": ["product_overview.md"],
+    "expected_evidence": ["Customer support requests go to support@northstar.example."]
+  },
+  {
+    "id": "multi-hop-01",
+    "category": "multi_hop",
+    "question": "How much are engineering and testing allocated together, and what share of the approved total is that?",
+    "answerable": true,
+    "reference_answer": "Engineering and testing total $14,000, about 58.3% of the $24,000 approved budget.",
+    "expected_sources": ["budget.md", "test_plan.md"],
+    "expected_evidence": ["Engineering is allocated $10,000.", "The test budget is $4,000.", "The approved total budget is $24,000."]
+  },
+  {
+    "id": "multi-hop-02",
+    "category": "multi_hop",
+    "question": "What must be complete before the target June 1 launch can proceed?",
+    "answerable": true,
+    "reference_answer": "Legal review must be complete, marketing review must be complete, and the May 18 code freeze must have passed before the June 1 target launch can proceed.",
+    "expected_sources": ["delivery_timeline.md", "launch_checklist.md"],
+    "expected_evidence": ["Legal review is due by May 12, 2026.", "Marketing review is due by May 15, 2026.", "Code freeze is May 18, 2026.", "Launch may proceed only after legal review and marketing review are complete and the code freeze has passed."]
+  },
+  {
+    "id": "multi-hop-03",
+    "category": "multi_hop",
+    "question": "How many tester-days are planned for the $4,000 test budget, and what is the cost per tester-day?",
+    "answerable": true,
+    "reference_answer": "The plan has ten tester-days for $4,000, or $400 per tester-day.",
+    "expected_sources": ["team_capacity.md", "test_plan.md"],
+    "expected_evidence": ["The planned test capacity is ten tester-days in total.", "The test budget is $4,000."]
+  },
+  {
+    "id": "multi-hop-04",
+    "category": "multi_hop",
+    "question": "Who owns verifying the calendar duplicate risk, and how many recurring-event cases must QA cover?",
+    "answerable": true,
+    "reference_answer": "QA lead Priya Shah owns the verification, and QA must cover five recurring-event cases.",
+    "expected_sources": ["risks.md", "test_plan.md"],
+    "expected_evidence": ["QA lead Priya Shah owns verification of the five recurring-event cases before launch.", "QA must verify five recurring-event cases before launch."]
+  },
+  {
+    "id": "unanswerable-01",
+    "category": "unanswerable",
+    "question": "Which vendor submitted the $15,000 quote?",
+    "answerable": false,
+    "reference_answer": "I cannot find the answers in the notes.",
+    "expected_sources": [],
+    "expected_evidence": []
+  },
+  {
+    "id": "unanswerable-02",
+    "category": "unanswerable",
+    "question": "What customer satisfaction rating did the pilot receive?",
+    "answerable": false,
+    "reference_answer": "I cannot find the answers in the notes.",
+    "expected_sources": [],
+    "expected_evidence": []
+  },
+  {
+    "id": "unanswerable-03",
+    "category": "unanswerable",
+    "question": "On what date will Aurora Planner version 2.0 ship?",
+    "answerable": false,
+    "reference_answer": "I cannot find the answers in the notes.",
+    "expected_sources": [],
+    "expected_evidence": []
+  },
+  {
+    "id": "unanswerable-04",
+    "category": "unanswerable",
+    "question": "What is the CEO's home address?",
+    "answerable": false,
+    "reference_answer": "I cannot find the answers in the notes.",
+    "expected_sources": [],
+    "expected_evidence": []
+  },
+  {
+    "id": "ambiguous-01",
+    "category": "ambiguous",
+    "question": "When is the deadline?",
+    "answerable": false,
+    "reference_answer": "I cannot find the answers in the notes.",
+    "expected_sources": ["delivery_timeline.md"],
+    "expected_evidence": ["Design freeze is April 20, 2026.", "Legal review is due by May 12, 2026.", "Marketing review is due by May 15, 2026.", "Code freeze is May 18, 2026."]
+  },
+  {
+    "id": "ambiguous-02",
+    "category": "ambiguous",
+    "question": "Who is the owner?",
+    "answerable": false,
+    "reference_answer": "I cannot find the answers in the notes.",
+    "expected_sources": ["product_overview.md"],
+    "expected_evidence": ["Product owner: Lena Ortiz.", "Launch coordinator: Marco Bell."]
+  },
+  {
+    "id": "ambiguous-03",
+    "category": "ambiguous",
+    "question": "How much is allocated?",
+    "answerable": false,
+    "reference_answer": "I cannot find the answers in the notes.",
+    "expected_sources": ["budget.md", "test_plan.md"],
+    "expected_evidence": ["Engineering is allocated $10,000.", "Design is allocated $8,000.", "The test budget is $4,000."]
+  },
+  {
+    "id": "ambiguous-04",
+    "category": "ambiguous",
+    "question": "Did it pass?",
+    "answerable": false,
+    "reference_answer": "I cannot find the answers in the notes.",
+    "expected_sources": ["test_plan.md", "launch_checklist.md"],
+    "expected_evidence": ["QA must verify five recurring-event cases before launch.", "Launch may proceed only after legal review and marketing review are complete and the code freeze has passed."]
+  }
+]

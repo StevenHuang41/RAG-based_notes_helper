@@ -7,6 +7,8 @@ from rag_notes_helper.rag.llm.base import BaseLLM
 
 
 class HuggingFaceLLM(BaseLLM):
+    provider_name = "hf"
+
     def __init__(self, **kws):
         super().__init__(**kws)
         self.client = InferenceClient(
@@ -23,6 +25,7 @@ class HuggingFaceLLM(BaseLLM):
             temperature=kws.get("temperature", self.temperature),
         )
 
+        self._capture_usage(getattr(response, "usage", None))
         content = response.choices[0].message.content
         return content or ""
 

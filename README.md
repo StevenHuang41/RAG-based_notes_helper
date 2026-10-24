@@ -9,7 +9,7 @@
 
 A local-first Retrieval-Augmented Generation (RAG) application for querying personal notes and documents. The system indexes notes with SentenceTransformer embeddings and FAISS, retrieves relevant chunks for each query, and sends grounded context to a configurable LLM backend.
 
-The application can run from source or as a containerized CLI. It supports one-time queries, an interactive REPL, source citations, smart re-indexing, multiple LLM providers, PDF ingestion, and RAGAS-based evaluation.
+The application can run from source or as a containerized CLI. It supports Classic RAG by default and an opt-in Agentic RAG workflow, one-time queries, an interactive REPL, source citations, smart re-indexing, multiple LLM providers, PDF ingestion, and a fixture-backed RAGAS benchmark.
 
 <p align="center">
     <a href="docs/demo.mp4">
@@ -75,6 +75,7 @@ This project keeps knowledge external and inspectable. Notes are chunked, embedd
   - OpenAI
   - Ollama for local inference
 - Grounds answers in retrieved context.
+- Offers an opt-in Agentic RAG workflow that can inspect evidence and search again up to three times for one query.
 - Supports optional citation output for source visibility.
 - Supports streaming responses in REPL mode.
 
@@ -83,6 +84,7 @@ This project keeps knowledge external and inspectable. Notes are chunked, embedd
 - One-time query mode for shell usage and scripting.
 - Interactive REPL mode for repeated queries after the index is loaded.
 - Commands for re-indexing, smart updates, configuration inspection, source listing, citation toggling, stream toggling, and evaluation.
+- Workflow selection is independent of interaction style: Classic is the default; `--agentic` selects Agentic RAG, and `--repl` selects interactive use.
 
 ### Engineering workflow
 
@@ -116,13 +118,18 @@ FAISS vector index      Metadata store
         +---------+----------+
                   |
                   v
-User query -> query embedding -> top-k retrieval
+User query -> workflow selection
+                  |
+          +-------+--------+
+          |                |
+          v                v
+Classic RAG          Agentic RAG
+one retrieval        bounded Python loop
+          |          search / answer / abstain
+          +-------+--------+
                   |
                   v
-Prompt with retrieved context
-                  |
-                  v
-LLM backend -> grounded answer + optional citations
+         LLM answer + citations
 ```
 
 ---
@@ -151,7 +158,10 @@ LLM backend -> grounded answer + optional citations
    - FAISS retrieves the top-k nearest chunks.
    - Low-scoring matches are filtered with `MIN_RETRIEVAL_SCORE`.
 
-6. **Answer generation**
+6. **Workflow selection and answer generation**
+   - Classic RAG sends one retrieval result to answer generation.
+   - Agentic RAG asks the configured LLM for a Pydantic-validated JSON action after inspecting the retrieved chunks. It can request another focused search, select evidence for an answer, or abstain. The initial search uses the original question and each query is limited to three searches.
+   - Both workflows abstain without answer generation when retrieval returns no chunks.
    - Retrieved chunks are inserted into the LLM prompt as context.
    - The answer can include source citations.
    - REPL mode keeps the loaded index available for faster repeated queries.
@@ -160,30 +170,17 @@ LLM backend -> grounded answer + optional citations
 
 ## Evaluation
 
-The CLI includes a RAGAS evaluation mode:
+From a source checkout with development dependencies installed, `--eval` compares Classic and Agentic RAG using the same fictional notes corpus and 16 fixed QA cases under `tests/fixtures/`. The benchmark builds a temporary index and does not read or modify the user's `data/` or `storage/` directories:
 
 ```bash
 rag-app --eval
 ```
 
-Evaluation reports are generated locally under `src/rag_notes_helper/eval/reports/` and are ignored by git by default because they are runtime artifacts.
+Each run writes `run.log`, per-case `results.json`, and `summary.json` under `eval/<UTC timestamp>/`. These generated reports are ignored by Git. Results include faithfulness, answer relevancy, context precision, context recall, expected source/evidence coverage, answerability behavior, generation token usage, and separate RAGAS judge usage. Token counts are provider-reported; unavailable values remain marked unavailable, while character counts are recorded separately.
 
-A recent local evaluation run used:
+The 16 cases cover direct lookup, multi-hop integration, unanswerable questions, and ambiguous questions. Treat this as a regression seed, not a statistically representative benchmark. The legacy `base.json` system smoke set remains separate and can be run with `--eval-base`; unlike `--eval`, it uses the configured user index.
 
-| Setting / Metric | Value |
-|---|---:|
-| `TOP_K` | 5 |
-| `LLM_TEMPERATURE` | 0.1 |
-| `MIN_RETRIEVAL_SCORE` | 0.3 |
-| `CHUNK_SIZE` | 800 |
-| `CHUNK_OVERLAP` | 200 |
-| Faithfulness | 1.000 |
-| Answer relevancy | 0.750 |
-| Context precision | 0.797 |
-| Context recall | 1.000 |
-| Evaluation provider | Gemini |
-
-These metrics are produced by the evaluation pipeline under `src/rag_notes_helper/eval/` and provide a repeatable way to compare retrieval and generation settings.
+`--eval` is a repository development command. The test fixtures and RAGAS development dependencies are not included in the runtime wheel.
 
 ---
 
@@ -237,10 +234,13 @@ RAG-based_notes_helper/
 │   │   ├── retrieval.py
 │   │   └── llm/                    # provider implementations
 │   └── utils/
-└── tests/                          # pytest unit tests
+└── tests/                          # pytest tests and development fixtures
+    └── fixtures/
+        ├── notes/                  # fictional notes used by --eval
+        └── notes_qa.json           # fixed 16-case QA benchmark
 ```
 
-Runtime directories such as `storage/`, `logs/`, and `hf_cache/` are created locally and ignored by git.
+Runtime directories such as `storage/`, `logs/`, and `hf_cache/` are created locally and ignored by Git. Evaluation run artifacts are stored under the repository-root `eval/` directory and ignored by Git.
 
 ---
 
@@ -289,7 +289,9 @@ uv run rag-app "What is RAG?" --reindex     # rebuild the full index before answ
 uv run rag-app "What is RAG?" --citations   # include source citations
 uv run rag-app --sources                     # list indexed source files
 uv run rag-app --config                      # show validated configuration
-uv run rag-app --eval                        # run RAGAS evaluation
+uv run rag-app "What is RAG?" --agentic      # use Agentic RAG for one query
+uv run rag-app --eval                        # compare workflows on synthetic notes
+uv run rag-app --eval-base                   # legacy smoke set on the user index
 ```
 
 ### Interactive REPL
@@ -297,6 +299,15 @@ uv run rag-app --eval                        # run RAGAS evaluation
 ```bash
 uv run rag-app --repl
 ```
+
+Select Agentic RAG for the whole REPL session with `--agentic`. A question supplied at startup is answered first, then the REPL accepts fresh queries:
+
+```bash
+uv run rag-app --repl --agentic
+uv run rag-app --repl --agentic "What changed before launch?"
+```
+
+Each query starts with fresh Agentic state; conversation memory is not enabled.
 
 REPL commands:
 
@@ -434,16 +445,16 @@ ghcr.io/stevenhuang41/rag-based-notes-helper:latest
 
 ## Limitations
 
-- Single-turn query flow; conversation memory is not yet implemented.
+- Agentic retrieval is limited to one query at a time; conversation memory is not yet implemented.
 - Retrieval quality depends on note quality, chunk size, and embedding model choice.
-- Runtime artifacts such as FAISS indexes, logs, and evaluation reports are local by default.
+- Runtime artifacts such as FAISS indexes and logs are local by default; evaluation reports are local to the source checkout.
 - API-based LLM providers require valid credentials in `.env`.
 
 ---
 
 ## Future Work
 
-- Make the RAG workflow more agentic, allowing the assistant to plan multi-step note exploration, decide when to retrieve again, and synthesize answers across multiple retrieval passes.
+- Evaluate whether a graph framework is justified if the bounded Python agent loop grows more complex.
 - Add conversation memory so follow-up questions can reuse prior context while still grounding final answers in retrieved notes.
 - Add an optional web UI for browsing sources, retrieved chunks, answers, and citations.
 - Improve deployment examples for local Ollama and remote LLM providers.

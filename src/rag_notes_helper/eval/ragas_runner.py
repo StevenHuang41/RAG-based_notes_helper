@@ -1,24 +1,120 @@
-from ragas import evaluate
-from ragas.metrics import (
-    faithfulness,
-    answer_relevancy,
-    context_precision,
-    context_recall,
-)
+from collections.abc import Callable, Mapping
 
 from rag_notes_helper.core.config import get_settings
-from rag_notes_helper.eval.llm import get_eval_llm
-from rag_notes_helper.eval.embedding import get_embeddings
 from rag_notes_helper.utils.logger import get_logger
+from rag_notes_helper.rag.llm.base import BaseLLM
 
 logger = get_logger("cli")
 
-def run_ragas(dataset):
+
+def evaluate(*args, **kwargs):
+    """Load Ragas lazily so CLI startup and FAISS retrieval stay lightweight."""
+    from ragas import evaluate as ragas_evaluate
+
+    return ragas_evaluate(*args, **kwargs)
+
+
+def get_eval_llm():
+    from rag_notes_helper.eval.llm import get_eval_llm as create_llm
+
+    return create_llm()
+
+
+def get_embeddings():
+    from rag_notes_helper.eval.embedding import get_embeddings as create_embeddings
+
+    return create_embeddings()
+
+
+def _containers(source):
+    if source is None:
+        return
+    yield source
+    for key in ("usage", "token_usage"):
+        nested = source.get(key) if isinstance(source, Mapping) else getattr(source, key, None)
+        if nested is not None:
+            yield nested
+
+
+def _read_usage(response) -> dict:
+    sources = []
+    for group in getattr(response, "generations", []) or []:
+        for generation in group:
+            message = getattr(generation, "message", None)
+            sources.extend(_containers(getattr(message, "usage_metadata", None)))
+            sources.extend(_containers(getattr(message, "response_metadata", None)))
+    sources.extend(_containers(getattr(response, "llm_output", None)))
+
+    def first_value(*names):
+        return next(
+            (
+                value
+                for source in sources
+                if (value := BaseLLM._value(source, *names)) is not None
+            ),
+            None,
+        )
+
+    input_tokens = first_value(
+        "input_tokens", "prompt_tokens", "prompt_token_count", "prompt_eval_count"
+    )
+    output_tokens = first_value(
+        "output_tokens",
+        "completion_tokens",
+        "candidates_token_count",
+        "eval_count",
+    )
+    total_tokens = first_value("total_tokens", "total_token_count")
+    status = (
+        "available"
+        if all(value is not None for value in (
+            input_tokens,
+            output_tokens,
+            total_tokens,
+        ))
+        else "partial"
+        if any(value is not None for value in (
+            input_tokens,
+            output_tokens,
+            total_tokens,
+        ))
+        else "unavailable"
+    )
+    return {
+        "status": status,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+    }
+
+
+def run_ragas(
+    dataset,
+    *,
+    usage_recorder: Callable[[dict], None] | None = None,
+):
+    from ragas.cost import TokenUsage
+    from ragas.metrics import (
+        faithfulness,
+        answer_relevancy,
+        context_precision,
+        context_recall,
+    )
+
     settings = get_settings()
     logger.info(f"[EVAL] {settings.llm.eval_model} {settings.llm.eval_provider}")
 
     llm = get_eval_llm()
     embeddings = get_embeddings()
+
+    def token_usage_parser(response):
+        usage = _read_usage(response)
+        if usage_recorder is not None:
+            usage_recorder(usage)
+        return TokenUsage(
+            input_tokens=usage["input_tokens"] or 0,
+            output_tokens=usage["output_tokens"] or 0,
+        )
 
     result = evaluate(
         dataset=dataset,
@@ -30,6 +126,8 @@ def run_ragas(dataset):
         ],
         llm=llm,
         embeddings=embeddings,
+        token_usage_parser=token_usage_parser,
+        show_progress=False,
     )
 
     return result

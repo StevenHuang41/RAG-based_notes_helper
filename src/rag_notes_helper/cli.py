@@ -1,5 +1,8 @@
 import argparse
 import sys
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
 from pydantic import ValidationError
 from collections.abc import Iterator
 
@@ -9,15 +12,30 @@ from rag_notes_helper.rag.index import (
     load_or_build_index,
     rebuild_index,
 )
-from rag_notes_helper.eval.eval_runner import run_evaluation
 from rag_notes_helper.rag.meta_store import MetaStore
 from rag_notes_helper.rag.retrieval import retrieve
 from rag_notes_helper.rag.answer import rag_answer
+from rag_notes_helper.rag.agentic import AgenticWorkflowError, agentic_answer
 from rag_notes_helper.utils.logger import get_logger
 from rag_notes_helper.utils.timer import time_block, deco_time_block
 
 
 logger = get_logger("cli")
+
+
+def run_evaluation(*, output_root: Path | None = None) -> Path:
+    """Load the development-only evaluator only when the benchmark is requested."""
+    from rag_notes_helper.eval.eval_runner import run_evaluation as evaluate
+
+    if output_root is None:
+        return evaluate()
+    return evaluate(output_root=output_root)
+
+
+def run_base_smoke_evaluation() -> None:
+    from rag_notes_helper.eval.eval_runner import run_base_smoke_evaluation as evaluate
+
+    return evaluate()
 
 @deco_time_block
 def show_config():
@@ -106,11 +124,15 @@ def run_onetime(
     *,
     query: str,
     citations: bool = False,
+    agentic: bool = False,
 ) -> None:
-    hits = retrieve(rag, meta_store, query=query)
-
     logger.info((f"query: {query[:20]}{' ...' if len(query) > 20 else ''}"))
-    result = rag_answer(query, hits=hits)
+    result = run_query(
+        rag,
+        meta_store,
+        query=query,
+        agentic=agentic,
+    )
 
     display_ansewr(result["answer"])
 
@@ -118,11 +140,40 @@ def run_onetime(
         show_citations(result)
 
 
+def run_query(
+    rag: RagIndex,
+    meta_store: MetaStore,
+    *,
+    query: str,
+    agentic: bool = False,
+    stream: bool = False,
+    on_generation: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    if agentic:
+        kwargs = {
+            "rag": rag,
+            "meta_store": meta_store,
+            "stream": stream,
+        }
+        if on_generation is not None:
+            kwargs["on_generation"] = on_generation
+        return agentic_answer(query, **kwargs)
+
+    hits = retrieve(rag, meta_store, query=query)
+    kwargs = {"hits": hits, "stream": stream}
+    if on_generation is not None:
+        kwargs["on_generation"] = on_generation
+    result = rag_answer(query, **kwargs)
+    result["retrieved_evidence"] = hits
+    return result
+
+
 def repl(
     rag: RagIndex | None = None,
     meta_store: MetaStore | None = None,
     *,
     citations: bool = False,
+    agentic: bool = False,
 ):
     rag = rag or load_or_build_index()
     meta_store = meta_store or MetaStore()
@@ -221,9 +272,19 @@ def repl(
 
             logger.info((f"query: {query[:20]}{' ...' if len(query) > 20 else ''}"))
 
-            hits = retrieve(rag, meta_store, query=query)
-
-            result = rag_answer(query, hits=hits, stream=stream_response)
+            try:
+                result = run_query(
+                    rag,
+                    meta_store,
+                    query=query,
+                    agentic=agentic,
+                    stream=stream_response,
+                )
+            except AgenticWorkflowError as exc:
+                logger.error(f"Agentic workflow error: {exc}")
+                print(f"\nAgentic workflow error: {exc}", file=sys.stderr)
+                print()
+                continue
 
             display_ansewr(result["answer"])
 
@@ -255,10 +316,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--agentic",
+        action="store_true",
+        help="Use the Agentic RAG workflow",
+    )
+
+    parser.add_argument(
         "-ev",
         "--eval",
         action="store_true",
-        help="Run RAG evaluation (RAGAS)",
+        help="Compare Classic and Agentic RAG on the synthetic notes benchmark",
+    )
+
+    parser.add_argument(
+        "--eval-base",
+        action="store_true",
+        help="Run the legacy base.json system smoke evaluation on the user index",
     )
 
     parser.add_argument(
@@ -302,16 +375,26 @@ def build_parser() -> argparse.ArgumentParser:
 def main():
     parser = build_parser()
     args = parser.parse_args()
+
+    if args.eval:
+        run_evaluation()
+        return
+    if args.eval_base:
+        run_base_smoke_evaluation()
+        return
+
     query = (" ".join(args.query)).strip()
     logger.info(
         f"[input]: rag-app{f' {query}' if query else ''}"
         f"{' --repl' if args.repl else ''}"
+        f"{' --agentic' if args.agentic else ''}"
         f"{' --reindex' if args.reindex else ''}"
         f"{' --update' if args.update else ''}"
         f"{' --citations' if args.citations else ''}"
         f"{' --sources' if args.sources else ''}"
         f"{' --config' if args.config else ''}"
         f"{' --eval' if args.eval else ''}"
+        f"{' --eval-base' if args.eval_base else ''}"
     )
     logger.info(f"config: {get_settings().model_dump_json()}")
 
@@ -324,10 +407,6 @@ def main():
 
         meta_store = MetaStore()
 
-    if args.eval:
-        run_evaluation()
-        return
-
     if args.config:
         show_config()
 
@@ -337,31 +416,50 @@ def main():
     if args.repl:
         logger.info("==== REPL start ====")
         if query:
-            run_onetime(
-                rag,
-                meta_store,
-                query=query,
-                citations=args.citations,
-            )
+            try:
+                run_onetime(
+                    rag,
+                    meta_store,
+                    query=query,
+                    citations=args.citations,
+                    agentic=args.agentic,
+                )
+            except AgenticWorkflowError as exc:
+                logger.error(f"Agentic workflow error: {exc}")
+                print(f"{parser.prog}: Agentic workflow error: {exc}", file=sys.stderr)
 
         repl(
             rag,
             meta_store,
             citations=args.citations,
+            agentic=args.agentic,
         )
         logger.info("==== REPL end ====")
 
     elif query and not args.repl:
         logger.info("==== run_onetime start ====")
-        run_onetime(
-            query=query,
-            citations=args.citations,
-            rag=rag,
-            meta_store=meta_store,
-        )
+        try:
+            run_onetime(
+                query=query,
+                citations=args.citations,
+                rag=rag,
+                meta_store=meta_store,
+                agentic=args.agentic,
+            )
+        except AgenticWorkflowError as exc:
+            parser.exit(
+                2,
+                f"{parser.prog}: Agentic workflow error: {exc}\n",
+            )
         logger.info("==== run_onetime end ====")
 
-    elif not (args.config or args.sources or args.reindex or args.update):
+    elif not (
+        args.config
+        or args.sources
+        or args.reindex
+        or args.update
+        or args.eval_base
+    ):
         parser.print_help()
         sys.exit(1)
 

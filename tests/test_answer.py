@@ -2,7 +2,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from rag_notes_helper.rag.answer import rag_answer
+from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE, rag_answer
 
 
 @pytest.fixture
@@ -60,3 +60,68 @@ def test_rag_answer_stream(monkeypatch, mock_dependencies, mock_hits):
         next(stream_answer)
 
     assert result["citations"][0]["source"] == "note.md"
+
+
+def test_rag_answer_reports_provider_tokens_and_output_characters(
+    monkeypatch,
+    mock_hits,
+):
+    class UsageLLM:
+        provider_name = "fixture"
+        model = "fixture-answer"
+        last_usage = {
+            "status": "available",
+            "input_tokens": 11,
+            "output_tokens": 4,
+            "total_tokens": 15,
+        }
+        last_output = "raw answer"
+
+        def generate(self, prompt, line_width):
+            return "raw answer"
+
+    monkeypatch.setattr(
+        "rag_notes_helper.rag.answer.get_llm",
+        lambda: UsageLLM(),
+    )
+    calls = []
+
+    rag_answer(
+        query="q",
+        hits=mock_hits,
+        on_generation=calls.append,
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["call_type"] == "final_answer"
+    assert calls[0]["provider"] == "fixture"
+    assert calls[0]["model"] == "fixture-answer"
+    assert calls[0]["token_usage"] == {
+        "status": "available",
+        "input_tokens": 11,
+        "output_tokens": 4,
+        "total_tokens": 15,
+    }
+    assert calls[0]["characters"]["input"] > 0
+    assert calls[0]["characters"]["output"] == 10
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_rag_answer_empty_hits_abstains_without_calling_llm(
+    monkeypatch,
+    stream,
+):
+    def unexpected_llm_call():
+        pytest.fail("LLM should not be called when retrieval returns no chunks")
+
+    monkeypatch.setattr(
+        "rag_notes_helper.rag.answer.get_llm",
+        unexpected_llm_call,
+    )
+
+    result = rag_answer(query="q", hits=[], stream=stream)
+
+    assert result == {
+        "answer": ABSTENTION_MESSAGE,
+        "citations": [],
+    }

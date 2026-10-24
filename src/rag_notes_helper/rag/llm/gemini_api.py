@@ -8,6 +8,8 @@ from rag_notes_helper.rag.llm.base import BaseLLM
 
 
 class GeminiLLM(BaseLLM):
+    provider_name = "gemini"
+
     def __init__(self, **kws):
         model = kws.pop("model", "gemini-2.0-flash")
         super().__init__(model=model, **kws)
@@ -47,6 +49,7 @@ class GeminiLLM(BaseLLM):
             config=config,
         )
 
+        self._capture_usage(getattr(response, "usage_metadata", None))
         return response.text or ""
 
 
