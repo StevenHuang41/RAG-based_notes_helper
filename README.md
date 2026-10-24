@@ -171,7 +171,7 @@ one retrieval        bounded Python loop
 
 ## Evaluation
 
-From a source checkout with development dependencies installed, `--eval` compares Classic and Agentic RAG using the same fictional notes corpus and 16 fixed QA cases under `tests/fixtures/`. The benchmark builds a temporary index and does not read or modify the user's `data/` or `storage/` directories:
+From a source checkout with development dependencies installed, `--eval` compares Classic and Agentic RAG using the same fictional notes corpus and the reviewed QA fixture under `tests/fixtures/`, initially seeded with 16 cases. The benchmark builds a temporary index and does not read or modify the user's `data/` or `storage/` directories:
 
 ```bash
 rag-app --eval
@@ -179,7 +179,15 @@ rag-app --eval
 
 Each run writes `run.log`, per-case `results.json`, and `summary.json` under `eval/<UTC timestamp>/`. These generated reports are ignored by Git. Results include reference-free faithfulness, answer relevancy, and context utilization diagnostics, plus expected source/evidence coverage, answerability behavior, generation token usage, and separate RAGAS judge usage. RAGAS metrics use the generated answer and retrieved contexts, not the fixture reference answer; the reference answer remains in each case result for human inspection. RAGAS metrics are not applicable to unanswerable and ambiguous cases; those cases are evaluated through answerability, abstention, and evidence coverage. Token counts are provider-reported; unavailable values remain marked unavailable, while character counts are recorded separately.
 
-The 16 cases cover direct lookup, multi-hop integration, unanswerable questions, and ambiguous questions. Treat this as a regression seed, not a statistically representative benchmark. The legacy `base.json` system smoke set remains separate and can be run with `--eval-base`; unlike `--eval`, it uses the configured user index.
+The initial 16 cases cover direct lookup, multi-hop integration, unanswerable questions, and ambiguous questions. The fixture can grow with additional reviewed cases while retaining the original cases. Treat it as a regression seed, not a statistically representative benchmark. The legacy `base.json` system smoke set remains separate and can be run with `--eval-base`; unlike `--eval`, it uses the configured user index.
+
+To author additional QA candidates once from the fictional notes, run the development-only Ragas test-set generator:
+
+```bash
+uv run python -m rag_notes_helper.eval.candidate_generator --size 8
+```
+
+Generation makes live Ragas model calls and may consume tokens. It reads only `tests/fixtures/notes`, uses the effective Ragas judge provider/model (falling back to the configured generation provider/model) and the existing local evaluation embedding model, and does not build or read the Notes Helper FAISS index. Drafts go to the ignored `eval/candidate-drafts/` directory by default; use `--output PATH` to choose another destination. Ragas `reference_contexts` are candidate-generation context, not trusted source annotations. Before promoting a case into `tests/fixtures/notes_qa.json`, a maintainer must verify the question and reference answer against the source notes, assign a fixture ID/category/answerability value, and add the expected source paths and evidence snippets. `--eval` always reads only the reviewed fixed fixture and never generates candidates.
 
 `--eval` and `--eval-base` are repository development commands. The evaluation code, fixtures, and RAGAS development dependencies are not included in the runtime wheel. In a source checkout, use an editable development install to run these commands.
 
@@ -224,7 +232,7 @@ RAG-based_notes_helper/
 ├── src/rag_notes_helper/
 │   ├── cli.py                      # rag-app entry point
 │   ├── core/config.py              # runtime settings and validation
-│   ├── eval/                       # RAGAS evaluation workflow
+│   ├── eval/                       # RAGAS evaluation and candidate authoring
 │   ├── rag/
 │   │   ├── answer.py
 │   │   ├── chunking.py
@@ -238,7 +246,7 @@ RAG-based_notes_helper/
 └── tests/                          # pytest tests and development fixtures
     └── fixtures/
         ├── notes/                  # fictional notes used by --eval
-        └── notes_qa.json           # fixed 16-case QA benchmark
+        └── notes_qa.json           # reviewed QA fixture, seeded with initial 16 cases
 ```
 
 Runtime directories such as `storage/`, `logs/`, and `hf_cache/` are created locally and ignored by Git. Evaluation run artifacts are stored under the repository-root `eval/` directory and ignored by Git.

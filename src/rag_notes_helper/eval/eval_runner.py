@@ -33,6 +33,26 @@ CATEGORY_COUNTS = {
     "unanswerable": 4,
     "ambiguous": 4,
 }
+SEED_CASE_IDS = frozenset(
+    {
+        "direct-01",
+        "direct-02",
+        "direct-03",
+        "direct-04",
+        "multi-hop-01",
+        "multi-hop-02",
+        "multi-hop-03",
+        "multi-hop-04",
+        "unanswerable-01",
+        "unanswerable-02",
+        "unanswerable-03",
+        "unanswerable-04",
+        "ambiguous-01",
+        "ambiguous-02",
+        "ambiguous-03",
+        "ambiguous-04",
+    }
+)
 NOTES_FIXTURE = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "notes"
 QA_FIXTURE = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "notes_qa.json"
 
@@ -122,11 +142,14 @@ def _run_ragas_isolated(
     ]
 
 
-def _read_qa_fixture() -> list[dict[str, Any]]:
-    records = json.loads(QA_FIXTURE.read_text(encoding="utf-8"))
-    counts = Counter(record["category"] for record in records)
-    if len(records) != sum(CATEGORY_COUNTS.values()) or dict(counts) != CATEGORY_COUNTS:
-        raise ValueError("Notes QA fixture must contain four cases per category.")
+def load_qa_fixture(path: Path = QA_FIXTURE) -> list[dict[str, Any]]:
+    """Load reviewed QA cases while preserving the original seed coverage."""
+    records = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(records, list) or any(
+        not isinstance(record, dict) for record in records
+    ):
+        raise ValueError("Notes QA fixture must be a JSON list of case objects.")
+
     required = {
         "id",
         "category",
@@ -134,7 +157,6 @@ def _read_qa_fixture() -> list[dict[str, Any]]:
         "answerable",
         "reference_answer",
         "expected_sources",
-        "expected_evidence",
     }
     for record in records:
         missing = required - record.keys()
@@ -142,6 +164,71 @@ def _read_qa_fixture() -> list[dict[str, Any]]:
             raise ValueError(
                 f"QA case {record.get('id', '<unknown>')} is missing required fields."
             )
+
+    for record in records:
+        category = record["category"]
+        if not isinstance(category, str) or category not in CATEGORY_COUNTS:
+            raise ValueError(
+                f"QA case {record.get('id', '<unknown>')} has unsupported category."
+            )
+
+    counts = Counter(record["category"] for record in records)
+    missing_baseline = {
+        category: minimum
+        for category, minimum in CATEGORY_COUNTS.items()
+        if counts[category] < minimum
+    }
+    if missing_baseline:
+        raise ValueError(
+            "Notes QA fixture must retain baseline coverage of four cases per "
+            "category; missing baseline coverage for "
+            + ", ".join(sorted(missing_baseline))
+            + "."
+        )
+
+    seen_ids = set()
+    for record in records:
+        case_id = record["id"]
+        if not isinstance(case_id, str) or not case_id.strip():
+            raise ValueError("Every QA case must have a non-empty string id.")
+        if case_id in seen_ids:
+            raise ValueError(
+                f"QA case ids must be unique; found duplicate id {case_id!r}."
+            )
+        seen_ids.add(case_id)
+
+        if not isinstance(record["question"], str) or not record["question"].strip():
+            raise ValueError(f"QA case {case_id} must have a non-empty question.")
+        if not isinstance(record["answerable"], bool):
+            raise ValueError(f"QA case {case_id} must define answerable as a boolean.")
+        if (
+            not isinstance(record["reference_answer"], str)
+            or not record["reference_answer"].strip()
+        ):
+            raise ValueError(f"QA case {case_id} must have a reference answer.")
+        sources = record["expected_sources"]
+        evidence = record.setdefault("expected_evidence", [])
+        if not isinstance(sources, list) or any(
+            not isinstance(source, str) or not source.strip() for source in sources
+        ):
+            raise ValueError(f"QA case {case_id} has invalid expected_sources.")
+        if not isinstance(evidence, list) or any(
+            not isinstance(snippet, str) or not snippet.strip()
+            for snippet in evidence
+        ):
+            raise ValueError(f"QA case {case_id} has invalid expected_evidence.")
+        if record["answerable"] and not sources:
+            raise ValueError(
+                f"Answerable QA case {case_id} requires expected source annotations."
+            )
+
+    missing_seed_cases = SEED_CASE_IDS - seen_ids
+    if missing_seed_cases:
+        raise ValueError(
+            "Notes QA fixture must retain the original seed cases; missing ids: "
+            + ", ".join(sorted(missing_seed_cases))
+            + "."
+        )
     return records
 
 
@@ -503,7 +590,7 @@ def run_evaluation(*, output_root: Path | None = None) -> Path:
         "cases": [],
     }
     try:
-        cases = _read_qa_fixture()
+        cases = load_qa_fixture()
         with _isolated_fixture_index() as (settings, rag, meta_store):
             results["run_metadata"] = {
                 "timestamp_utc": timestamp,
@@ -579,10 +666,11 @@ def run_evaluation(*, output_root: Path | None = None) -> Path:
                 "case_count": len(cases),
                 "category_counts": results["category_counts"],
                 "interpretation": (
-                    "This 16-case fixture is a regression seed, not a statistically "
-                    "representative benchmark. Ragas metrics apply only to expected-"
-                    "answerable cases; inspect abstention cases through answerability "
-                    "and evidence coverage."
+                    "This fixture is a regression seed, not a statistically "
+                    "representative benchmark. Its original 16 cases cover direct, "
+                    "multi-hop, unanswerable, and ambiguous questions. Ragas metrics "
+                    "apply only to expected-answerable cases; inspect abstention "
+                    "cases through answerability and evidence coverage."
                 ),
                 "workflows": {
                     workflow: _workflow_summary(records)
