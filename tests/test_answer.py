@@ -2,6 +2,7 @@ from collections.abc import Iterator
 
 import pytest
 
+from rag_notes_helper.rag import answer as answer_module
 from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE, rag_answer
 
 
@@ -90,6 +91,13 @@ def test_rag_answer_reports_provider_tokens_and_output_characters(
     monkeypatch,
     mock_hits,
 ):
+    generation_samples = iter([4.0, 4.0125])
+    monkeypatch.setattr(
+        answer_module,
+        "perf_counter",
+        lambda: next(generation_samples),
+    )
+
     class UsageLLM:
         provider_name = "fixture"
         model = "fixture-answer"
@@ -117,7 +125,8 @@ def test_rag_answer_reports_provider_tokens_and_output_characters(
     )
 
     assert len(calls) == 1
-    assert calls[0]["call_type"] == "final_answer"
+    assert calls[0]["call_type"] == "answer"
+    assert calls[0]["latency_ms"] == 12.5
     assert calls[0]["provider"] == "fixture"
     assert calls[0]["model"] == "fixture-answer"
     assert calls[0]["token_usage"] == {

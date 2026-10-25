@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from time import perf_counter
 from typing import Any
 
 from rag_notes_helper.rag.llm import get_llm
@@ -99,9 +100,30 @@ def rag_answer(
             line_width=settings.line_width,
         )
     else :
-        answer_text = llm.generate(
-            prompt,
-            line_width=settings.line_width,
+        generation_started = perf_counter()
+        try:
+            answer_text = llm.generate(
+                prompt,
+                line_width=settings.line_width,
+            )
+        except Exception:
+            if on_generation is not None:
+                on_generation(
+                    make_generation_usage_record(
+                        llm,
+                        prompt,
+                        "",
+                        call_type="answer",
+                        latency_ms=round(
+                            (perf_counter() - generation_started) * 1000,
+                            3,
+                        ),
+                    )
+                )
+            raise
+        generation_latency_ms = round(
+            (perf_counter() - generation_started) * 1000,
+            3,
         )
         if on_generation is not None:
             on_generation(
@@ -109,7 +131,8 @@ def rag_answer(
                     llm,
                     prompt,
                     answer_text,
-                    call_type="final_answer",
+                    call_type="answer",
+                    latency_ms=generation_latency_ms,
                 )
             )
 

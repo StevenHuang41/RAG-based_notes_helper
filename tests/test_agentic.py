@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from rag_notes_helper.rag import agentic as agentic_module
 from rag_notes_helper.rag.agentic import (
     AgenticWorkflowError,
     agentic_answer,
@@ -27,6 +28,14 @@ class FakeController:
     def __init__(self, responses: list[str]):
         self.responses = list(responses)
         self.prompts = []
+        self.provider_name = "fixture"
+        self.model = "fixture-controller"
+        self.last_usage = {
+            "status": "available",
+            "input_tokens": 2,
+            "output_tokens": 3,
+            "total_tokens": 5,
+        }
 
     def generate_raw(self, prompt):
         self.prompts.append(prompt)
@@ -97,6 +106,47 @@ def test_agentic_answer_uses_original_query_and_selected_evidence():
     ]
     assert result["answer"] == "The budget is 20,000."
     assert result["citations"] == ["budget.md"]
+
+
+def test_agentic_reports_each_search_and_controller_latency(monkeypatch):
+    hit = make_hit("note.md", 0, "Evidence.")
+    controller = FakeController([
+        action_json({"action": "search", "query": "follow-up"}),
+        action_json({
+            "action": "answer",
+            "evidence": [{"source": "note.md", "chunk_id": 0}],
+        }),
+    ])
+    samples = iter([0.0, 0.010, 1.0, 1.020, 2.0, 2.030, 3.0, 3.015])
+    monkeypatch.setattr(agentic_module, "perf_counter", lambda: next(samples))
+    retrieval_events = []
+    generation_calls = []
+
+    result = agentic_answer(
+        "question",
+        rag=None,
+        meta_store=None,
+        search_fn=lambda _query: [hit],
+        controller=controller,
+        answer_fn=lambda *_args, **_kwargs: {
+            "answer": "answer",
+            "citations": [],
+        },
+        on_retrieval=retrieval_events.append,
+        on_generation=generation_calls.append,
+    )
+
+    assert result["answer"] == "answer"
+    assert [event["latency_ms"] for event in retrieval_events] == [10.0, 30.0]
+    assert [call["call_type"] for call in generation_calls] == [
+        "controller",
+        "controller",
+    ]
+    assert [call["latency_ms"] for call in generation_calls] == [20.0, 15.0]
+    assert [call["token_usage"]["total_tokens"] for call in generation_calls] == [
+        5,
+        5,
+    ]
 
 
 def test_agentic_answer_refines_search_and_deduplicates_evidence():

@@ -351,6 +351,32 @@ def test_eval_command_runs_benchmark_without_loading_user_index(monkeypatch):
     assert calls == [("benchmark", {"agentic": False})]
 
 
+def test_classic_query_reports_retrieval_latency(monkeypatch):
+    retrieval_samples = iter([10.0, 10.025])
+    monkeypatch.setattr(cli, "perf_counter", lambda: next(retrieval_samples))
+    monkeypatch.setattr(cli, "retrieve", lambda *_args, **_kwargs: [{"source": "note.md"}])
+    monkeypatch.setattr(
+        cli,
+        "rag_answer",
+        lambda *_args, **_kwargs: {"answer": "answer", "citations": []},
+    )
+    retrieval_events = []
+
+    result = cli.run_query(
+        object(),
+        object(),
+        query="question",
+        on_retrieval=retrieval_events.append,
+    )
+
+    assert result["answer"] == "answer"
+    assert retrieval_events == [{
+        "search_index": 1,
+        "latency_ms": 25.0,
+        "result_count": 1,
+    }]
+
+
 def test_agentic_eval_command_selects_agentic_fixture_workflow(monkeypatch):
     calls = []
     monkeypatch.setattr(sys, "argv", ["rag-app", "--agentic", "--eval"])

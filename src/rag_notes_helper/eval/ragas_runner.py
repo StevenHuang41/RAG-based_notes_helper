@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import Callable, Sequence
 from types import SimpleNamespace
+from time import perf_counter
 
 from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.utils.logger import get_logger
@@ -87,7 +88,19 @@ def run_ragas(
     model = settings.llm.effective_eval_model
     logger.info(f"[EVAL] {model} {provider}")
 
-    llm = get_eval_llm(usage_recorder=usage_recorder)
+    active_metric: str | None = None
+    active_row_index: int | None = None
+
+    def record_metric_usage(token_usage: dict) -> None:
+        if usage_recorder is None or active_metric is None or active_row_index is None:
+            return
+        usage_recorder({
+            "metric": active_metric,
+            "row_index": active_row_index,
+            "token_usage": token_usage,
+        })
+
+    llm = get_eval_llm(usage_recorder=record_metric_usage)
     embeddings = (
         get_embeddings()
         if {"answer_relevancy", "answer_correctness"}.intersection(metric_names)
@@ -110,18 +123,35 @@ def run_ragas(
     async def score_rows():
         results = []
         reasons = []
-        for row in _dataset_rows(dataset):
+        latencies_ms = []
+        nonlocal active_metric, active_row_index
+        for row_index, row in enumerate(_dataset_rows(dataset)):
             row_scores = {}
             row_reasons = {}
+            row_latencies = {}
             for name in metric_names:
+                active_metric = name
+                active_row_index = row_index
+                score_started = perf_counter()
                 result = await metrics[name].ascore(**_metric_inputs(name, row))
+                row_latencies[name] = round(
+                    (perf_counter() - score_started) * 1000,
+                    3,
+                )
                 row_scores[name] = result.value
                 reason = getattr(result, "reason", None)
                 if reason is not None:
                     row_reasons[name] = reason
             results.append(row_scores)
             reasons.append(row_reasons)
-        return results, reasons
+            latencies_ms.append(row_latencies)
+        active_metric = None
+        active_row_index = None
+        return results, reasons, latencies_ms
 
-    scores, reasons = asyncio.run(score_rows())
-    return SimpleNamespace(scores=scores, reasons=reasons)
+    scores, reasons, latencies_ms = asyncio.run(score_rows())
+    return SimpleNamespace(
+        scores=scores,
+        reasons=reasons,
+        latencies_ms=latencies_ms,
+    )

@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from time import perf_counter
 from typing import Any, Iterator, Literal
 
 import pandas as pd
@@ -154,14 +155,20 @@ def _run_ragas_isolated(
     for batch_rows in zip(*score_sets):
         scores: dict[str, Any] = {}
         reasons: dict[str, Any] = {}
+        latencies_ms: dict[str, Any] = {}
         for row_scores in batch_rows:
             scores.update({
                 name: score
                 for name, score in row_scores.items()
-                if name != "metric_reasons"
+                if name not in {"metric_reasons", "metric_latencies_ms"}
             })
             reasons.update(row_scores.get("metric_reasons", {}))
-        scored_results.append({**scores, "metric_reasons": reasons})
+            latencies_ms.update(row_scores.get("metric_latencies_ms", {}))
+        scored_results.append({
+            **scores,
+            "metric_reasons": reasons,
+            "metric_latencies_ms": latencies_ms,
+        })
     scored_iter = iter(scored_results)
     return [
         next(scored_iter) if case["expected_answerable"] else {}
@@ -521,7 +528,9 @@ def _record_case(
     from rag_notes_helper.cli import run_query
 
     generation_calls: list[dict[str, Any]] = []
+    retrieval_calls: list[dict[str, Any]] = []
     workflow_error = None
+    query_started = perf_counter()
     try:
         result = run_query(
             rag,
@@ -530,6 +539,7 @@ def _record_case(
             agentic=workflow == "agentic",
             stream=False,
             on_generation=generation_calls.append,
+            on_retrieval=retrieval_calls.append,
         )
         answer = result.get("answer")
         citations = result.get("citations", [])
@@ -539,6 +549,7 @@ def _record_case(
         citations = []
         evidence = []
         workflow_error = type(exc).__name__
+    rag_query_latency_ms = round((perf_counter() - query_started) * 1000, 3)
 
     def evidence_record(hit: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -577,6 +588,19 @@ def _record_case(
         for item in evidence_records
         if (item["source"], item["chunk_id"]) in citation_references
     ]
+    controller_latency_ms = round(sum(
+        call.get("latency_ms") or 0
+        for call in generation_calls
+        if call.get("call_type") == "controller"
+    ), 3)
+    answer_latency_ms = round(sum(
+        call.get("latency_ms") or 0
+        for call in generation_calls
+        if call.get("call_type") in {"answer", "final_answer"}
+    ), 3)
+    retrieval_latency_ms = round(sum(
+        call.get("latency_ms") or 0 for call in retrieval_calls
+    ), 3)
     retrieval_metrics = calculate_retrieval_metrics(
         expected_evidence=case["expected_evidence"],
         retrieval_lists=raw_search_results,
@@ -607,6 +631,23 @@ def _record_case(
         },
         "metric_reasons": {},
         "generation_usage": _aggregate_usage(generation_calls),
+        "judge_usage": _aggregate_usage([]),
+        "judge_usage_by_metric": {},
+        "judge_metrics": {},
+        "latency": {
+            "retrieval_calls": retrieval_calls,
+            "retrieval_ms": retrieval_latency_ms,
+            "controller_ms": controller_latency_ms,
+            "answer_generation_ms": answer_latency_ms,
+            "generation_ms": round(
+                controller_latency_ms + answer_latency_ms,
+                3,
+            ),
+            "judge_metrics_ms": {},
+            "judge_ms": 0.0,
+            "rag_query_ms": rag_query_latency_ms,
+            "end_to_end_ms": rag_query_latency_ms,
+        },
     }
     if workflow_error is not None:
         record["workflow_error"] = workflow_error
@@ -617,6 +658,7 @@ def _attach_ragas_scores(
     workflow_cases: list[dict[str, Any]],
     *,
     judge_calls: list[dict[str, Any]],
+    settings: Any,
 ) -> None:
     scores = _run_ragas_isolated(
         workflow_cases,
@@ -624,7 +666,21 @@ def _attach_ragas_scores(
     )
     if len(scores) != len(workflow_cases):
         raise ValueError("Ragas returned a different number of scores than cases.")
-    for case, case_scores in zip(workflow_cases, scores):
+    scored_case_indices = [
+        index
+        for index, case in enumerate(workflow_cases)
+        if case["expected_answerable"]
+    ]
+    calls_by_row_metric: dict[tuple[int, str], list[dict[str, Any]]] = defaultdict(list)
+    for call in judge_calls:
+        row_index = call.get("row_index")
+        metric = call.get("metric")
+        if isinstance(row_index, int) and isinstance(metric, str):
+            calls_by_row_metric[(row_index, metric)].append(call)
+
+    for scored_row_index, case_index in enumerate(scored_case_indices):
+        case = workflow_cases[case_index]
+        case_scores = scores[case_index]
         case["generation_metrics"] = {
             metric: _safe_score(case_scores.get(metric))
             for metric in GENERATION_METRIC_NAMES
@@ -634,6 +690,50 @@ def _attach_ragas_scores(
             for metric in RETRIEVAL_METRIC_NAMES
         })
         case["metric_reasons"] = case_scores.get("metric_reasons", {})
+        metric_latencies = case_scores.get("metric_latencies_ms", {})
+        case_judge_calls = [
+            _judge_usage_call(call, settings, case["case_id"])
+            for (row_index, _metric), calls in calls_by_row_metric.items()
+            if row_index == scored_row_index
+            for call in calls
+        ]
+        by_metric: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for call in case_judge_calls:
+            by_metric[call["metric"]].append(call)
+        case["judge_usage"] = _aggregate_usage(case_judge_calls)
+        case["judge_usage_by_metric"] = {
+            metric: _aggregate_usage(calls)
+            for metric, calls in sorted(by_metric.items())
+        }
+        case["judge_metrics"] = {
+            metric: {
+                "score": (
+                    case["generation_metrics"].get(metric)
+                    if metric in GENERATION_METRIC_NAMES
+                    else case["retrieval_metrics"].get(metric)
+                ),
+                "reason": case["metric_reasons"].get(metric),
+                "latency_ms": _safe_score(metric_latencies.get(metric)),
+                "usage": case["judge_usage_by_metric"].get(
+                    metric,
+                    _aggregate_usage([]),
+                ),
+            }
+            for metric in METRIC_NAMES
+        }
+        judge_metric_latencies = {
+            metric: _safe_score(metric_latencies.get(metric))
+            for metric in METRIC_NAMES
+        }
+        judge_latency_ms = round(sum(
+            latency or 0 for latency in judge_metric_latencies.values()
+        ), 3)
+        case["latency"]["judge_metrics_ms"] = judge_metric_latencies
+        case["latency"]["judge_ms"] = judge_latency_ms
+        case["latency"]["end_to_end_ms"] = round(
+            case["latency"]["rag_query_ms"] + judge_latency_ms,
+            3,
+        )
 
 
 def _workflow_summary(cases: list[dict[str, Any]]) -> dict[str, Any]:
@@ -672,6 +772,30 @@ def _workflow_summary(cases: list[dict[str, Any]]) -> dict[str, Any]:
             "correct_abstention_rate": _mean(
                 [case["correct_abstention"] for case in group]
             ),
+            "latency_ms": {
+                name: _mean([
+                    case["latency"].get(name)
+                    for case in group
+                ])
+                for name in (
+                    "retrieval_ms",
+                    "controller_ms",
+                    "answer_generation_ms",
+                    "generation_ms",
+                    "judge_ms",
+                    "rag_query_ms",
+                    "end_to_end_ms",
+                )
+            },
+            "judge_usage_by_metric": {
+                metric: _aggregate_usage([
+                    call
+                    for case in group
+                    for call in case["judge_usage"].get("calls", [])
+                    if call.get("metric") == metric
+                ])
+                for metric in METRIC_NAMES
+            },
         }
 
     return {
@@ -690,12 +814,19 @@ def _workflow_summary(cases: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _judge_usage_call(record: dict[str, Any], settings: Any) -> dict[str, Any]:
+def _judge_usage_call(
+    record: dict[str, Any],
+    settings: Any,
+    case_id: str | None = None,
+) -> dict[str, Any]:
     return {
-        "call_type": "ragas_judge",
+        "call_type": "judge",
+        "metric": record.get("metric"),
+        "row_index": record.get("row_index"),
+        "case_id": case_id,
         "provider": settings.llm.effective_eval_provider,
         "model": settings.llm.effective_eval_model,
-        "token_usage": record,
+        "token_usage": record.get("token_usage", record),
     }
 
 
@@ -806,7 +937,11 @@ def run_evaluation(
                         f"{answerable_count} answerable cases.",
                     )
                     try:
-                        _attach_ragas_scores(workflow_cases, judge_calls=judge_calls)
+                        _attach_ragas_scores(
+                            workflow_cases,
+                            judge_calls=judge_calls,
+                            settings=settings,
+                        )
                         _log(run_log, f"[{workflow}] Ragas metrics completed.")
                     except Exception as exc:
                         error_name = type(exc).__name__
@@ -816,8 +951,21 @@ def run_evaluation(
                     finally:
                         progress.update(1)
 
+                    answerable_cases = [
+                        case
+                        for case in workflow_cases
+                        if case["expected_answerable"]
+                    ]
                     judge_usage_by_workflow[workflow] = [
-                        _judge_usage_call(call, settings) for call in judge_calls
+                        _judge_usage_call(
+                            call,
+                            settings,
+                            answerable_cases[call["row_index"]]["case_id"]
+                            if isinstance(call.get("row_index"), int)
+                            and 0 <= call["row_index"] < len(answerable_cases)
+                            else None,
+                        )
+                        for call in judge_calls
                     ]
 
             results["category_counts"] = dict(Counter(
@@ -827,6 +975,15 @@ def run_evaluation(
                 "by_workflow": {
                     workflow: _aggregate_usage(calls)
                     for workflow, calls in judge_usage_by_workflow.items()
+                },
+                "by_metric": {
+                    metric: _aggregate_usage([
+                        call
+                        for calls in judge_usage_by_workflow.values()
+                        for call in calls
+                        if call.get("metric") == metric
+                    ])
+                    for metric in METRIC_NAMES
                 },
                 "total": _aggregate_usage([
                     call
