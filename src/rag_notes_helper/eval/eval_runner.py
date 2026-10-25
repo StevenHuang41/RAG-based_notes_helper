@@ -33,7 +33,11 @@ from rag_notes_helper.eval.ragas_runner import (
 from rag_notes_helper.eval.retrieval_metrics import calculate_retrieval_metrics
 from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE
 from rag_notes_helper.rag.agentic import MAX_SEARCHES
-from rag_notes_helper.rag.index import RagIndex, load_or_build_index
+from rag_notes_helper.rag.index import (
+    RagIndex,
+    build_and_save_rag,
+    load_or_build_index,
+)
 from rag_notes_helper.rag.meta_store import MetaStore
 from rag_notes_helper.utils.logger import get_logger
 
@@ -370,7 +374,10 @@ def _isolated_fixture_index() -> Iterator[tuple[Any, Any, Any]]:
             get_settings.cache_clear()
 
             settings = get_settings()
-            rag = load_or_build_index()
+            _terminal_progress("Building isolated synthetic fixture index")
+            rag = build_and_save_rag(
+                success_message="Fixture index built and saved."
+            )
             meta_store = MetaStore(storage_dir=storage_dir)
             try:
                 yield settings, rag, meta_store
@@ -400,6 +407,11 @@ def _log(run_log: Path, message: str) -> None:
     with run_log.open("a", encoding="utf-8") as log_file:
         log_file.write(f"{timestamp} {message}\n")
     get_logger("cli").info("[EVAL] %s", message)
+
+
+def _terminal_progress(message: str) -> None:
+    if sys.stderr.isatty():
+        print(f"[Evaluation] {message}", file=sys.stderr, flush=True)
 
 
 def _safe_score(value: Any) -> float | None:
@@ -1183,6 +1195,7 @@ def run_evaluation(
         },
         "cases": [],
     }
+    _terminal_progress(f"Starting {workflow} fixture evaluation")
     try:
         cases = load_qa_fixture()
         _log(run_log, f"Loaded {len(cases)} reviewed QA cases.")

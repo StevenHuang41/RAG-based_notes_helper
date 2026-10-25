@@ -1,4 +1,5 @@
 import json
+from io import StringIO
 import os
 from pathlib import Path
 import re
@@ -69,6 +70,7 @@ class FixtureController:
 def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     monkeypatch,
     tmp_path,
+    capsys,
     agentic,
     workflow,
 ):
@@ -96,15 +98,15 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     )
 
     fixture_index_observations = []
-    real_load_or_build_index = eval_runner.load_or_build_index
+    real_build_and_save_rag = eval_runner.build_and_save_rag
 
-    def observe_fixture_index_build():
+    def observe_fixture_index_build(*, success_message="Index built and saved"):
         fixture_index_observations.append(RagIndex._model is None)
-        return real_load_or_build_index()
+        return real_build_and_save_rag(success_message=success_message)
 
     monkeypatch.setattr(
         eval_runner,
-        "load_or_build_index",
+        "build_and_save_rag",
         observe_fixture_index_build,
     )
 
@@ -155,9 +157,24 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     monkeypatch.setattr(eval_runner.subprocess, "run", fake_ragas_worker)
     output_root = tmp_path / "eval-runs"
 
+    class Terminal(StringIO):
+        def isatty(self):
+            return True
+
+    terminal = Terminal()
+    monkeypatch.setattr(eval_runner.sys, "stderr", terminal)
+
     run_dir = eval_runner.run_evaluation(output_root=output_root, agentic=agentic)
+    console = capsys.readouterr()
 
     assert run_dir.parent == output_root
+    assert "Index not found. Building index from notes" not in console.out
+    assert console.out.count("Fixture index built and saved.") == 1
+    assert f"Starting {workflow} fixture evaluation" in terminal.getvalue()
+    assert "Building isolated synthetic fixture index" in terminal.getvalue()
+    assert "A synthetic answer based on the fixture notes." not in (
+        console.out + terminal.getvalue()
+    )
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}-\d{6}", run_dir.name)
     assert (run_dir / "run.log").is_file()
     assert (run_dir / "results.json").is_file()
