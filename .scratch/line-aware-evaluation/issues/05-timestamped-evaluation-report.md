@@ -21,4 +21,3 @@
 ## Comments
 
 - Resolved in commit `8ff57e9`, merged to integration at `bab38b9`. Focused post-merge evaluation/CLI coverage passed (32 tests); `git diff --check` passed.
-

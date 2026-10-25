@@ -20,4 +20,3 @@
 ## Comments
 
 - Resolved in commit `41086ce`, merged to integration at `2061a7b`. Focused post-merge coverage passed (24 tests); the implementer also reported the full suite passed (112 tests). `git diff --check` passed.
-

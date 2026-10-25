@@ -13,4 +13,3 @@
 - [x] Preserve Agentic's per-search result order and search boundaries for ranking metrics and report details.
 - [x] Keep `--eval-base` behavior separate and unchanged.
 - [x] Add CLI/evaluator coverage proving one workflow is called per invocation and the user index is not loaded.
-

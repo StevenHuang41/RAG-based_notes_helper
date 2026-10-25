@@ -15,4 +15,3 @@
 ## Comments
 
 - Resolved in commit `c60ed88`, merged to integration at `88027f3`. Focused CLI/evaluation/index coverage passed (22 tests); `git diff --check` passed.
-

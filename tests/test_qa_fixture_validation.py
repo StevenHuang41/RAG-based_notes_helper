@@ -31,6 +31,12 @@ def test_fixture_loader_accepts_reviewed_cases_beyond_the_seed_set(tmp_path):
             "end_line": 4,
             "text": "Legal review is due by May 12, 2026.",
         }],
+        "expected_evidence": [{
+            "source": "delivery_timeline.md",
+            "start_line": 4,
+            "end_line": 4,
+            "text": "Legal review is due by May 12, 2026.",
+        }],
     })
 
     loaded = eval_runner.load_qa_fixture(_write_fixture(tmp_path, records))
@@ -67,6 +73,12 @@ def test_fixture_loader_requires_all_original_seed_case_ids(tmp_path):
         "answerable": True,
         "reference_answer": "Legal review is due by May 12, 2026.",
         "expected_sources": ["delivery_timeline.md"],
+        "expected_evidence": [{
+            "source": "delivery_timeline.md",
+            "start_line": 4,
+            "end_line": 4,
+            "text": "Legal review is due by May 12, 2026.",
+        }],
     })
 
     with pytest.raises(ValueError, match="seed cases"):
@@ -85,16 +97,17 @@ def test_fixture_loader_defaults_missing_evidence_for_unanswerable_cases(tmp_pat
     ] == []
 
 
-def test_fixture_loader_allows_answerable_case_without_optional_evidence(tmp_path):
+@pytest.mark.parametrize("evidence", [None, []])
+def test_fixture_loader_requires_evidence_for_answerable_case(tmp_path, evidence):
     records = _fixture_records()
     case = next(record for record in records if record["id"] == "direct-01")
-    del case["expected_evidence"]
+    if evidence is None:
+        del case["expected_evidence"]
+    else:
+        case["expected_evidence"] = evidence
 
-    loaded = eval_runner.load_qa_fixture(_write_fixture(tmp_path, records))
-
-    assert next(record for record in loaded if record["id"] == "direct-01")[
-        "expected_evidence"
-    ] == []
+    with pytest.raises(ValueError, match="direct-01.*evidence"):
+        eval_runner.load_qa_fixture(_write_fixture(tmp_path, records))
 
 
 def test_fixture_loader_rejects_unreviewed_candidate_drafts(tmp_path):
@@ -121,6 +134,12 @@ def test_fixture_loader_requires_source_for_answerable_cases(tmp_path):
         "answerable": True,
         "reference_answer": "Legal review is due by May 12, 2026.",
         "expected_sources": [],
+        "expected_evidence": [{
+            "source": "delivery_timeline.md",
+            "start_line": 4,
+            "end_line": 4,
+            "text": "Legal review is due by May 12, 2026.",
+        }],
     })
 
     with pytest.raises(ValueError, match="expected source"):
