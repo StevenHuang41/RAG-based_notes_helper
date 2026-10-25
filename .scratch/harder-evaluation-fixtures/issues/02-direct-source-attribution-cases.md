@@ -4,10 +4,14 @@
 
 **Blocked by:** 01: Establish the realistic fixture foundation
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] Add six reviewed direct cases, bringing the direct category to ten cases.
 - [ ] Include source-attribution examples where the question's other details identify which of several related notes contains the intended fact.
 - [ ] Give each case a unique ID, reviewed reference answer, answerability label, expected source, and exact line-anchored evidence.
 - [ ] Add applicable challenge tags without replacing the primary direct category.
 - [ ] Confirm fixture validation accepts the cases and the evaluation runner processes them using the active chunk settings.
+
+## Comments
+
+- Implemented as `908108e` and merged as `ee93d6c`. The fixture now has ten direct cases with reviewed source-attribution annotations. Fifteen focused tests passed; the broader suite excluding the test module being updated by ticket 03 passed.

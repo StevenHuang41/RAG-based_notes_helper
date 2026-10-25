@@ -213,9 +213,14 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     run_log = (run_dir / "run.log").read_text(encoding="utf-8")
     assert "Evaluation artifacts written successfully." in run_log
     assert "Who is the product owner for Aurora Planner?" not in run_log
-    assert len(results["cases"]) == 16
+    fixture_cases = eval_runner.load_qa_fixture()
+    assert len(results["cases"]) == len(fixture_cases)
+    assert [case["case_id"] for case in results["cases"]] == [
+        case["id"] for case in fixture_cases
+    ]
+    assert sum(case["category"] == "multi_hop" for case in results["cases"]) == 15
     assert {case["workflow"] for case in results["cases"]} == {workflow}
-    assert len({case["case_id"] for case in results["cases"]}) == 16
+    assert len({case["case_id"] for case in results["cases"]}) == len(fixture_cases)
     assert all(case["challenge_tags"] for case in results["cases"])
     assert all(
         case["ambiguity_reason"]
@@ -273,17 +278,25 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
         if not case["expected_answerable"]
     )
     assert set(summary["workflows"]) == {workflow}
-    assert summary["workflows"][workflow]["case_count"] == 16
+    assert summary["workflows"][workflow]["case_count"] == len(fixture_cases)
     direct_summary = summary["workflows"][workflow]["by_category"]["direct"]
     assert direct_summary["generation_usage"]["token_usage"]["total_tokens"] == (
-        76 if agentic else 48
+        sum(case["category"] == "direct" for case in fixture_cases)
+        * (19 if agentic else 12)
     )
-    assert direct_summary["judge_usage"]["token_usage"]["total_tokens"] == 48
+    direct_answerable_count = sum(
+        case["category"] == "direct" and case["answerable"]
+        for case in fixture_cases
+    )
+    answerable_count = sum(case["answerable"] for case in fixture_cases)
+    assert direct_summary["judge_usage"]["token_usage"]["total_tokens"] == (
+        direct_answerable_count * 12
+    )
     assert summary["judge_usage"]["total"]["token_usage"] == {
         "status": "available",
-        "input_tokens": 64,
-        "output_tokens": 32,
-        "total_tokens": 96,
+        "input_tokens": answerable_count * 8,
+        "output_tokens": answerable_count * 4,
+        "total_tokens": answerable_count * 12,
     }
     assert summary["judge_usage"]["by_workflow"][workflow]["calls"][0][
         "provider"
@@ -293,7 +306,7 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     ] == "llama3.1"
     assert summary["judge_usage"]["by_metric"]["answer_correctness"][
         "token_usage"
-    ]["total_tokens"] == 24
+    ]["total_tokens"] == answerable_count * 3
     selected_case = results["cases"][0]
     assert selected_case["generation_usage"]["call_count"] == (2 if agentic else 1)
     assert selected_case["generation_usage"]["token_usage"] == {
@@ -325,16 +338,14 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
         "rag_query_ms"
     ]
     assert summary["workflows"][workflow]["generation_usage"]["call_count"] == (
-        32 if agentic else 16
+        len(fixture_cases) * (2 if agentic else 1)
     )
     assert summary["workflows"][workflow]["generation_usage"]["token_usage"][
         "total_tokens"
-    ] == (304 if agentic else 192)
+    ] == len(fixture_cases) * (19 if agentic else 12)
     assert summary["category_counts"] == {
-        "direct": 4,
-        "multi_hop": 4,
-        "unanswerable": 4,
-        "ambiguous": 4,
+        category: sum(case["category"] == category for case in fixture_cases)
+        for category in ("direct", "multi_hop", "unanswerable", "ambiguous")
     }
     assert private_note.read_text(encoding="utf-8") == (
         "This must not enter the benchmark."
@@ -351,7 +362,8 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     workflow_batches = worker_requests[0]["batches"]
     retrieved_rows = workflow_batches[0]["rows"]
     answer_rows = workflow_batches[1]["rows"]
-    assert len(retrieved_rows) == 8
+    assert len(retrieved_rows) == answerable_count
+    assert len(answer_rows) == answerable_count
     assert workflow_batches[0]["metric_names"] == [
         "answer_relevancy",
         "context_utilization",

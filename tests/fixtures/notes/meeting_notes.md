@@ -8,3 +8,4 @@ Marco proposed 2026-06-03 as a fallback if the marketing review misses the 2026-
 Priya reported that four of five recurring-event scenarios passed on RC-17. The cancellation retest is outstanding because the approved hotfix build was not available during the meeting.
 The notes do not record a version 2.0 ship date, a customer satisfaction score, or a final launch authorization. These items require later evidence and must not be inferred from the planning target.
 When summaries differ, use the signed checklist for release gates, the approved finance version for allocations, and this council record for what was or was not decided at the meeting.
+The product-scope review also repeated that calendar export is included for the pilot while bulk import remains deferred until after the first public release; the product brief remains the source for the customer-facing inclusion list.
