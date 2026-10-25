@@ -62,6 +62,7 @@ The current fixture evaluation runs Classic and Agentic RAG together and writes 
 - Line ranges are 1-based and inclusive. A single-line annotation has equal start and end lines.
 - One case may have multiple evidence spans across one or more files.
 - The QA fixture keeps `direct`, `multi_hop`, `unanswerable`, and `ambiguous` categories, with at least four cases per category and all current seed IDs retained.
+- Every answerable case must include at least one expected evidence span. Unanswerable cases may omit the field and are treated as having no expected evidence.
 - Fixture validation checks unique IDs, required case fields, source paths within the synthetic fixture corpus, valid line bounds, and exact agreement between annotated text and the indicated source lines.
 - Newly created chunks carry `start_line` and `end_line`; overlap lines may appear in adjacent chunks.
 - Chunk text preserves source line boundaries sufficiently to map its line range back to the original file.
@@ -120,7 +121,7 @@ The current fixture evaluation runs Classic and Agentic RAG together and writes 
 ## Acceptance Criteria
 
 - The two CLI invocations produce one workflow each, and both use identical fixture inputs and isolated indexes.
-- The fixture validator rejects missing, invalid, out-of-bounds, wrong-source, or text-mismatched evidence annotations.
+- The fixture validator rejects missing/empty evidence for answerable cases, plus invalid, out-of-bounds, wrong-source, or text-mismatched evidence annotations; unanswerable cases may omit evidence.
 - Chunk line metadata round-trips through index metadata and is available in evaluation retrieval results.
 - Unit-level scoring examples cover overlapping same-file intervals, multiple ground-truth files, retrieved chunks from an unrelated file, inclusive single-line spans, and empty denominators.
 - NDCG tests verify ranking sensitivity and that duplicate overlap does not add relevance gain twice.

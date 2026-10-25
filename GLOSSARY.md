@@ -27,4 +27,4 @@ A read-only interface that searches indexed notes and returns candidate chunks w
 A contiguous range of source lines that supports an expected answer. Its source and line bounds identify where the evidence appears, while its text records the reviewed content.
 
 **Evaluation run**:
-One execution of a reviewed synthetic QA fixture through one selected RAG query mode, producing results that can be inspected and compared with later runs.
+An assessment of a RAG query mode against prepared questions and expected evidence, with results available for review.
