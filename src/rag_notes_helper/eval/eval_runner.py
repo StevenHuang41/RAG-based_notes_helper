@@ -1051,9 +1051,9 @@ def run_evaluation(
                 },
                 "judge_usage": judge_usage,
             }
-            _log(run_log, "Evaluation artifacts written successfully.")
             _write_json(results_path, results)
             write_readme(readme_path, results)
+            _log(run_log, "Evaluation artifacts written successfully.")
     except KeyboardInterrupt:
         _log(run_log, "Evaluation interrupted by user.")
         raise

@@ -1,4 +1,5 @@
 import json
+from contextlib import contextmanager
 from io import StringIO
 import os
 from pathlib import Path
@@ -393,3 +394,47 @@ def test_run_directory_uses_taipei_seconds_and_refuses_collision(
     with pytest.raises(FileExistsError):
         eval_runner._new_run_directory(output_root)
     assert list(output_root.iterdir()) == [run_dir]
+
+
+def test_artifact_failure_does_not_log_successful_write(
+    monkeypatch,
+    tmp_path,
+):
+    settings = SimpleNamespace(
+        llm=SimpleNamespace(
+            provider="fixture",
+            model="fixture-answer",
+            effective_eval_provider="fixture",
+            effective_eval_model="fixture-judge",
+            max_chunks=5,
+        ),
+        embed_model_name="fixture-embedding",
+        chunk_size=100,
+        chunk_overlap=10,
+        top_k=5,
+        min_retrieval_score=0.0,
+    )
+
+    @contextmanager
+    def isolated_fixture_index():
+        yield settings, object(), object()
+
+    def fail_readme_write(_path, _results):
+        raise OSError("simulated README write failure")
+
+    monkeypatch.setattr(eval_runner, "load_qa_fixture", lambda: [])
+    monkeypatch.setattr(
+        eval_runner,
+        "_isolated_fixture_index",
+        isolated_fixture_index,
+    )
+    monkeypatch.setattr(eval_runner, "write_readme", fail_readme_write)
+
+    output_root = tmp_path / "eval-runs"
+    with pytest.raises(OSError, match="simulated README write failure"):
+        eval_runner.run_evaluation(output_root=output_root)
+
+    run_dir = next(output_root.iterdir())
+    run_log = (run_dir / "run.log").read_text(encoding="utf-8")
+    assert "Evaluation artifacts written successfully." not in run_log
+    assert "Evaluation failed (OSError)." in run_log
