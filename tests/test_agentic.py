@@ -65,6 +65,27 @@ def test_generate_raw_preserves_json_without_display_wrapping():
     assert llm.generate([], line_width=20) != raw_json
 
 
+def test_ollama_controller_disables_thinking_for_structured_actions():
+    received_options = []
+
+    class OllamaController:
+        provider_name = "ollama"
+
+        def generate_raw(self, prompt, **options):
+            received_options.append(options)
+            return action_json({"action": "abstain"})
+
+    action = agentic_module._request_action(
+        controller=OllamaController(),
+        query="What is not documented?",
+        hits=[],
+        searches_used=0,
+    )
+
+    assert action.action == "abstain"
+    assert received_options == [{"think": False}]
+
+
 def test_agentic_answer_uses_original_query_and_selected_evidence():
     hit_a = make_hit("plan.md", 0, "The project starts in April.")
     hit_b = make_hit("budget.md", 1, "The project budget is 20,000.")
@@ -106,6 +127,39 @@ def test_agentic_answer_uses_original_query_and_selected_evidence():
     ]
     assert result["answer"] == "The budget is 20,000."
     assert result["citations"] == ["budget.md"]
+
+
+def test_agentic_answer_ignores_extra_text_on_evidence_references():
+    hit = make_hit("product_overview.md", 1, "Product owner: Lena Ortiz.")
+    controller = FakeController([
+        action_json({
+            "action": "answer",
+            "explanation": "Selected the matching product role.",
+            "evidence": [{
+                "source": hit["source"],
+                "chunk_id": hit["chunk_id"],
+                "text": hit["text"],
+            }],
+        })
+    ])
+
+    result = agentic_answer(
+        "Who is the product owner?",
+        rag=None,
+        meta_store=None,
+        search_fn=lambda _query: [hit],
+        controller=controller,
+        answer_fn=lambda _query, *, hits, stream: {
+            "answer": "Lena Ortiz is the product owner.",
+            "citations": [
+                {"source": selected["source"], "chunk_id": selected["chunk_id"]}
+                for selected in hits
+            ],
+        },
+    )
+
+    assert result["answer"] == "Lena Ortiz is the product owner."
+    assert result["citations"][0]["source"] == "product_overview.md"
 
 
 def test_agentic_reports_each_search_and_controller_latency(monkeypatch):

@@ -26,7 +26,7 @@ MAX_ACTION_ATTEMPTS = 2
 
 
 class _ActionModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="ignore", strict=True)
 
 
 class SearchAction(_ActionModel):
@@ -202,7 +202,12 @@ def _request_action(
         )
         generation_started = perf_counter()
         try:
-            response = controller.generate_raw(prompt)
+            generation_options = (
+                {"think": False}
+                if getattr(controller, "provider_name", None) == "ollama"
+                else {}
+            )
+            response = controller.generate_raw(prompt, **generation_options)
             if on_generation is not None:
                 on_generation(
                     make_generation_usage_record(

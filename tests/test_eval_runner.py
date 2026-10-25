@@ -369,23 +369,28 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert fixture_index_observations == [True]
     assert RagIndex._model is embedding_cache_sentinel
 
-    workflow_batches = worker_requests[0]["batches"]
-    retrieved_rows = workflow_batches[0]["rows"]
-    answer_rows = workflow_batches[1]["rows"]
-    assert len(retrieved_rows) == answerable_count
-    assert len(answer_rows) == answerable_count
-    assert workflow_batches[0]["metric_names"] == [
-        "answer_relevancy",
-        "context_utilization",
+    workflow_batches = [
+        batch
+        for request in worker_requests
+        for batch in request["batches"]
     ]
-    assert workflow_batches[1]["metric_names"] == ["faithfulness"]
-    assert workflow_batches[2]["metric_names"] == ["answer_correctness"]
+    answer_relevancy_rows = workflow_batches[0]["rows"]
+    retrieved_rows = workflow_batches[1]["rows"]
+    answer_rows = workflow_batches[2]["rows"]
+    assert len(retrieved_rows) == answerable_count
+    assert len(answer_relevancy_rows) == answerable_count
+    assert len(answer_rows) == answerable_count
+    assert [batch["metric_names"] for batch in workflow_batches] == [
+        ["answer_relevancy"],
+        ["context_utilization"],
+        ["faithfulness"],
+        ["answer_correctness"],
+    ]
     assert all(
         not {"ground_truth", "reference", "reference_answer"}.intersection(row)
-        for row in [*retrieved_rows, *answer_rows]
+        for row in [*answer_relevancy_rows, *retrieved_rows, *answer_rows]
     )
-    assert all("reference_answer" not in row for row in workflow_batches[1]["rows"])
-    correctness_rows = workflow_batches[2]["rows"]
+    correctness_rows = workflow_batches[3]["rows"]
     assert [row["reference_answer"] for row in correctness_rows] == [
         case["reference_answer"]
         for case in results["cases"]
@@ -409,6 +414,106 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
             answer_row["contexts"] == retrieved_row["contexts"]
             for answer_row, retrieved_row in zip(answer_rows, retrieved_rows)
         )
+
+
+def test_ragas_metrics_skip_context_dependent_scores_when_retrieval_is_empty(
+    monkeypatch,
+):
+    cases = [
+        {
+            "id": "empty-context",
+            "expected_answerable": True,
+            "question": "What is the approved date?",
+            "answer": "I cannot find the answer in the notes.",
+            "contexts": [],
+            "answer_contexts": [],
+            "reference_answer": "2026-06-01",
+        },
+        {
+            "id": "with-context",
+            "expected_answerable": True,
+            "question": "Who owns QA?",
+            "answer": "Priya owns QA.",
+            "contexts": ["Priya owns QA verification."],
+            "answer_contexts": ["Priya owns QA verification."],
+            "reference_answer": "Priya Shah owns QA verification.",
+        },
+        {
+            "id": "missing-answer",
+            "expected_answerable": True,
+            "question": "Which date was approved?",
+            "answer": None,
+            "contexts": [],
+            "answer_contexts": [],
+            "reference_answer": "2026-06-01",
+        },
+        {
+            "id": "unanswerable",
+            "expected_answerable": False,
+            "question": "What is the private launch code?",
+            "answer": "I cannot find the answer in the notes.",
+            "contexts": [],
+            "answer_contexts": [],
+            "reference_answer": "",
+        },
+    ]
+    batches_seen = []
+
+    def fake_batches(batches, *, usage_recorder):
+        outputs = []
+        for batch in batches:
+            metric_name = batch["metric_names"][0]
+            batches_seen.append(batch)
+            scores = []
+            for row_index, _row in enumerate(batch["rows"]):
+                usage_recorder({
+                    "metric": metric_name,
+                    "row_index": row_index,
+                    "token_usage": {"status": "unavailable"},
+                })
+                scores.append({
+                    metric_name: 0.5,
+                    "metric_reasons": {},
+                    "metric_latencies_ms": {metric_name: 1.0},
+                })
+            outputs.append(scores)
+        return outputs
+
+    monkeypatch.setattr(eval_runner, "_run_ragas_batches_isolated", fake_batches)
+    judge_calls = []
+
+    scores = eval_runner._run_ragas_isolated(
+        cases,
+        usage_recorder=judge_calls.append,
+    )
+
+    assert [batch["metric_names"] for batch in batches_seen] == [
+        ["answer_relevancy"],
+        ["context_utilization"],
+        ["faithfulness"],
+        ["answer_correctness"],
+    ]
+    assert [len(batch["rows"]) for batch in batches_seen] == [2, 1, 1, 2]
+    assert scores[0]["answer_relevancy"] == 0.5
+    assert scores[0]["answer_correctness"] == 0.5
+    assert "context_utilization" not in scores[0]
+    assert "faithfulness" not in scores[0]
+    assert "no retrieved context" in scores[0]["metric_reasons"][
+        "context_utilization"
+    ]
+    assert "no answer context" in scores[0]["metric_reasons"]["faithfulness"]
+    assert scores[2] == {
+        "metric_reasons": {
+            name: "Skipped because no generated answer was available."
+            for name in eval_runner.METRIC_NAMES
+        },
+        "metric_latencies_ms": {},
+    }
+    assert scores[1]["context_utilization"] == 0.5
+    assert scores[1]["faithfulness"] == 0.5
+    assert scores[3] == {}
+    assert [call["row_index"] for call in judge_calls if call["metric"] == "context_utilization"] == [1]
+    assert [call["row_index"] for call in judge_calls if call["metric"] == "faithfulness"] == [1]
 
 
 @pytest.mark.parametrize(

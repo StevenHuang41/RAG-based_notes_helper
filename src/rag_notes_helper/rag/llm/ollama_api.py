@@ -14,7 +14,7 @@ class OllamaLLM(BaseLLM):
         self.base_url = base_url.rstrip("/")
 
 
-    def _get_payload(self, prompt, *, stream=False):
+    def _get_payload(self, prompt, *, stream=False, think=None):
         payload = {
             "model": self.model,
             "messages": prompt,
@@ -24,11 +24,13 @@ class OllamaLLM(BaseLLM):
                 "temperature": self.temperature,
             }
         }
+        if think is not None:
+            payload["think"] = think
         return payload
 
 
     def _generate(self, prompt: list[dict[str, Any]], **kws) -> str:
-        payload = self._get_payload(prompt)
+        payload = self._get_payload(prompt, think=kws.get("think"))
 
         response = requests.post(
             f"{self.base_url}/api/chat",

@@ -86,6 +86,7 @@ def test_ollama_generation_normalizes_reported_usage(monkeypatch):
 
     llm = _initialize(OllamaLLM)
     llm.base_url = "http://localhost:11434"
+    requests_seen = []
 
     class Response:
         def raise_for_status(self):
@@ -98,9 +99,17 @@ def test_ollama_generation_normalizes_reported_usage(monkeypatch):
                 "eval_count": 2,
             }
 
-    monkeypatch.setattr(ollama_api.requests, "post", lambda *args, **kwargs: Response())
+    def fake_post(*args, **kwargs):
+        requests_seen.append(kwargs)
+        return Response()
 
-    assert llm.generate_raw([{"role": "user", "content": "question"}]) == "answer"
+    monkeypatch.setattr(ollama_api.requests, "post", fake_post)
+
+    assert llm.generate_raw(
+        [{"role": "user", "content": "question"}],
+        think=False,
+    ) == "answer"
+    assert requests_seen[0]["json"]["think"] is False
     assert llm.last_usage == {
         "status": "partial",
         "input_tokens": 5,

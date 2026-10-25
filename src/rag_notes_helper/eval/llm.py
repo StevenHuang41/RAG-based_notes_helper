@@ -24,11 +24,13 @@ class _OpenAICompatibleRagasLLM:
         sync_client,
         async_client,
         usage_recorder: UsageRecorder | None,
+        reasoning_effort: str | None = None,
     ):
         self.model = model
         self.sync_client = sync_client
         self.async_client = async_client
         self.usage_recorder = usage_recorder
+        self.reasoning_effort = reasoning_effort
 
     def _record_usage(self, response) -> None:
         if self.usage_recorder is not None:
@@ -37,13 +39,16 @@ class _OpenAICompatibleRagasLLM:
             )
 
     def _request_kwargs(self, prompt: str, response_model: type[ResponseModel]):
-        return {
+        request = {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
             "response_format": response_model,
             "temperature": 0,
-            "max_tokens": 1024,
+            "max_tokens": 2048,
         }
+        if self.reasoning_effort is not None:
+            request["reasoning_effort"] = self.reasoning_effort
+        return request
 
     def _parse_response(self, response, response_model: type[ResponseModel]):
         self._record_usage(response)
@@ -102,6 +107,7 @@ def _openai_compatible_judge(
         sync_client=OpenAI(**client_options),
         async_client=AsyncOpenAI(**client_options),
         usage_recorder=usage_recorder,
+        reasoning_effort="none" if provider == "ollama" else None,
     )
 
 

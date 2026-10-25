@@ -115,70 +115,128 @@ def _run_ragas_isolated(
     *,
     usage_recorder: Callable[[dict[str, Any]], None],
 ) -> list[dict[str, Any]]:
-    scored_cases = [case for case in cases if case["expected_answerable"]]
+    scored_cases = [
+        (case_index, case)
+        for case_index, case in enumerate(cases)
+        if case["expected_answerable"]
+    ]
     if not scored_cases:
         return [{} for _case in cases]
 
-    retrieval_rows = [
-        {
-            "question": case["question"],
-            "answer": case["answer"] or "",
-            "contexts": case["contexts"],
-        }
-        for case in scored_cases
+    scored_results = [
+        {"metric_reasons": {}, "metric_latencies_ms": {}}
+        for _case_index, _case in scored_cases
     ]
-    answer_rows = [
-        {
-            "question": case["question"],
-            "answer": case["answer"] or "",
-            "contexts": case["answer_contexts"],
-        }
-        for case in scored_cases
-    ]
-    correctness_rows = [
-        {
-            "question": case["question"],
-            "answer": case["answer"] or "",
-            "reference_answer": case["reference_answer"],
-        }
-        for case in scored_cases
-    ]
-    retrieval_metrics = [
-        "answer_relevancy",
-        "context_utilization",
-    ]
-    score_sets = _run_ragas_batches_isolated(
-        [
-            {"rows": retrieval_rows, "metric_names": retrieval_metrics},
-            {"rows": answer_rows, "metric_names": ["faithfulness"]},
-            {"rows": correctness_rows, "metric_names": ["answer_correctness"]},
-        ],
-        usage_recorder=usage_recorder,
+    scored_position_by_case_index = {
+        case_index: scored_position
+        for scored_position, (case_index, _case) in enumerate(scored_cases)
+    }
+    metric_specs = (
+        (
+            "answer_relevancy",
+            [item for item in scored_cases if item[1]["answer"]],
+            lambda case: {
+                "question": case["question"],
+                "answer": case["answer"] or "",
+            },
+            None,
+        ),
+        (
+            "context_utilization",
+            [item for item in scored_cases if item[1]["answer"] and item[1]["contexts"]],
+            lambda case: {
+                "question": case["question"],
+                "answer": case["answer"] or "",
+                "contexts": case["contexts"],
+            },
+            "no retrieved context was available",
+        ),
+        (
+            "faithfulness",
+            [item for item in scored_cases if item[1]["answer"] and item[1]["answer_contexts"]],
+            lambda case: {
+                "question": case["question"],
+                "answer": case["answer"] or "",
+                "contexts": case["answer_contexts"],
+            },
+            "no answer context was available",
+        ),
+        (
+            "answer_correctness",
+            [item for item in scored_cases if item[1]["answer"]],
+            lambda case: {
+                "question": case["question"],
+                "answer": case["answer"] or "",
+                "reference_answer": case["reference_answer"],
+            },
+            None,
+        ),
     )
-    if any(len(scores) != len(scored_cases) for scores in score_sets):
-        raise ValueError("Ragas returned a different number of scores than cases.")
-    scored_results = []
-    for batch_rows in zip(*score_sets):
-        scores: dict[str, Any] = {}
-        reasons: dict[str, Any] = {}
-        latencies_ms: dict[str, Any] = {}
-        for row_scores in batch_rows:
-            scores.update({
+
+    for metric_name, eligible_cases, row_factory, skip_reason in metric_specs:
+        eligible_positions = [
+            scored_position_by_case_index[case_index]
+            for case_index, _case in eligible_cases
+        ]
+        for scored_position, (_case_index, case) in enumerate(scored_cases):
+            if not case["answer"]:
+                scored_results[scored_position]["metric_reasons"][metric_name] = (
+                    "Skipped because no generated answer was available."
+                )
+            elif skip_reason and not case[
+                "contexts" if metric_name == "context_utilization" else "answer_contexts"
+            ]:
+                scored_results[scored_position]["metric_reasons"][metric_name] = (
+                    f"Skipped because {skip_reason}."
+                )
+        if not eligible_cases:
+            continue
+
+        get_logger("cli").info(
+            f"[EVAL] Starting Ragas {metric_name} for {len(eligible_cases)} cases."
+        )
+
+        def record_metric_usage(call: dict[str, Any]) -> None:
+            row_index = call.get("row_index")
+            if isinstance(row_index, int) and 0 <= row_index < len(eligible_positions):
+                usage_recorder({
+                    **call,
+                    "row_index": eligible_positions[row_index],
+                })
+
+        score_rows = _run_ragas_batches_isolated(
+            [{
+                "rows": [row_factory(case) for _case_index, case in eligible_cases],
+                "metric_names": [metric_name],
+            }],
+            usage_recorder=record_metric_usage,
+        )[0]
+        if len(score_rows) != len(eligible_cases):
+            raise ValueError(
+                f"Ragas returned a different number of {metric_name} scores than cases."
+            )
+        get_logger("cli").info(f"[EVAL] Ragas {metric_name} completed.")
+
+        for scored_position, row_scores in zip(eligible_positions, score_rows):
+            scored_results[scored_position].update({
                 name: score
                 for name, score in row_scores.items()
                 if name not in {"metric_reasons", "metric_latencies_ms"}
             })
-            reasons.update(row_scores.get("metric_reasons", {}))
-            latencies_ms.update(row_scores.get("metric_latencies_ms", {}))
-        scored_results.append({
-            **scores,
-            "metric_reasons": reasons,
-            "metric_latencies_ms": latencies_ms,
-        })
-    scored_iter = iter(scored_results)
+            scored_results[scored_position]["metric_reasons"].update(
+                row_scores.get("metric_reasons", {})
+            )
+            scored_results[scored_position]["metric_latencies_ms"].update(
+                row_scores.get("metric_latencies_ms", {})
+            )
+
+    scored_by_case_index = {
+        case_index: scored_results[scored_position]
+        for scored_position, (case_index, _case) in enumerate(scored_cases)
+    }
     return [
-        next(scored_iter) if case["expected_answerable"] else {}
-        for case in cases
+        scored_by_case_index.get(case_index, {})
+        for case_index, case in enumerate(cases)
     ]
 
 

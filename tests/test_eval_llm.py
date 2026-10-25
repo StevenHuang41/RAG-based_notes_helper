@@ -72,6 +72,12 @@ def test_openai_compatible_judge_routes_generation_providers(
 
     assert llm.model == model
     assert constructors == [expected_options, expected_options]
+    request = llm._request_kwargs("Return a structured verdict.", JudgeResponse)
+    assert request["max_tokens"] == 2048
+    if provider == "ollama":
+        assert request["reasoning_effort"] == "none"
+    else:
+        assert "reasoning_effort" not in request
 
 
 def test_openrouter_judge_uses_configured_model_and_records_response_usage(
@@ -142,6 +148,7 @@ def test_openrouter_judge_uses_configured_model_and_records_response_usage(
     ]
     assert requests[0]["model"] == "meta-llama/llama-3.1-8b-instruct"
     assert requests[0]["response_format"] is JudgeResponse
+    assert requests[0]["max_tokens"] == 2048
     assert usage == [
         {
             "status": "available",
