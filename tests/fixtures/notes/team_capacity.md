@@ -1,5 +1,3 @@
-# Aurora Planner team capacity
-
-Two QA testers are assigned to Aurora Planner.
-Each tester is scheduled for five full test days.
-The planned test capacity is ten tester-days in total.
+# Aurora Planner QA capacity
+Two QA testers are assigned to the project.
+Each has five full test days, for ten tester-days total.

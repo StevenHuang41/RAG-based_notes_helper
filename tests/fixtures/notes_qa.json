@@ -2,203 +2,490 @@
   {
     "id": "direct-01",
     "category": "direct",
-    "question": "Who is the product owner for Aurora Planner?",
+    "question": "Who is the current product owner, rather than the launch coordinator or QA lead?",
     "answerable": true,
-    "reference_answer": "Lena Ortiz is the product owner for Aurora Planner.",
-    "expected_sources": ["product_overview.md"],
+    "reference_answer": "Lena Ortiz is the product owner.",
+    "expected_sources": [
+      "product_overview.md"
+    ],
     "expected_evidence": [
       {
         "source": "product_overview.md",
-        "start_line": 4,
-        "end_line": 4,
-        "text": "Product owner: Lena Ortiz."
+        "start_line": 5,
+        "end_line": 5,
+        "text": "Product owner: Lena Ortiz. Launch coordinator: Marco Bell. QA lead: Priya Shah. These are separate responsibilities, even when meeting notes shorten them to “owner.”"
       }
+    ],
+    "challenge_tags": [
+      "role_disambiguation",
+      "source_attribution"
     ]
   },
   {
     "id": "direct-02",
     "category": "direct",
-    "question": "When did the customer pilot begin?",
+    "question": "On what date did the Aurora Planner customer pilot begin?",
     "answerable": true,
-    "reference_answer": "The customer pilot began on April 6, 2026.",
-    "expected_sources": ["product_overview.md"],
+    "reference_answer": "The customer pilot began on 2026-04-06.",
+    "expected_sources": [
+      "product_overview.md"
+    ],
     "expected_evidence": [
       {
         "source": "product_overview.md",
-        "start_line": 7,
-        "end_line": 7,
-        "text": "The customer pilot began on April 6, 2026."
+        "start_line": 6,
+        "end_line": 6,
+        "text": "The customer pilot began on 2026-04-06 with twelve invited coordinators. That date identifies the pilot start and must not be reported as the public launch date."
       }
+    ],
+    "challenge_tags": [
+      "date_disambiguation"
     ]
   },
   {
     "id": "direct-03",
     "category": "direct",
-    "question": "What is the total approved budget?",
+    "question": "What total project budget did finance approve in version 2.1?",
     "answerable": true,
-    "reference_answer": "The approved total budget is $24,000.",
-    "expected_sources": ["budget.md"],
+    "reference_answer": "Finance approved a total budget of $24,000 in version 2.1.",
+    "expected_sources": [
+      "budget.md"
+    ],
     "expected_evidence": [
       {
         "source": "budget.md",
-        "start_line": 3,
-        "end_line": 3,
-        "text": "The approved total budget is $24,000."
+        "start_line": 4,
+        "end_line": 4,
+        "text": "The approved total budget is $24,000. This envelope includes planned allocations and a separately held contingency reserve."
       }
+    ],
+    "challenge_tags": [
+      "temporal_version",
+      "source_attribution"
     ]
   },
   {
     "id": "direct-04",
     "category": "direct",
-    "question": "Where should customers send support requests?",
+    "question": "Which email address should customers use for support requests?",
     "answerable": true,
     "reference_answer": "Customers should email support@northstar.example.",
-    "expected_sources": ["product_overview.md"],
+    "expected_sources": [
+      "product_overview.md"
+    ],
     "expected_evidence": [
       {
         "source": "product_overview.md",
-        "start_line": 8,
-        "end_line": 8,
-        "text": "Customer support requests go to support@northstar.example."
+        "start_line": 7,
+        "end_line": 7,
+        "text": "Customer support requests go to support@northstar.example. Marco checks that mailbox each business day during the pilot, while Priya owns verification of calendar-export behavior."
       }
+    ],
+    "challenge_tags": [
+      "direct_lookup"
     ]
   },
   {
     "id": "multi-hop-01",
     "category": "multi_hop",
-    "question": "How much are engineering and testing allocated together, and what share of the approved total is that?",
+    "question": "How much are engineering and QA allocated together, and what percentage is that of the approved project budget?",
     "answerable": true,
-    "reference_answer": "Engineering and testing total $14,000, about 58.3% of the $24,000 approved budget.",
-    "expected_sources": ["budget.md", "test_plan.md"],
+    "reference_answer": "Engineering and QA total $14,000, which is about 58.3% of the approved $24,000 budget.",
+    "expected_sources": [
+      "budget.md",
+      "test_plan.md"
+    ],
     "expected_evidence": [
-      {"source": "budget.md", "start_line": 4, "end_line": 4, "text": "Engineering is allocated $10,000."},
-      {"source": "test_plan.md", "start_line": 3, "end_line": 3, "text": "The test budget is $4,000."},
-      {"source": "budget.md", "start_line": 3, "end_line": 3, "text": "The approved total budget is $24,000."}
+      {
+        "source": "budget.md",
+        "start_line": 5,
+        "end_line": 5,
+        "text": "Engineering is allocated $10,000 for calendar behavior, export reliability, and release support."
+      },
+      {
+        "source": "budget.md",
+        "start_line": 4,
+        "end_line": 4,
+        "text": "The approved total budget is $24,000. This envelope includes planned allocations and a separately held contingency reserve."
+      },
+      {
+        "source": "test_plan.md",
+        "start_line": 3,
+        "end_line": 3,
+        "text": "Test plan version 2.3 was approved by Priya Shah on 2026-05-14. It uses the separately approved $4,000 QA and validation allocation from budget version 2.1."
+      }
+    ],
+    "challenge_tags": [
+      "multi_document",
+      "calculation",
+      "source_attribution"
     ]
   },
   {
     "id": "multi-hop-02",
     "category": "multi_hop",
-    "question": "What must be complete before the target June 1 launch can proceed?",
+    "question": "How many tester-days are planned in total, and how many tester-days does that represent per recurring-event scenario?",
     "answerable": true,
-    "reference_answer": "Legal review must be complete, marketing review must be complete, and the May 18 code freeze must have passed before the June 1 target launch can proceed.",
-    "expected_sources": ["delivery_timeline.md", "launch_checklist.md"],
+    "reference_answer": "The plan provides ten tester-days across five scenarios, or two tester-days per scenario.",
+    "expected_sources": [
+      "team_capacity.md",
+      "test_plan.md"
+    ],
     "expected_evidence": [
-      {"source": "delivery_timeline.md", "start_line": 4, "end_line": 4, "text": "Legal review is due by May 12, 2026."},
-      {"source": "delivery_timeline.md", "start_line": 5, "end_line": 5, "text": "Marketing review is due by May 15, 2026."},
-      {"source": "delivery_timeline.md", "start_line": 6, "end_line": 6, "text": "Code freeze is May 18, 2026."},
-      {"source": "launch_checklist.md", "start_line": 3, "end_line": 3, "text": "Launch may proceed only after legal review and marketing review are complete and the code freeze has passed."}
+      {
+        "source": "team_capacity.md",
+        "start_line": 2,
+        "end_line": 2,
+        "text": "Two QA testers are assigned to the project."
+      },
+      {
+        "source": "team_capacity.md",
+        "start_line": 3,
+        "end_line": 3,
+        "text": "Each has five full test days, for ten tester-days total."
+      },
+      {
+        "source": "test_plan.md",
+        "start_line": 4,
+        "end_line": 4,
+        "text": "The calendar-export suite contains five recurring-event scenarios: duplicate events, missing events, time-zone changes, recurring edits, and cancellation."
+      }
+    ],
+    "challenge_tags": [
+      "multi_document",
+      "calculation"
     ]
   },
   {
     "id": "multi-hop-03",
     "category": "multi_hop",
-    "question": "How many tester-days are planned for the $4,000 test budget, and what is the cost per tester-day?",
+    "question": "Which launch gates are still open, and why does passing the code freeze not authorize the June 1 launch target?",
     "answerable": true,
-    "reference_answer": "The plan has ten tester-days for $4,000, or $400 per tester-day.",
-    "expected_sources": ["team_capacity.md", "test_plan.md"],
+    "reference_answer": "Marketing review and the cancellation retest remain incomplete. The code freeze passed, but both marketing approval and signed QA verification are required before launch.",
+    "expected_sources": [
+      "delivery_timeline.md",
+      "launch_checklist.md",
+      "test_plan.md"
+    ],
     "expected_evidence": [
-      {"source": "team_capacity.md", "start_line": 5, "end_line": 5, "text": "The planned test capacity is ten tester-days in total."},
-      {"source": "test_plan.md", "start_line": 3, "end_line": 3, "text": "The test budget is $4,000."}
+      {
+        "source": "delivery_timeline.md",
+        "start_line": 8,
+        "end_line": 8,
+        "text": "The public launch target remains 2026-06-01 in the planning calendar. No final public launch date has been approved because the marketing review is still open."
+      },
+      {
+        "source": "delivery_timeline.md",
+        "start_line": 6,
+        "end_line": 6,
+        "text": "Marketing review was due by 2026-05-15. The review remains open because the support contact card has not been approved for the pilot-to-public transition."
+      },
+      {
+        "source": "delivery_timeline.md",
+        "start_line": 7,
+        "end_line": 7,
+        "text": "Code freeze was scheduled for 2026-05-18 and passed that evening. A code freeze means release candidates are locked except for approved fixes; it does not mean every launch gate is complete."
+      },
+      {
+        "source": "launch_checklist.md",
+        "start_line": 4,
+        "end_line": 4,
+        "text": "Public launch may proceed only after legal review and marketing review are complete and the code freeze has passed."
+      },
+      {
+        "source": "launch_checklist.md",
+        "start_line": 6,
+        "end_line": 6,
+        "text": "Marketing review is still open. The support contact card needs approval for the public-facing help page; the pilot email address alone does not satisfy this gate."
+      },
+      {
+        "source": "test_plan.md",
+        "start_line": 8,
+        "end_line": 8,
+        "text": "The cancellation retest is assigned to Priya Shah and depends on the approved hotfix build. No passing retest is recorded in this plan as of 2026-05-20."
+      }
+    ],
+    "challenge_tags": [
+      "multi_document",
+      "temporal_status",
+      "source_attribution"
     ]
   },
   {
     "id": "multi-hop-04",
     "category": "multi_hop",
-    "question": "Who owns verifying the calendar duplicate risk, and how many recurring-event cases must QA cover?",
+    "question": "Who owns the outstanding cancellation verification, and what evidence must be recorded for it to count as a completed test?",
     "answerable": true,
-    "reference_answer": "QA lead Priya Shah owns the verification, and QA must cover five recurring-event cases.",
-    "expected_sources": ["risks.md", "test_plan.md"],
+    "reference_answer": "Priya Shah owns the cancellation retest. The record must include the approved build identifier, input calendar, expected and observed event counts, and tester initials.",
+    "expected_sources": [
+      "risks.md",
+      "test_plan.md"
+    ],
     "expected_evidence": [
-      {"source": "risks.md", "start_line": 4, "end_line": 4, "text": "QA lead Priya Shah owns verification of the five recurring-event cases before launch."},
-      {"source": "test_plan.md", "start_line": 4, "end_line": 4, "text": "QA must verify five recurring-event cases before launch."}
+      {
+        "source": "risks.md",
+        "start_line": 5,
+        "end_line": 5,
+        "text": "QA lead Priya Shah owns verification of the five recurring-event cases before launch. She must attach the cancellation retest result to the checklist; a run without the approved build identifier is not final evidence."
+      },
+      {
+        "source": "test_plan.md",
+        "start_line": 8,
+        "end_line": 8,
+        "text": "The cancellation retest is assigned to Priya Shah and depends on the approved hotfix build. No passing retest is recorded in this plan as of 2026-05-20."
+      },
+      {
+        "source": "test_plan.md",
+        "start_line": 9,
+        "end_line": 9,
+        "text": "Evidence for each scenario must include the build identifier, input calendar, time-zone settings when relevant, expected event count, observed event count, and tester initials."
+      }
+    ],
+    "challenge_tags": [
+      "multi_document",
+      "role_disambiguation",
+      "evidence_requirements"
     ]
   },
   {
     "id": "unanswerable-01",
     "category": "unanswerable",
-    "question": "Which vendor submitted the $15,000 quote?",
+    "question": "Which vendor submitted the $15,000 quote for Aurora Planner?",
     "answerable": false,
-    "reference_answer": "I cannot find the answers in the notes.",
+    "reference_answer": "I cannot find the answer in the notes. The vendor is not identified.",
     "expected_sources": [],
-    "expected_evidence": []
+    "expected_evidence": [],
+    "challenge_tags": [
+      "missing_fact",
+      "abstention"
+    ],
+    "missing_information": "The fixture does not identify a vendor that submitted a $15,000 quote."
   },
   {
     "id": "unanswerable-02",
     "category": "unanswerable",
-    "question": "What customer satisfaction rating did the pilot receive?",
+    "question": "What numeric customer satisfaction rating did the pilot receive?",
     "answerable": false,
-    "reference_answer": "I cannot find the answers in the notes.",
-    "expected_sources": [],
-    "expected_evidence": []
+    "reference_answer": "I cannot find the answer in the notes. No numeric satisfaction rating is recorded.",
+    "expected_sources": [
+      "product_overview.md"
+    ],
+    "expected_evidence": [
+      {
+        "source": "product_overview.md",
+        "start_line": 9,
+        "end_line": 9,
+        "text": "Pilot feedback is summarized weekly by the product owner. A high satisfaction score has not been published; the team has only qualitative comments and a list of unresolved requests."
+      }
+    ],
+    "challenge_tags": [
+      "missing_fact",
+      "abstention"
+    ],
+    "missing_information": "The notes say qualitative comments exist but do not provide a numeric customer satisfaction rating."
   },
   {
     "id": "unanswerable-03",
     "category": "unanswerable",
     "question": "On what date will Aurora Planner version 2.0 ship?",
     "answerable": false,
-    "reference_answer": "I cannot find the answers in the notes.",
-    "expected_sources": [],
-    "expected_evidence": []
+    "reference_answer": "I cannot find the answer in the notes. No version 2.0 ship date is recorded.",
+    "expected_sources": [
+      "product_overview.md"
+    ],
+    "expected_evidence": [
+      {
+        "source": "product_overview.md",
+        "start_line": 12,
+        "end_line": 12,
+        "text": "The current product brief does not assign a ship date to version 2.0. The next-release backlog is being estimated separately from Aurora Planner’s first public launch."
+      }
+    ],
+    "challenge_tags": [
+      "missing_fact",
+      "abstention"
+    ],
+    "missing_information": "The fixture does not assign a ship date to version 2.0."
   },
   {
     "id": "unanswerable-04",
     "category": "unanswerable",
-    "question": "What is the CEO's home address?",
+    "question": "How much has the team spent against the project budget so far?",
     "answerable": false,
-    "reference_answer": "I cannot find the answers in the notes.",
-    "expected_sources": [],
-    "expected_evidence": []
+    "reference_answer": "I cannot find the answer in the notes. Actual spending is tracked elsewhere.",
+    "expected_sources": [
+      "budget.md"
+    ],
+    "expected_evidence": [
+      {
+        "source": "budget.md",
+        "start_line": 11,
+        "end_line": 11,
+        "text": "Purchase orders and forecast actuals are tracked elsewhere. This note records the approved project envelope and allocations, not the amount already spent or the vendors paid."
+      }
+    ],
+    "challenge_tags": [
+      "missing_fact",
+      "abstention"
+    ],
+    "missing_information": "The notes state the approved budget and allocations but do not report actual spending to date."
   },
   {
     "id": "ambiguous-01",
     "category": "ambiguous",
-    "question": "When is the deadline?",
+    "question": "When will the public launch happen?",
     "answerable": false,
-    "reference_answer": "I cannot find the answers in the notes.",
-    "expected_sources": ["delivery_timeline.md"],
+    "reference_answer": "The notes do not establish a unique approved public launch date.",
+    "expected_sources": [
+      "delivery_timeline.md",
+      "meeting_notes.md"
+    ],
     "expected_evidence": [
-      {"source": "delivery_timeline.md", "start_line": 3, "end_line": 3, "text": "Design freeze is April 20, 2026."},
-      {"source": "delivery_timeline.md", "start_line": 4, "end_line": 4, "text": "Legal review is due by May 12, 2026."},
-      {"source": "delivery_timeline.md", "start_line": 5, "end_line": 5, "text": "Marketing review is due by May 15, 2026."},
-      {"source": "delivery_timeline.md", "start_line": 6, "end_line": 6, "text": "Code freeze is May 18, 2026."}
-    ]
+      {
+        "source": "delivery_timeline.md",
+        "start_line": 8,
+        "end_line": 8,
+        "text": "The public launch target remains 2026-06-01 in the planning calendar. No final public launch date has been approved because the marketing review is still open."
+      },
+      {
+        "source": "delivery_timeline.md",
+        "start_line": 9,
+        "end_line": 9,
+        "text": "The date 2026-06-03 appeared in Marco Bell’s 2026-05-19 contingency proposal as a possible fallback if marketing approval missed the council’s 2026-05-28 checkpoint. The council did not approve that fallback."
+      },
+      {
+        "source": "meeting_notes.md",
+        "start_line": 6,
+        "end_line": 6,
+        "text": "The council kept 2026-06-01 as the planning target but did not approve a public launch date. Marketing review remains open until the public support contact card is approved."
+      },
+      {
+        "source": "meeting_notes.md",
+        "start_line": 7,
+        "end_line": 7,
+        "text": "Marco proposed 2026-06-03 as a fallback if the marketing review misses the 2026-05-28 checkpoint. The proposal was recorded for discussion only; no vote or approval occurred."
+      }
+    ],
+    "challenge_tags": [
+      "temporal_status",
+      "ambiguity",
+      "source_attribution"
+    ],
+    "ambiguity_reason": "June 1 is a planning target and June 3 is an unapproved fallback proposal; the council approved neither as the release date."
   },
   {
     "id": "ambiguous-02",
     "category": "ambiguous",
-    "question": "Who is the owner?",
+    "question": "Who owns the release?",
     "answerable": false,
-    "reference_answer": "I cannot find the answers in the notes.",
-    "expected_sources": ["product_overview.md"],
+    "reference_answer": "The notes do not identify a single person as the unqualified release owner.",
+    "expected_sources": [
+      "product_overview.md",
+      "meeting_notes.md"
+    ],
     "expected_evidence": [
-      {"source": "product_overview.md", "start_line": 4, "end_line": 4, "text": "Product owner: Lena Ortiz."},
-      {"source": "product_overview.md", "start_line": 5, "end_line": 5, "text": "Launch coordinator: Marco Bell."}
-    ]
+      {
+        "source": "product_overview.md",
+        "start_line": 5,
+        "end_line": 5,
+        "text": "Product owner: Lena Ortiz. Launch coordinator: Marco Bell. QA lead: Priya Shah. These are separate responsibilities, even when meeting notes shorten them to “owner.”"
+      },
+      {
+        "source": "product_overview.md",
+        "start_line": 12,
+        "end_line": 12,
+        "text": "The current product brief does not assign a ship date to version 2.0. The next-release backlog is being estimated separately from Aurora Planner’s first public launch."
+      },
+      {
+        "source": "meeting_notes.md",
+        "start_line": 5,
+        "end_line": 5,
+        "text": "Lena confirmed that product ownership remains with her. Marco coordinates launch logistics and the support inbox; Priya owns QA verification. The group agreed not to use “release owner” without naming the responsibility."
+      },
+      {
+        "source": "meeting_notes.md",
+        "start_line": 5,
+        "end_line": 5,
+        "text": "Lena confirmed that product ownership remains with her. Marco coordinates launch logistics and the support inbox; Priya owns QA verification. The group agreed not to use “release owner” without naming the responsibility."
+      }
+    ],
+    "challenge_tags": [
+      "role_disambiguation",
+      "ambiguity",
+      "source_attribution"
+    ],
+    "ambiguity_reason": "“Owns the release” could mean product ownership, launch coordination, or QA verification; the notes assign those responsibilities to different people."
   },
   {
     "id": "ambiguous-03",
     "category": "ambiguous",
-    "question": "How much is allocated?",
+    "question": "What is the total budget available to the teams?",
     "answerable": false,
-    "reference_answer": "I cannot find the answers in the notes.",
-    "expected_sources": ["budget.md", "test_plan.md"],
+    "reference_answer": "The notes do not identify one unambiguous amount available to teams without clarifying whether contingency is included.",
+    "expected_sources": [
+      "budget.md"
+    ],
     "expected_evidence": [
-      {"source": "budget.md", "start_line": 4, "end_line": 4, "text": "Engineering is allocated $10,000."},
-      {"source": "budget.md", "start_line": 5, "end_line": 5, "text": "Design is allocated $8,000."},
-      {"source": "test_plan.md", "start_line": 3, "end_line": 3, "text": "The test budget is $4,000."}
-    ]
+      {
+        "source": "budget.md",
+        "start_line": 4,
+        "end_line": 4,
+        "text": "The approved total budget is $24,000. This envelope includes planned allocations and a separately held contingency reserve."
+      },
+      {
+        "source": "budget.md",
+        "start_line": 9,
+        "end_line": 9,
+        "text": "The allocations total $22,000 before contingency: $10,000 engineering, $8,000 design, and $4,000 QA and validation. Do not describe that subtotal as the full approved budget."
+      },
+      {
+        "source": "budget.md",
+        "start_line": 8,
+        "end_line": 8,
+        "text": "A $2,000 contingency reserve remains unassigned. It is part of the $24,000 approved envelope, but it is not available as a team allocation unless finance approves its use."
+      }
+    ],
+    "challenge_tags": [
+      "budget_scope",
+      "ambiguity",
+      "source_attribution"
+    ],
+    "ambiguity_reason": "The approved envelope is $24,000, while team allocations total $22,000 and the remaining $2,000 is unassigned contingency. “Available to the teams” does not specify whether the reserve is included."
   },
   {
     "id": "ambiguous-04",
     "category": "ambiguous",
-    "question": "Did it pass?",
+    "question": "Did the recurring-event test pass?",
     "answerable": false,
-    "reference_answer": "I cannot find the answers in the notes.",
-    "expected_sources": ["test_plan.md", "launch_checklist.md"],
+    "reference_answer": "The notes do not establish whether the question refers to the suite overall or the outstanding cancellation retest.",
+    "expected_sources": [
+      "test_plan.md"
+    ],
     "expected_evidence": [
-      {"source": "test_plan.md", "start_line": 4, "end_line": 4, "text": "QA must verify five recurring-event cases before launch."},
-      {"source": "launch_checklist.md", "start_line": 3, "end_line": 3, "text": "Launch may proceed only after legal review and marketing review are complete and the code freeze has passed."}
-    ]
+      {
+        "source": "test_plan.md",
+        "start_line": 7,
+        "end_line": 7,
+        "text": "The 2026-05-20 run summary marks all five scenarios executed. Four passed on release candidate RC-17. The cancellation case needs a retest because the first result used a build that was replaced after code freeze."
+      },
+      {
+        "source": "test_plan.md",
+        "start_line": 7,
+        "end_line": 7,
+        "text": "The 2026-05-20 run summary marks all five scenarios executed. Four passed on release candidate RC-17. The cancellation case needs a retest because the first result used a build that was replaced after code freeze."
+      },
+      {
+        "source": "test_plan.md",
+        "start_line": 8,
+        "end_line": 8,
+        "text": "The cancellation retest is assigned to Priya Shah and depends on the approved hotfix build. No passing retest is recorded in this plan as of 2026-05-20."
+      }
+    ],
+    "challenge_tags": [
+      "test_status",
+      "ambiguity",
+      "source_attribution"
+    ],
+    "ambiguity_reason": "Four scenarios passed, but the cancellation retest remains outstanding. The question does not identify whether it means the suite summary or the cancellation test."
   }
 ]

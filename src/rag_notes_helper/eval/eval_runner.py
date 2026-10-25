@@ -241,6 +241,34 @@ def load_qa_fixture(path: Path = QA_FIXTURE) -> list[dict[str, Any]]:
             raise ValueError(f"QA case {case_id} must have a non-empty question.")
         if not isinstance(record["answerable"], bool):
             raise ValueError(f"QA case {case_id} must define answerable as a boolean.")
+        challenge_tags = record.setdefault("challenge_tags", [])
+        if (
+            not isinstance(challenge_tags, list)
+            or any(not isinstance(tag, str) or not tag.strip() for tag in challenge_tags)
+            or len(set(challenge_tags)) != len(challenge_tags)
+        ):
+            raise ValueError(
+                f"QA case {case_id} must define challenge tags as unique, "
+                "non-empty strings."
+            )
+        if record["category"] == "ambiguous":
+            reason = record.get("ambiguity_reason")
+            if record["answerable"] or not isinstance(reason, str) or not reason.strip():
+                raise ValueError(
+                    f"Ambiguous QA case {case_id} must be unanswerable and include "
+                    "a non-empty ambiguity_reason."
+                )
+        if record["category"] == "unanswerable":
+            missing_information = record.get("missing_information")
+            if (
+                record["answerable"]
+                or not isinstance(missing_information, str)
+                or not missing_information.strip()
+            ):
+                raise ValueError(
+                    f"Unanswerable QA case {case_id} must include a non-empty "
+                    "missing_information description."
+                )
         if (
             not isinstance(record["reference_answer"], str)
             or not record["reference_answer"].strip()
@@ -271,6 +299,10 @@ def load_qa_fixture(path: Path = QA_FIXTURE) -> list[dict[str, Any]]:
         if record["answerable"] and not evidence:
             raise ValueError(
                 f"QA case {case_id} requires expected_evidence spans."
+            )
+        if record["category"] == "ambiguous" and (not sources or not evidence):
+            raise ValueError(
+                f"Ambiguous QA case {case_id} requires evidence for its ambiguity."
             )
         for annotation in evidence:
             if not isinstance(annotation, dict) or not {
@@ -631,6 +663,7 @@ def _record_case(
     record = {
         "case_id": case["id"],
         "category": case["category"],
+        "challenge_tags": case["challenge_tags"],
         "workflow": workflow,
         "question": case["question"],
         "answer": answer,
@@ -640,6 +673,8 @@ def _record_case(
         "contexts": [item["text"] for item in evidence_records],
         "answer_contexts": answer_contexts,
         "reference_answer": case["reference_answer"],
+        "ambiguity_reason": case.get("ambiguity_reason"),
+        "missing_information": case.get("missing_information"),
         "expected_sources": case["expected_sources"],
         "expected_evidence": case["expected_evidence"],
         **_answerability_fields(case, answer),

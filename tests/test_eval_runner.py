@@ -200,7 +200,12 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert "answer_correctness" in readme
     assert "retrieval_ms" in readme
     assert "direct-01" in readme
-    assert "product_overview.md" in readme
+    assert any(
+        hit["source"] in readme
+        for case in results["cases"]
+        for search_hits in case["search_results"]
+        for hit in search_hits
+    )
     assert "reason for faithfulness" in readme
     assert "## Metrics by category" in readme
     assert "Controller/answer tokens" in readme
@@ -211,6 +216,17 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert len(results["cases"]) == 16
     assert {case["workflow"] for case in results["cases"]} == {workflow}
     assert len({case["case_id"] for case in results["cases"]}) == 16
+    assert all(case["challenge_tags"] for case in results["cases"])
+    assert all(
+        case["ambiguity_reason"]
+        for case in results["cases"]
+        if case["category"] == "ambiguous"
+    )
+    assert all(
+        case["missing_information"]
+        for case in results["cases"]
+        if case["category"] == "unanswerable"
+    )
     assert all(case["answer"] for case in results["cases"])
     assert all(case["citations"] for case in results["cases"])
     assert all(case["retrieved_evidence"] for case in results["cases"])
@@ -354,7 +370,7 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
         if case["expected_answerable"]
     ]
     assert selected_case["reference_answer"] == (
-        "Lena Ortiz is the product owner for Aurora Planner."
+        "Lena Ortiz is the product owner."
     )
     assert [row["contexts"] for row in answer_rows] == [
         case["answer_contexts"]
@@ -371,6 +387,41 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
             answer_row["contexts"] == retrieved_row["contexts"]
             for answer_row, retrieved_row in zip(answer_rows, retrieved_rows)
         )
+
+
+@pytest.mark.parametrize(
+    ("case_id", "field", "error_fragment"),
+    [
+        ("ambiguous-01", "ambiguity_reason", "ambiguity_reason"),
+        ("unanswerable-01", "missing_information", "missing_information"),
+    ],
+)
+def test_evaluation_rejects_cases_without_auditable_rationale(
+    monkeypatch,
+    tmp_path,
+    case_id,
+    field,
+    error_fragment,
+):
+    records = json.loads(eval_runner.QA_FIXTURE.read_text(encoding="utf-8"))
+    case = next(record for record in records if record["id"] == case_id)
+    del case[field]
+    qa_fixture = tmp_path / "notes_qa.json"
+    qa_fixture.write_text(json.dumps(records), encoding="utf-8")
+    real_loader = eval_runner.load_qa_fixture
+    monkeypatch.setattr(
+        eval_runner,
+        "load_qa_fixture",
+        lambda: real_loader(qa_fixture),
+    )
+
+    def should_not_build_index(*, success_message="Index built and saved"):
+        pytest.fail("invalid fixture should be rejected before indexing")
+
+    monkeypatch.setattr(eval_runner, "build_and_save_rag", should_not_build_index)
+
+    with pytest.raises(ValueError, match=f"{case_id}.*{error_fragment}"):
+        eval_runner.run_evaluation(output_root=tmp_path / "evaluation")
 
 
 def test_run_directory_uses_taipei_seconds_and_refuses_collision(
