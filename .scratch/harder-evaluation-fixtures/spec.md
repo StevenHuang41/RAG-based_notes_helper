@@ -1,6 +1,6 @@
 # Realistic Evaluation Fixture Dataset
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
@@ -89,3 +89,7 @@ Keep the fixture compatible with the existing evaluation workflow. The evaluatio
 - Existing evaluation code builds a fresh fixture-only index in temporary storage and reads the active settings. Preserve this isolation.
 - The accepted ADR 0003 uses reviewed reference answers for Ragas Answer Correctness and reference-free Faithfulness and Answer Relevancy. The fixture should remain compatible with that distinction.
 - This spec covers the fixture-first phase only. Index artifact placement and evaluation-report improvements can be specified after the expanded fixture is reviewed.
+
+## Completion Notes
+
+All five implementation tickets are resolved on `codex/harder-evaluation-fixtures`. The final fixture contains eight notes and fifty QA cases (10 direct, 15 multi-hop, 12 ambiguous, 13 unanswerable). Review fixes added a verified chunk-boundary case and shared test doubles. Full test suite passed: 121 tests.
