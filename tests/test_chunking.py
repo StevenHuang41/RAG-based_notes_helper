@@ -25,6 +25,22 @@ def test_chunk_ids():
     assert all(c.source == "note.md" for c in chunks)
     assert all(c.text for c in chunks)
 
-    prev = chunks[0].text
-    curr = chunks[1].text
-    assert curr.startswith(prev.split(", ")[-1])
+    prev = chunks[0].text.splitlines()
+    curr = chunks[1].text.splitlines()
+    assert set(prev) & set(curr)
+
+
+def test_chunks_keep_inclusive_source_line_ranges_and_overlaps():
+    chunks = list(chunk_lines(
+        lines=iter(["line 1", "line 2", "line 3"]),
+        doc_id="doc_id1",
+        source="note.md",
+        chunk_size=15,
+        overlap=7,
+    ))
+
+    assert [(chunk.start_line, chunk.end_line) for chunk in chunks] == [
+        (1, 2),
+        (2, 3),
+    ]
+    assert [chunk.text for chunk in chunks] == ["line 1\nline 2", "line 2\nline 3"]
