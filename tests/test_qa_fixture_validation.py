@@ -53,10 +53,12 @@ def test_fixture_loader_rejects_duplicate_ids(tmp_path):
 
 
 def test_fixture_loader_keeps_four_seed_cases_per_category(tmp_path):
-    records = [
-        record for record in _fixture_records()
-        if record["id"] != "multi-hop-04"
+    records = _fixture_records()
+    multi_hop_ids = [
+        record["id"] for record in records if record["category"] == "multi_hop"
     ]
+    remove_ids = set(multi_hop_ids[3:])
+    records = [record for record in records if record["id"] not in remove_ids]
 
     with pytest.raises(ValueError, match="baseline coverage"):
         eval_runner.load_qa_fixture(_write_fixture(tmp_path, records))
