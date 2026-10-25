@@ -201,6 +201,7 @@ def make_generation_usage_record(
     output: str,
     *,
     call_type: str,
+    latency_ms: float | None = None,
 ) -> dict[str, Any]:
     """Build a safe per-call record without estimating tokens from characters."""
     input_text = "".join(str(message.get("content", "")) for message in prompt)
@@ -208,6 +209,7 @@ def make_generation_usage_record(
     output_text = getattr(llm, "last_output", output)
     return {
         "call_type": call_type,
+        "latency_ms": latency_ms,
         "provider": getattr(llm, "provider_name", "unknown"),
         "model": getattr(llm, "model", None),
         "token_usage": dict(usage),

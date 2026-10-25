@@ -1,6 +1,7 @@
 import json
 from collections.abc import Callable
 from functools import partial
+from time import perf_counter
 from typing import Annotated, Any, Literal, TypeAlias
 
 from pydantic import (
@@ -99,6 +100,7 @@ AnswerFunction = Callable[..., dict[str, Any]]
 UsageFunction = Callable[[dict[str, Any]], None]
 ProgressStage = Literal["searching", "reviewing", "generating", "abstaining"]
 ProgressFunction = Callable[[ProgressStage, int], None]
+RetrievalFunction = Callable[[dict[str, Any]], None]
 
 
 def search_notes(
@@ -198,6 +200,7 @@ def _request_action(
             searches_used=searches_used,
             validation_feedback=validation_feedback,
         )
+        generation_started = perf_counter()
         try:
             response = controller.generate_raw(prompt)
             if on_generation is not None:
@@ -207,9 +210,26 @@ def _request_action(
                         prompt,
                         response,
                         call_type="controller",
+                        latency_ms=round(
+                            (perf_counter() - generation_started) * 1000,
+                            3,
+                        ),
                     )
                 )
         except Exception as exc:
+            if on_generation is not None:
+                on_generation(
+                    make_generation_usage_record(
+                        controller,
+                        prompt,
+                        "",
+                        call_type="controller",
+                        latency_ms=round(
+                            (perf_counter() - generation_started) * 1000,
+                            3,
+                        ),
+                    )
+                )
             raise AgenticWorkflowError(
                 f"The Agentic controller call failed ({type(exc).__name__})."
             ) from exc
@@ -247,6 +267,7 @@ def agentic_answer(
     answer_fn: AnswerFunction | None = None,
     on_generation: UsageFunction | None = None,
     on_progress: ProgressFunction | None = None,
+    on_retrieval: RetrievalFunction | None = None,
 ) -> dict[str, Any]:
     """Iteratively search local notes, then answer from selected evidence."""
     search = (
@@ -254,11 +275,41 @@ def agentic_answer(
         if search_fn is not None
         else partial(search_notes, rag=rag, meta_store=meta_store)
     )
+    search_index = 0
+
+    def timed_search(search_query: str) -> list[dict]:
+        nonlocal search_index
+        search_index += 1
+        search_started = perf_counter()
+        try:
+            hits = search(search_query)
+        except Exception:
+            if on_retrieval is not None:
+                on_retrieval({
+                    "search_index": search_index,
+                    "latency_ms": round(
+                        (perf_counter() - search_started) * 1000,
+                        3,
+                    ),
+                    "result_count": None,
+                })
+            raise
+        if on_retrieval is not None:
+            on_retrieval({
+                "search_index": search_index,
+                "latency_ms": round(
+                    (perf_counter() - search_started) * 1000,
+                    3,
+                ),
+                "result_count": len(hits),
+            })
+        return hits
+
     answer = answer_fn if answer_fn is not None else rag_answer
 
     if on_progress is not None:
         on_progress("searching", 1)
-    initial_search_hits = _deduplicate_hits(search(query))
+    initial_search_hits = _deduplicate_hits(timed_search(query))
     search_results = [initial_search_hits]
     hits = list(initial_search_hits)
     if not hits:
@@ -299,7 +350,7 @@ def agentic_answer(
             next_search_count = searches_used + 1
             if on_progress is not None:
                 on_progress("searching", next_search_count)
-            search_hits = _deduplicate_hits(search(action.query))
+            search_hits = _deduplicate_hits(timed_search(action.query))
             search_results.append(search_hits)
             hits = _deduplicate_hits(hits + search_hits)
             searches_used = next_search_count

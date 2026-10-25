@@ -1,6 +1,7 @@
 import argparse
 import importlib
 import sys
+from time import perf_counter
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
@@ -192,6 +193,7 @@ def run_query(
     stream: bool = False,
     on_generation: Callable[[dict[str, Any]], None] | None = None,
     on_progress: Callable[[ProgressStage, int], None] | None = None,
+    on_retrieval: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     if agentic:
         kwargs = {
@@ -203,9 +205,18 @@ def run_query(
             kwargs["on_generation"] = on_generation
         if on_progress is not None:
             kwargs["on_progress"] = on_progress
+        if on_retrieval is not None:
+            kwargs["on_retrieval"] = on_retrieval
         return agentic_answer(query, **kwargs)
 
+    retrieval_started = perf_counter()
     hits = retrieve(rag, meta_store, query=query)
+    if on_retrieval is not None:
+        on_retrieval({
+            "search_index": 1,
+            "latency_ms": round((perf_counter() - retrieval_started) * 1000, 3),
+            "result_count": len(hits),
+        })
     kwargs = {"hits": hits, "stream": stream}
     if on_generation is not None:
         kwargs["on_generation"] = on_generation
