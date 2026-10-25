@@ -93,8 +93,8 @@ The current fixture evaluation runs Classic and Agentic RAG together and writes 
 - Record retrieval latency, generation latency, judge latency, and end-to-end query latency.
 - Agentic runs retain latency for each search and aggregate search latency for the query.
 - Record latency for each controller, answer-generation, and judge LLM call; expose controller latency separately from vector-search latency.
-- Record every provider-reported LLM usage call with call type (`controller`, `answer`, or `judge`), provider/model, and input/output/total token counts when available.
-- Provide per-query, category, and whole-run token totals, with generation/controller usage separated from judge usage.
+- Record every provider-reported LLM usage call with call type (`controller`, `answer`, or `judge`), provider/model, and input/output/total token counts when available. Judge calls also identify the Ragas metric that triggered them, so usage can be aggregated per metric.
+- Provide per-query, per-judge-metric, category, and whole-run token totals, with generation/controller usage separated from judge usage.
 - Missing usage remains explicitly `unavailable` or `partial`; do not estimate token counts.
 - Keep Ragas judge usage distinct from workflow generation usage.
 
