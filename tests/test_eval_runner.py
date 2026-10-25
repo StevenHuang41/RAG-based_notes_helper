@@ -75,6 +75,9 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     agentic,
     workflow,
 ):
+    monkeypatch.setenv("CHUNK_SIZE", "200")
+    monkeypatch.setenv("CHUNK_OVERLAP", "50")
+
     user_notes = Path(os.environ["NOTES_DIR"])
     user_storage = Path(os.environ["STORAGE_DIR"])
     private_note = user_notes / "private.md"
@@ -190,6 +193,8 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert results["run_metadata"]["agentic_max_searches"] == MAX_SEARCHES
     assert results["run_metadata"]["workflow"] == workflow
     assert results["run_metadata"]["timezone"] == "Asia/Taipei"
+    assert results["run_metadata"]["chunk_size"] == 200
+    assert results["run_metadata"]["chunk_overlap"] == 50
     assert "[results.json](results.json)" in readme
     assert "[run.log](run.log)" in readme
     assert readme.index("## Overall metrics") < readme.index("## Query details")
@@ -223,6 +228,10 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert {case["workflow"] for case in results["cases"]} == {workflow}
     assert len({case["case_id"] for case in results["cases"]}) == len(fixture_cases)
     assert all(case["challenge_tags"] for case in results["cases"])
+    boundary_case = next(
+        case for case in results["cases"] if case["case_id"] == "multi-hop-03"
+    )
+    assert "chunk_boundary" in boundary_case["challenge_tags"]
     assert all(
         case["ambiguity_reason"]
         for case in results["cases"]

@@ -1,16 +1,8 @@
 import json
-from types import SimpleNamespace
-
-import numpy as np
 
 from rag_notes_helper.eval import eval_runner
 from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE
 from rag_notes_helper.rag.index import RagIndex
-
-
-class FixtureEmbeddingModel:
-    def encode(self, texts, *, normalize_embeddings, convert_to_numpy):
-        return np.ones((len(texts), 4), dtype=np.float32)
 
 
 class AbstainingAnswerModel:
@@ -32,38 +24,23 @@ class AbstainingAnswerModel:
 def test_ambiguous_fixture_cases_are_auditable_and_abstain_through_evaluation(
     monkeypatch,
     tmp_path,
+    fixture_evaluation_doubles,
 ):
     monkeypatch.setattr(
         RagIndex,
         "embed_model",
-        property(lambda self: FixtureEmbeddingModel()),
+        property(lambda self: fixture_evaluation_doubles.embedding_model),
     )
     monkeypatch.setattr(
         "rag_notes_helper.rag.answer.get_llm",
         lambda: AbstainingAnswerModel(),
     )
 
-    def fake_ragas_worker(_command, *, input, capture_output, text, check):
-        request = json.loads(input)
-        scores = []
-        for batch in request["batches"]:
-            metrics = batch["metric_names"]
-            scores.append([
-                {
-                    **{metric: 1.0 for metric in metrics},
-                    "metric_reasons": {
-                        metric: "fixture judge result" for metric in metrics
-                    },
-                    "metric_latencies_ms": {metric: 0.1 for metric in metrics},
-                }
-                for _row in batch["rows"]
-            ])
-        return SimpleNamespace(
-            stdout=json.dumps({"scores": scores, "judge_calls": []}),
-            returncode=0,
-        )
-
-    monkeypatch.setattr(eval_runner.subprocess, "run", fake_ragas_worker)
+    monkeypatch.setattr(
+        eval_runner.subprocess,
+        "run",
+        fixture_evaluation_doubles.ragas_worker,
+    )
     run_dir = eval_runner.run_evaluation(output_root=tmp_path / "runs")
     results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
 

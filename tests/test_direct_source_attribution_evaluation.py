@@ -1,16 +1,7 @@
 import json
-from pathlib import Path
-from types import SimpleNamespace
-
-import numpy as np
 
 from rag_notes_helper.eval import eval_runner
 from rag_notes_helper.rag.index import RagIndex
-
-
-class _EmbeddingModel:
-    def encode(self, texts, *, normalize_embeddings, convert_to_numpy):
-        return np.ones((len(texts), 4), dtype=np.float32)
 
 
 class _AnswerModel:
@@ -25,39 +16,23 @@ class _AnswerModel:
     def stream(self, prompt, line_width):
         yield self.last_output
 
-
-def _fake_ragas_worker(_command, *, input, capture_output, text, check):
-    request = json.loads(input)
-    score_sets = [
-        [
-            {
-                **{metric: 1.0 for metric in batch["metric_names"]},
-                "metric_reasons": {},
-                "metric_latencies_ms": {},
-            }
-            for _ in batch["rows"]
-        ]
-        for batch in request["batches"]
-    ]
-    return SimpleNamespace(
-        stdout=json.dumps({"scores": score_sets, "judge_calls": []}),
-        returncode=0,
-    )
-
-
 def test_direct_source_attribution_cases_complete_in_evaluation(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, fixture_evaluation_doubles
 ):
     monkeypatch.setattr(
         RagIndex,
         "embed_model",
-        property(lambda self: _EmbeddingModel()),
+        property(lambda self: fixture_evaluation_doubles.embedding_model),
     )
     monkeypatch.setattr(
         "rag_notes_helper.rag.answer.get_llm",
         lambda: _AnswerModel(),
     )
-    monkeypatch.setattr(eval_runner.subprocess, "run", _fake_ragas_worker)
+    monkeypatch.setattr(
+        eval_runner.subprocess,
+        "run",
+        fixture_evaluation_doubles.ragas_worker,
+    )
 
     run_dir = eval_runner.run_evaluation(output_root=tmp_path)
     results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
