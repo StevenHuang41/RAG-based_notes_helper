@@ -16,6 +16,7 @@ import tempfile
 from typing import Any, Iterator, Literal
 
 import pandas as pd
+from tqdm import tqdm
 
 from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.eval.dataset_builder import build_dataset
@@ -24,6 +25,7 @@ from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE
 from rag_notes_helper.rag.agentic import MAX_SEARCHES
 from rag_notes_helper.rag.index import RagIndex, load_or_build_index
 from rag_notes_helper.rag.meta_store import MetaStore
+from rag_notes_helper.utils.logger import get_logger
 
 
 Workflow = Literal["classic", "agentic"]
@@ -301,6 +303,7 @@ def _log(run_log: Path, message: str) -> None:
     timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     with run_log.open("a", encoding="utf-8") as log_file:
         log_file.write(f"{timestamp} {message}\n")
+    get_logger("cli").info("[EVAL] %s", message)
 
 
 def _safe_score(value: Any) -> float | None:
@@ -592,7 +595,10 @@ def run_evaluation(*, output_root: Path | None = None) -> Path:
     }
     try:
         cases = load_qa_fixture()
+        _log(run_log, f"Loaded {len(cases)} reviewed QA cases.")
+        _log(run_log, "Building isolated synthetic-notes index.")
         with _isolated_fixture_index() as (settings, rag, meta_store):
+            _log(run_log, "Synthetic-notes index is ready.")
             results["run_metadata"] = {
                 "timestamp_utc": timestamp,
                 "fixture_sha256": _fixture_digest(),
@@ -610,41 +616,75 @@ def run_evaluation(*, output_root: Path | None = None) -> Path:
             }
             workflow_results: dict[Workflow, list[dict[str, Any]]] = {}
             judge_usage_by_workflow: dict[Workflow, list[dict[str, Any]]] = {}
+            workflows: tuple[Workflow, ...] = ("classic", "agentic")
+            progress_total = len(cases) * len(workflows) + len(workflows)
 
-            for workflow in ("classic", "agentic"):
-                workflow_cases = []
-                for case in cases:
-                    record = _record_case(
-                        case,
-                        workflow=workflow,
-                        rag=rag,
-                        meta_store=meta_store,
+            with tqdm(
+                total=progress_total,
+                desc="RAG evaluation",
+                unit="step",
+                file=sys.stderr,
+                disable=not sys.stderr.isatty(),
+                dynamic_ncols=True,
+            ) as progress:
+                for workflow in workflows:
+                    workflow_cases = []
+                    progress.set_description(f"RAG evaluation ({workflow})")
+                    for case_number, case in enumerate(cases, start=1):
+                        progress.set_postfix_str(
+                            f"{case_number}/{len(cases)} {case['id']}"
+                        )
+                        _log(
+                            run_log,
+                            f"[{workflow}] Starting case "
+                            f"{case_number}/{len(cases)} ({case['id']}).",
+                        )
+                        record = _record_case(
+                            case,
+                            workflow=workflow,
+                            rag=rag,
+                            meta_store=meta_store,
+                        )
+                        workflow_cases.append(record)
+                        results["cases"].append(record)
+                        completion = (
+                            f"[{workflow}] Completed case {case['id']} "
+                            f"answerable={record['predicted_answerable']} "
+                            f"abstained={record['abstained']} "
+                            f"calls={record['generation_usage']['call_count']}"
+                        )
+                        if "workflow_error" in record:
+                            completion += f" error={record['workflow_error']}"
+                        _log(run_log, completion)
+                        progress.update(1)
+                    workflow_results[workflow] = workflow_cases
+
+                for workflow, workflow_cases in workflow_results.items():
+                    judge_calls: list[dict[str, Any]] = []
+                    answerable_count = sum(
+                        case["expected_answerable"] for case in workflow_cases
                     )
-                    workflow_cases.append(record)
-                    results["cases"].append(record)
+                    progress.set_description(f"RAG evaluation ({workflow} metrics)")
+                    progress.set_postfix_str("Ragas metrics")
                     _log(
                         run_log,
-                        f"[{workflow}] {case['id']} answerable="
-                        f"{record['predicted_answerable']} abstained="
-                        f"{record['abstained']} calls="
-                        f"{record['generation_usage']['call_count']}",
+                        f"[{workflow}] Starting Ragas metrics for "
+                        f"{answerable_count} answerable cases.",
                     )
-                workflow_results[workflow] = workflow_cases
+                    try:
+                        _attach_ragas_scores(workflow_cases, judge_calls=judge_calls)
+                        _log(run_log, f"[{workflow}] Ragas metrics completed.")
+                    except Exception as exc:
+                        error_name = type(exc).__name__
+                        for record in workflow_cases:
+                            record["ragas_error"] = error_name
+                        _log(run_log, f"[{workflow}] Ragas failed ({error_name}).")
+                    finally:
+                        progress.update(1)
 
-            for workflow, workflow_cases in workflow_results.items():
-                judge_calls: list[dict[str, Any]] = []
-                try:
-                    _attach_ragas_scores(workflow_cases, judge_calls=judge_calls)
-                    _log(run_log, f"[{workflow}] Ragas metrics completed.")
-                except Exception as exc:
-                    error_name = type(exc).__name__
-                    for record in workflow_cases:
-                        record["ragas_error"] = error_name
-                    _log(run_log, f"[{workflow}] Ragas failed ({error_name}).")
-
-                judge_usage_by_workflow[workflow] = [
-                    _judge_usage_call(call, settings) for call in judge_calls
-                ]
+                    judge_usage_by_workflow[workflow] = [
+                        _judge_usage_call(call, settings) for call in judge_calls
+                    ]
 
             results["category_counts"] = dict(Counter(
                 case["category"] for case in cases
@@ -682,6 +722,9 @@ def run_evaluation(*, output_root: Path | None = None) -> Path:
             _write_json(results_path, results)
             _write_json(summary_path, summary)
             _log(run_log, "Evaluation artifacts written successfully.")
+    except KeyboardInterrupt:
+        _log(run_log, "Evaluation interrupted by user.")
+        raise
     except Exception as exc:
         _log(run_log, f"Evaluation failed ({type(exc).__name__}).")
         if results.get("run_metadata") is not None:
