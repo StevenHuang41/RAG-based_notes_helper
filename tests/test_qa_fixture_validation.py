@@ -23,19 +23,13 @@ def test_fixture_loader_accepts_reviewed_cases_beyond_the_seed_set(tmp_path):
         "category": "direct",
         "question": "Which review is due by May 12?",
         "answerable": True,
-        "reference_answer": "Legal review is due by May 12, 2026.",
+        "reference_answer": "Legal review was due by 2026-05-12 and completed on 2026-05-11.",
         "expected_sources": ["delivery_timeline.md"],
         "expected_evidence": [{
             "source": "delivery_timeline.md",
-            "start_line": 4,
-            "end_line": 4,
-            "text": "Legal review is due by May 12, 2026.",
-        }],
-        "expected_evidence": [{
-            "source": "delivery_timeline.md",
-            "start_line": 4,
-            "end_line": 4,
-            "text": "Legal review is due by May 12, 2026.",
+            "start_line": 5,
+            "end_line": 5,
+            "text": "Legal review was due by 2026-05-12 and completed on 2026-05-11. The completion date is earlier than the due date; the old planning draft still shows the due date only.",
         }],
     })
 
@@ -71,13 +65,13 @@ def test_fixture_loader_requires_all_original_seed_case_ids(tmp_path):
         "category": "direct",
         "question": "Which review is due by May 12?",
         "answerable": True,
-        "reference_answer": "Legal review is due by May 12, 2026.",
+        "reference_answer": "Legal review was due by 2026-05-12 and completed on 2026-05-11.",
         "expected_sources": ["delivery_timeline.md"],
         "expected_evidence": [{
             "source": "delivery_timeline.md",
-            "start_line": 4,
-            "end_line": 4,
-            "text": "Legal review is due by May 12, 2026.",
+            "start_line": 5,
+            "end_line": 5,
+            "text": "Legal review was due by 2026-05-12 and completed on 2026-05-11. The completion date is earlier than the due date; the old planning draft still shows the due date only.",
         }],
     })
 
@@ -132,13 +126,13 @@ def test_fixture_loader_requires_source_for_answerable_cases(tmp_path):
         "category": "direct",
         "question": "Which review is due by May 12?",
         "answerable": True,
-        "reference_answer": "Legal review is due by May 12, 2026.",
+        "reference_answer": "Legal review was due by 2026-05-12 and completed on 2026-05-11.",
         "expected_sources": [],
         "expected_evidence": [{
             "source": "delivery_timeline.md",
-            "start_line": 4,
-            "end_line": 4,
-            "text": "Legal review is due by May 12, 2026.",
+            "start_line": 5,
+            "end_line": 5,
+            "text": "Legal review was due by 2026-05-12 and completed on 2026-05-11. The completion date is earlier than the due date; the old planning draft still shows the due date only.",
         }],
     })
 
@@ -151,9 +145,9 @@ def test_fixture_loader_accepts_multiline_evidence_spans(tmp_path):
     case = next(record for record in records if record["id"] == "direct-01")
     case["expected_evidence"] = [{
         "source": "product_overview.md",
-        "start_line": 4,
-        "end_line": 5,
-        "text": "Product owner: Lena Ortiz.\nLaunch coordinator: Marco Bell.",
+        "start_line": 5,
+        "end_line": 6,
+        "text": "Product owner: Lena Ortiz. Launch coordinator: Marco Bell. QA lead: Priya Shah. These are separate responsibilities, even when meeting notes shorten them to “owner.”\nThe customer pilot began on 2026-04-06 with twelve invited coordinators. That date identifies the pilot start and must not be reported as the public launch date.",
     }]
 
     loaded = eval_runner.load_qa_fixture(_write_fixture(tmp_path, records))
