@@ -33,7 +33,13 @@ def test_ragas_worker_preserves_results_for_each_metric_batch(monkeypatch):
             scores=[
                 {metric: 0.5 for metric in metric_names}
                 for _row in dataset
-            ]
+            ],
+            reasons=[
+                {"faithfulness": "Supported by retrieved evidence."}
+                if "faithfulness" in metric_names
+                else {}
+                for _row in dataset
+            ],
         )
 
     fake_datasets = ModuleType("datasets")
@@ -55,8 +61,16 @@ def test_ragas_worker_preserves_results_for_each_metric_batch(monkeypatch):
     ]
     assert response == {
         "scores": [
-            [{"context_utilization": 0.5}, {"context_utilization": 0.5}],
-            [{"faithfulness": 0.5}],
+            [
+                {"context_utilization": 0.5, "metric_reasons": {}},
+                {"context_utilization": 0.5, "metric_reasons": {}},
+            ],
+            [{
+                "faithfulness": 0.5,
+                "metric_reasons": {
+                    "faithfulness": "Supported by retrieved evidence."
+                },
+            }],
         ],
         "judge_calls": [{"total_tokens": 2}, {"total_tokens": 1}],
     }
