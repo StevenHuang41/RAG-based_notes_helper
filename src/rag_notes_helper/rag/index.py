@@ -326,11 +326,14 @@ def load_index() -> RagIndex:
     return RagIndex(index=index)
 
 
-def build_and_save_rag() -> RagIndex:
+def build_and_save_rag(
+    *,
+    success_message: str = "Index built and saved",
+) -> RagIndex:
     """ full building rag pipeline """
     rag = build_index(load_notes())
     save_index(rag)
-    print("Index built and saved")
+    print(success_message)
 
     return rag
 
