@@ -3,6 +3,8 @@ import os
 from pathlib import Path
 import re
 from types import SimpleNamespace
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pytest
@@ -156,17 +158,38 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     run_dir = eval_runner.run_evaluation(output_root=output_root, agentic=agentic)
 
     assert run_dir.parent == output_root
-    assert re.fullmatch(r"\d{8}T\d{12}Z", run_dir.name)
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}-\d{6}", run_dir.name)
     assert (run_dir / "run.log").is_file()
     assert (run_dir / "results.json").is_file()
-    assert (run_dir / "summary.json").is_file()
+    assert (run_dir / "README.md").is_file()
+    assert not (run_dir / "summary.json").exists()
     results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
-    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    summary = results["summary"]
+    readme = (run_dir / "README.md").read_text(encoding="utf-8")
     assert results["judge_usage"] == summary["judge_usage"]
-    assert summary["run_metadata"]["judge_provider"] == "ollama"
-    assert summary["run_metadata"]["judge_model"] == "llama3.1"
-    assert summary["run_metadata"]["agentic_max_searches"] == MAX_SEARCHES
-    assert summary["run_metadata"]["workflow"] == workflow
+    assert results["run_metadata"]["judge_provider"] == "ollama"
+    assert results["run_metadata"]["judge_model"] == "llama3.1"
+    assert results["run_metadata"]["agentic_max_searches"] == MAX_SEARCHES
+    assert results["run_metadata"]["workflow"] == workflow
+    assert results["run_metadata"]["timezone"] == "Asia/Taipei"
+    assert "[results.json](results.json)" in readme
+    assert "[run.log](run.log)" in readme
+    assert readme.index("## Overall metrics") < readme.index("## Query details")
+    assert "## Query details" in readme
+    assert "similarity_score (FAISS)" in readme
+    assert "Chunk text" in readme
+    assert "question" in readme
+    assert "answer_correctness" in readme
+    assert "retrieval_ms" in readme
+    assert "direct-01" in readme
+    assert "product_overview.md" in readme
+    assert "reason for faithfulness" in readme
+    assert "## Metrics by category" in readme
+    assert "Controller/answer tokens" in readme
+    assert "Judge tokens" in readme
+    run_log = (run_dir / "run.log").read_text(encoding="utf-8")
+    assert "Evaluation artifacts written successfully." in run_log
+    assert "Who is the product owner for Aurora Planner?" not in run_log
     assert len(results["cases"]) == 16
     assert {case["workflow"] for case in results["cases"]} == {workflow}
     assert len({case["case_id"] for case in results["cases"]}) == 16
@@ -217,6 +240,11 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     )
     assert set(summary["workflows"]) == {workflow}
     assert summary["workflows"][workflow]["case_count"] == 16
+    direct_summary = summary["workflows"][workflow]["by_category"]["direct"]
+    assert direct_summary["generation_usage"]["token_usage"]["total_tokens"] == (
+        76 if agentic else 48
+    )
+    assert direct_summary["judge_usage"]["token_usage"]["total_tokens"] == 48
     assert summary["judge_usage"]["total"]["token_usage"] == {
         "status": "available",
         "input_tokens": 64,
@@ -282,7 +310,7 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     )
     assert Path(os.environ["NOTES_DIR"]) == user_notes
     assert Path(os.environ["STORAGE_DIR"]) == user_storage
-    assert "api_key" not in json.dumps(summary["run_metadata"]).lower()
+    assert "api_key" not in json.dumps(results["run_metadata"]).lower()
     assert fixture_index_observations == [True]
     assert RagIndex._model is embedding_cache_sentinel
 
@@ -325,3 +353,26 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
             answer_row["contexts"] == retrieved_row["contexts"]
             for answer_row, retrieved_row in zip(answer_rows, retrieved_rows)
         )
+
+
+def test_run_directory_uses_taipei_seconds_and_refuses_collision(
+    monkeypatch,
+    tmp_path,
+):
+    fixed_now = datetime(2026, 10, 25, 15, 42, 25, tzinfo=ZoneInfo("Asia/Taipei"))
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now.astimezone(tz) if tz else fixed_now.replace(tzinfo=None)
+
+    monkeypatch.setattr(eval_runner, "datetime", FixedDateTime)
+    output_root = tmp_path / "eval"
+
+    timestamp, run_dir = eval_runner._new_run_directory(output_root)
+
+    assert timestamp == "2026-10-25-154225"
+    assert run_dir.name == timestamp
+    with pytest.raises(FileExistsError):
+        eval_runner._new_run_directory(output_root)
+    assert list(output_root.iterdir()) == [run_dir]
