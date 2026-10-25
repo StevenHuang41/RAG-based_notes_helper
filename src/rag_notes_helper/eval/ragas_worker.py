@@ -33,6 +33,11 @@ def main() -> None:
                     usage_recorder=judge_calls.append,
                 )
                 row_reasons = getattr(result, "reasons", [{} for _ in result.scores])
+                row_latencies = getattr(
+                    result,
+                    "latencies_ms",
+                    [{} for _ in result.scores],
+                )
                 score_sets.append([
                     {
                         **{key: _json_score(value) for key, value in row.items()},
@@ -40,8 +45,16 @@ def main() -> None:
                             key: _json_score(value)
                             for key, value in reasons.items()
                         },
+                        "metric_latencies_ms": {
+                            key: _json_score(value)
+                            for key, value in latencies.items()
+                        },
                     }
-                    for row, reasons in zip(result.scores, row_reasons)
+                    for row, reasons, latencies in zip(
+                        result.scores,
+                        row_reasons,
+                        row_latencies,
+                    )
                 ])
             response = {"scores": score_sets, "judge_calls": judge_calls}
     except Exception as exc:

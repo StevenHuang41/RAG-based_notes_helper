@@ -7,6 +7,7 @@ from rag_notes_helper.eval import ragas_runner
 def test_ragas_runner_scores_only_requested_current_metrics(monkeypatch):
     metric_calls = []
     constructed = []
+    usage_recorders = []
 
     class FakeMetric:
         def __init__(self, llm, embeddings=None):
@@ -14,7 +15,8 @@ def test_ragas_runner_scores_only_requested_current_metrics(monkeypatch):
 
         async def ascore(self, **kwargs):
             metric_calls.append(kwargs)
-            return SimpleNamespace(value=0.75)
+            usage_recorders[0]({"status": "unavailable"})
+            return SimpleNamespace(value=0.75, reason="evidence supports the answer")
 
     collections = ModuleType("ragas.metrics.collections")
     collections.Faithfulness = FakeMetric
@@ -35,9 +37,11 @@ def test_ragas_runner_scores_only_requested_current_metrics(monkeypatch):
     monkeypatch.setattr(
         ragas_runner,
         "get_eval_llm",
-        lambda *, usage_recorder: (usage_recorder({"status": "unavailable"}) or judge),
+        lambda *, usage_recorder: (usage_recorders.append(usage_recorder) or judge),
     )
     monkeypatch.setattr(ragas_runner, "get_embeddings", lambda: embeddings)
+    perf_samples = iter([5.0, 5.025])
+    monkeypatch.setattr(ragas_runner, "perf_counter", lambda: next(perf_samples))
     monkeypatch.setattr(
         ragas_runner,
         "get_settings",
@@ -61,13 +65,19 @@ def test_ragas_runner_scores_only_requested_current_metrics(monkeypatch):
     )
 
     assert result.scores == [{"faithfulness": 0.75}]
+    assert result.reasons == [{"faithfulness": "evidence supports the answer"}]
+    assert result.latencies_ms == [{"faithfulness": 25.0}]
     assert constructed == [(judge, None)]
     assert metric_calls == [{
         "user_input": "Why is the launch delayed?",
         "response": "The validation step is unfinished.",
         "retrieved_contexts": ["Validation is still in progress."],
     }]
-    assert usage == [{"status": "unavailable"}]
+    assert usage == [{
+        "metric": "faithfulness",
+        "row_index": 0,
+        "token_usage": {"status": "unavailable"},
+    }]
 
 
 def test_ragas_runner_uses_reference_free_metric_signatures(monkeypatch):

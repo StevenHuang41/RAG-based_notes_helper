@@ -113,30 +113,39 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
         worker_requests.append(request)
         score_sets = [
             [
-                {metric: 1.0 for metric in batch["metric_names"]}
+                {
+                    **{metric: 1.0 for metric in batch["metric_names"]},
+                    "metric_reasons": {
+                        metric: f"reason for {metric}"
+                        for metric in batch["metric_names"]
+                    },
+                    "metric_latencies_ms": {
+                        metric: 1.5 for metric in batch["metric_names"]
+                    },
+                }
                 for _row in batch["rows"]
             ]
             for batch in request["batches"]
         ]
-        judge_usage = (
+        judge_usage = [
             {
-                "status": "available",
-                "input_tokens": 100,
-                "output_tokens": 20,
-                "total_tokens": 120,
+                "metric": metric,
+                "row_index": row_index,
+                "token_usage": {
+                    "status": "available",
+                    "input_tokens": 2,
+                    "output_tokens": 1,
+                    "total_tokens": 3,
+                },
             }
-            if len(worker_requests) == 1
-            else {
-                "status": "unavailable",
-                "input_tokens": None,
-                "output_tokens": None,
-                "total_tokens": None,
-            }
-        )
+            for batch in request["batches"]
+            for row_index, _row in enumerate(batch["rows"])
+            for metric in batch["metric_names"]
+        ]
         return SimpleNamespace(
             stdout=json.dumps({
                 "scores": score_sets,
-                "judge_calls": [judge_usage],
+                "judge_calls": judge_usage,
             }),
             returncode=0,
         )
@@ -210,9 +219,9 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert summary["workflows"][workflow]["case_count"] == 16
     assert summary["judge_usage"]["total"]["token_usage"] == {
         "status": "available",
-        "input_tokens": 100,
-        "output_tokens": 20,
-        "total_tokens": 120,
+        "input_tokens": 64,
+        "output_tokens": 32,
+        "total_tokens": 96,
     }
     assert summary["judge_usage"]["by_workflow"][workflow]["calls"][0][
         "provider"
@@ -220,6 +229,9 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert summary["judge_usage"]["by_workflow"][workflow]["calls"][0][
         "model"
     ] == "llama3.1"
+    assert summary["judge_usage"]["by_metric"]["answer_correctness"][
+        "token_usage"
+    ]["total_tokens"] == 24
     selected_case = results["cases"][0]
     assert selected_case["generation_usage"]["call_count"] == (2 if agentic else 1)
     assert selected_case["generation_usage"]["token_usage"] == {
@@ -231,6 +243,25 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     if agentic:
         assert selected_case["generation_usage"]["character_usage"]["input"] > 0
         assert selected_case["generation_usage"]["character_usage"]["output"] > 0
+    assert selected_case["judge_usage"]["call_count"] == 4
+    assert selected_case["judge_usage"]["token_usage"]["total_tokens"] == 12
+    assert selected_case["judge_usage_by_metric"]["faithfulness"][
+        "token_usage"
+    ]["total_tokens"] == 3
+    assert set(selected_case["judge_metrics"]) == {
+        "faithfulness",
+        "answer_relevancy",
+        "answer_correctness",
+        "context_utilization",
+    }
+    assert all(
+        item["latency_ms"] == 1.5
+        for item in selected_case["judge_metrics"].values()
+    )
+    assert selected_case["latency"]["judge_ms"] == 6.0
+    assert selected_case["latency"]["end_to_end_ms"] >= selected_case["latency"][
+        "rag_query_ms"
+    ]
     assert summary["workflows"][workflow]["generation_usage"]["call_count"] == (
         32 if agentic else 16
     )

@@ -28,7 +28,13 @@ def test_ragas_worker_preserves_results_for_each_metric_batch(monkeypatch):
 
     def run_ragas(dataset, *, metric_names, usage_recorder):
         calls.append((dataset, metric_names))
-        usage_recorder({"total_tokens": len(dataset)})
+        for row_index, _row in enumerate(dataset):
+            for metric in metric_names:
+                usage_recorder({
+                    "metric": metric,
+                    "row_index": row_index,
+                    "token_usage": {"total_tokens": len(dataset)},
+                })
         return SimpleNamespace(
             scores=[
                 {metric: 0.5 for metric in metric_names}
@@ -38,6 +44,10 @@ def test_ragas_worker_preserves_results_for_each_metric_batch(monkeypatch):
                 {"faithfulness": "Supported by retrieved evidence."}
                 if "faithfulness" in metric_names
                 else {}
+                for _row in dataset
+            ],
+            latencies_ms=[
+                {metric: 12.5 for metric in metric_names}
                 for _row in dataset
             ],
         )
@@ -62,15 +72,40 @@ def test_ragas_worker_preserves_results_for_each_metric_batch(monkeypatch):
     assert response == {
         "scores": [
             [
-                {"context_utilization": 0.5, "metric_reasons": {}},
-                {"context_utilization": 0.5, "metric_reasons": {}},
+                {
+                    "context_utilization": 0.5,
+                    "metric_reasons": {},
+                    "metric_latencies_ms": {"context_utilization": 12.5},
+                },
+                {
+                    "context_utilization": 0.5,
+                    "metric_reasons": {},
+                    "metric_latencies_ms": {"context_utilization": 12.5},
+                },
             ],
             [{
                 "faithfulness": 0.5,
                 "metric_reasons": {
                     "faithfulness": "Supported by retrieved evidence."
                 },
+                "metric_latencies_ms": {"faithfulness": 12.5},
             }],
         ],
-        "judge_calls": [{"total_tokens": 2}, {"total_tokens": 1}],
+        "judge_calls": [
+            {
+                "metric": "context_utilization",
+                "row_index": 0,
+                "token_usage": {"total_tokens": 2},
+            },
+            {
+                "metric": "context_utilization",
+                "row_index": 1,
+                "token_usage": {"total_tokens": 2},
+            },
+            {
+                "metric": "faithfulness",
+                "row_index": 0,
+                "token_usage": {"total_tokens": 1},
+            },
+        ],
     }

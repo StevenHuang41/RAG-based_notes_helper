@@ -101,10 +101,26 @@ def rag_answer(
         )
     else :
         generation_started = perf_counter()
-        answer_text = llm.generate(
-            prompt,
-            line_width=settings.line_width,
-        )
+        try:
+            answer_text = llm.generate(
+                prompt,
+                line_width=settings.line_width,
+            )
+        except Exception:
+            if on_generation is not None:
+                on_generation(
+                    make_generation_usage_record(
+                        llm,
+                        prompt,
+                        "",
+                        call_type="answer",
+                        latency_ms=round(
+                            (perf_counter() - generation_started) * 1000,
+                            3,
+                        ),
+                    )
+                )
+            raise
         generation_latency_ms = round(
             (perf_counter() - generation_started) * 1000,
             3,
