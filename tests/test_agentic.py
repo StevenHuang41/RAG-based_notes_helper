@@ -372,3 +372,38 @@ def test_agentic_searches_at_most_three_times_then_can_abstain():
         "retrieved_evidence": [hit],
         "search_results": [[hit], [hit], [hit]],
     }
+
+
+def test_agentic_preserves_each_search_ranking_for_retrieval_evaluation():
+    first_ranked = [
+        make_hit("first.md", 0, "First rank", score=0.9),
+        make_hit("first.md", 1, "Second rank", score=0.8),
+    ]
+    second_ranked = [
+        make_hit("second.md", 0, "Follow-up first", score=0.95),
+        make_hit("first.md", 0, "Repeated chunk", score=0.7),
+    ]
+    search_results = iter([first_ranked, second_ranked])
+    controller = FakeController(
+        [
+            action_json({"action": "search", "query": "follow-up"}),
+            action_json({
+                "action": "answer",
+                "evidence": [{"source": "first.md", "chunk_id": 0}],
+            }),
+        ]
+    )
+
+    result = agentic_answer(
+        "Question",
+        rag=None,
+        meta_store=None,
+        search_fn=lambda _query: next(search_results),
+        controller=controller,
+        answer_fn=lambda *_args, **_kwargs: {
+            "answer": "Grounded answer.",
+            "citations": [],
+        },
+    )
+
+    assert result["search_results"] == [first_ranked, second_ranked]

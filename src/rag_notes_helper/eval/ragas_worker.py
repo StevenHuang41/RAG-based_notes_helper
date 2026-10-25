@@ -32,9 +32,16 @@ def main() -> None:
                     metric_names=batch["metric_names"],
                     usage_recorder=judge_calls.append,
                 )
+                row_reasons = getattr(result, "reasons", [{} for _ in result.scores])
                 score_sets.append([
-                    {key: _json_score(value) for key, value in row.items()}
-                    for row in result.scores
+                    {
+                        **{key: _json_score(value) for key, value in row.items()},
+                        "metric_reasons": {
+                            key: _json_score(value)
+                            for key, value in reasons.items()
+                        },
+                    }
+                    for row, reasons in zip(result.scores, row_reasons)
                 ])
             response = {"scores": score_sets, "judge_calls": judge_calls}
     except Exception as exc:
