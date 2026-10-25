@@ -1360,5 +1360,244 @@
       "source_attribution"
     ],
     "ambiguity_reason": "The notes say marketing review and contact-card approval are required, but they do not identify an individual approver. Marco is identified as launch coordinator, not as the card approver."
+  },
+  {
+    "id": "unanswerable-05",
+    "category": "unanswerable",
+    "question": "What monthly subscription price did finance approve per Aurora Planner customer account?",
+    "answerable": false,
+    "reference_answer": "I cannot find the answer in the notes. The fixture does not report a customer subscription price.",
+    "challenge_tags": [
+      "missing_fact",
+      "abstention",
+      "budget_scope"
+    ],
+    "missing_information": "The budget note records the project funding envelope and team allocations, but does not state a customer subscription price or pricing approval.",
+    "expected_sources": [
+      "budget.md"
+    ],
+    "expected_evidence": [
+      {
+        "source": "budget.md",
+        "start_line": 4,
+        "end_line": 4,
+        "text": "The approved total budget is $24,000. This envelope includes planned allocations and a separately held contingency reserve."
+      }
+    ]
+  },
+  {
+    "id": "unanswerable-06",
+    "category": "unanswerable",
+    "question": "Which external calendar API provider did Aurora Planner select for daylight-saving time calculations?",
+    "answerable": false,
+    "reference_answer": "I cannot find the answer in the notes. No external calendar API provider is identified.",
+    "challenge_tags": [
+      "missing_fact",
+      "abstention",
+      "provider_identity",
+      "near_miss"
+    ],
+    "missing_information": "The risk register discusses time-zone examples and the evidence needed to document a mismatch, but names no external calendar API provider.",
+    "expected_sources": [
+      "risks.md"
+    ],
+    "expected_evidence": [
+      {
+        "source": "risks.md",
+        "start_line": 10,
+        "end_line": 10,
+        "text": "A third, lower-severity risk is that time-zone examples in pilot feedback use local abbreviations without a UTC offset. Priya’s test records must include the zone name and offset when documenting a mismatch."
+      }
+    ]
+  },
+  {
+    "id": "unanswerable-07",
+    "category": "unanswerable",
+    "question": "How many of the twelve invited pilot coordinators completed onboarding by the 2026-05-20 council meeting?",
+    "answerable": false,
+    "reference_answer": "I cannot find the answer in the notes. The number of coordinators who completed onboarding is not recorded.",
+    "challenge_tags": [
+      "missing_fact",
+      "abstention",
+      "near_miss_numeric"
+    ],
+    "missing_information": "The product brief says twelve coordinators were invited to the pilot, but it does not report how many completed onboarding.",
+    "expected_sources": [
+      "product_overview.md"
+    ],
+    "expected_evidence": [
+      {
+        "source": "product_overview.md",
+        "start_line": 6,
+        "end_line": 6,
+        "text": "The customer pilot began on 2026-04-06 with twelve invited coordinators. That date identifies the pilot start and must not be reported as the public launch date."
+      }
+    ]
+  },
+  {
+    "id": "unanswerable-08",
+    "category": "unanswerable",
+    "question": "What response-time service-level agreement was promised for support requests received outside business hours?",
+    "answerable": false,
+    "reference_answer": "I cannot find the answer in the notes. No response-time service-level agreement is specified.",
+    "challenge_tags": [
+      "missing_fact",
+      "abstention",
+      "support_sla",
+      "near_miss"
+    ],
+    "missing_information": "The risk register notes that requests may wait outside business hours and describes the daily inbox check, but sets no guaranteed response-time target.",
+    "expected_sources": [
+      "risks.md"
+    ],
+    "expected_evidence": [
+      {
+        "source": "risks.md",
+        "start_line": 6,
+        "end_line": 6,
+        "text": "Secondary risk: pilot support requests may wait too long when the shared inbox receives reports outside Northstar Studio’s business hours."
+      },
+      {
+        "source": "risks.md",
+        "start_line": 7,
+        "end_line": 7,
+        "text": "Launch coordinator Marco Bell checks support@northstar.example each business day and routes product defects to Priya. That operational task does not make him the product owner."
+      }
+    ]
+  },
+  {
+    "id": "unanswerable-09",
+    "category": "unanswerable",
+    "question": "What is the identifier of the approved hotfix build for Priya’s cancellation retest?",
+    "answerable": false,
+    "reference_answer": "I cannot find the answer in the notes. The approved hotfix build identifier is not recorded.",
+    "challenge_tags": [
+      "missing_fact",
+      "abstention",
+      "build_identifier"
+    ],
+    "missing_information": "The test plan says the cancellation retest depends on an approved hotfix build, but does not name that build or provide its identifier.",
+    "expected_sources": [
+      "test_plan.md"
+    ],
+    "expected_evidence": [
+      {
+        "source": "test_plan.md",
+        "start_line": 8,
+        "end_line": 8,
+        "text": "The cancellation retest is assigned to Priya Shah and depends on the approved hotfix build. No passing retest is recorded in this plan as of 2026-05-20."
+      }
+    ]
+  },
+  {
+    "id": "unanswerable-10",
+    "category": "unanswerable",
+    "question": "Which country did the completed legal review approve for storing pilot calendar data?",
+    "answerable": false,
+    "reference_answer": "I cannot find the answer in the notes. No data-residency country is recorded.",
+    "challenge_tags": [
+      "missing_fact",
+      "abstention",
+      "legal_scope",
+      "source_attribution"
+    ],
+    "missing_information": "The checklist says legal review covered the pilot-to-public support wording; the notes do not state an approved data-residency country.",
+    "expected_sources": [
+      "launch_checklist.md"
+    ],
+    "expected_evidence": [
+      {
+        "source": "launch_checklist.md",
+        "start_line": 5,
+        "end_line": 5,
+        "text": "Legal review is complete. The signed review is filed with the council packet and covers the current pilot-to-public support wording."
+      }
+    ]
+  },
+  {
+    "id": "unanswerable-11",
+    "category": "unanswerable",
+    "question": "How many pilot customers requested bulk import before the first public release?",
+    "answerable": false,
+    "reference_answer": "I cannot find the answer in the notes. The number of customers requesting bulk import is not reported.",
+    "challenge_tags": [
+      "missing_fact",
+      "abstention",
+      "demand_volume",
+      "near_miss"
+    ],
+    "missing_information": "The product brief says bulk import is deferred until after the first public release, but does not count pilot customers who requested it.",
+    "expected_sources": [
+      "product_overview.md"
+    ],
+    "expected_evidence": [
+      {
+        "source": "product_overview.md",
+        "start_line": 8,
+        "end_line": 8,
+        "text": "The pilot covers shared calendars, recurring-event edits, cancellations, and daylight-saving transitions. Calendar export is included, but bulk import is deferred until after the first public release."
+      }
+    ]
+  },
+  {
+    "id": "unanswerable-12",
+    "category": "unanswerable",
+    "question": "Who is the second QA tester assigned to the cancellation retest alongside Priya Shah?",
+    "answerable": false,
+    "reference_answer": "I cannot find the answer in the notes. The second QA tester is not named.",
+    "challenge_tags": [
+      "missing_fact",
+      "abstention",
+      "role_disambiguation"
+    ],
+    "missing_information": "The test plan says two QA testers are assigned and identifies Priya as the retest owner, but does not name the other tester.",
+    "expected_sources": [
+      "test_plan.md"
+    ],
+    "expected_evidence": [
+      {
+        "source": "test_plan.md",
+        "start_line": 5,
+        "end_line": 5,
+        "text": "Two QA testers are assigned for five full days each. The plan therefore provides ten tester-days; it does not promise ten calendar days or five days per scenario."
+      },
+      {
+        "source": "test_plan.md",
+        "start_line": 8,
+        "end_line": 8,
+        "text": "The cancellation retest is assigned to Priya Shah and depends on the approved hotfix build. No passing retest is recorded in this plan as of 2026-05-20."
+      }
+    ]
+  },
+  {
+    "id": "unanswerable-13",
+    "category": "unanswerable",
+    "question": "How many customer support requests were received during the pilot?",
+    "answerable": false,
+    "reference_answer": "I cannot find the answer in the notes. The pilot support-request volume is not recorded.",
+    "challenge_tags": [
+      "missing_fact",
+      "abstention",
+      "support_volume"
+    ],
+    "missing_information": "The notes identify the support mailbox and describe a risk of delayed responses, but provide no count of requests received during the pilot.",
+    "expected_sources": [
+      "product_overview.md",
+      "risks.md"
+    ],
+    "expected_evidence": [
+      {
+        "source": "product_overview.md",
+        "start_line": 7,
+        "end_line": 7,
+        "text": "Customer support requests go to support@northstar.example. Marco checks that mailbox each business day during the pilot, while Priya owns verification of calendar-export behavior."
+      },
+      {
+        "source": "risks.md",
+        "start_line": 6,
+        "end_line": 6,
+        "text": "Secondary risk: pilot support requests may wait too long when the shared inbox receives reports outside Northstar Studio’s business hours."
+      }
+    ]
   }
 ]
