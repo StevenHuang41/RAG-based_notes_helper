@@ -86,6 +86,138 @@
     ]
   },
   {
+    "id": "direct-05",
+    "category": "direct",
+    "question": "According to approved finance budget version 2.1, how much contingency remains unassigned?",
+    "answerable": true,
+    "reference_answer": "The unassigned contingency reserve is $2,000.",
+    "expected_sources": [
+      "budget.md"
+    ],
+    "expected_evidence": [
+      {
+        "source": "budget.md",
+        "start_line": 8,
+        "end_line": 8,
+        "text": "A $2,000 contingency reserve remains unassigned. It is part of the $24,000 approved envelope, but it is not available as a team allocation unless finance approves its use."
+      }
+    ],
+    "challenge_tags": [
+      "source_attribution",
+      "temporal_version"
+    ]
+  },
+  {
+    "id": "direct-06",
+    "category": "direct",
+    "question": "In timeline version 3.2, what date is the next launch council checkpoint?",
+    "answerable": true,
+    "reference_answer": "The next launch council checkpoint is 2026-05-28.",
+    "expected_sources": [
+      "delivery_timeline.md"
+    ],
+    "expected_evidence": [
+      {
+        "source": "delivery_timeline.md",
+        "start_line": 12,
+        "end_line": 12,
+        "text": "The next council checkpoint is 2026-05-28. The coordinator will bring the marketing review outcome and the remaining recurring-event test evidence to that meeting."
+      }
+    ],
+    "challenge_tags": [
+      "source_attribution",
+      "date_disambiguation"
+    ]
+  },
+  {
+    "id": "direct-07",
+    "category": "direct",
+    "question": "According to the approved test plan version 2.3, what evidence must each scenario record include?",
+    "answerable": true,
+    "reference_answer": "Each scenario record must include the build identifier, input calendar, relevant time-zone settings, expected and observed event counts, and tester initials.",
+    "expected_sources": [
+      "test_plan.md"
+    ],
+    "expected_evidence": [
+      {
+        "source": "test_plan.md",
+        "start_line": 9,
+        "end_line": 9,
+        "text": "Evidence for each scenario must include the build identifier, input calendar, time-zone settings when relevant, expected event count, observed event count, and tester initials."
+      }
+    ],
+    "challenge_tags": [
+      "source_attribution",
+      "evidence_requirements"
+    ]
+  },
+  {
+    "id": "direct-08",
+    "category": "direct",
+    "question": "In risk register version 2.0, what does the term owner mean?",
+    "answerable": true,
+    "reference_answer": "In the risk register, an owner is accountable for the listed risk follow-up, not for the product or release as a whole.",
+    "expected_sources": [
+      "risks.md"
+    ],
+    "expected_evidence": [
+      {
+        "source": "risks.md",
+        "start_line": 3,
+        "end_line": 3,
+        "text": "Risk register version 2.0 was reviewed on 2026-05-20. Owners below are accountable for the listed follow-up, not necessarily the product or release as a whole."
+      }
+    ],
+    "challenge_tags": [
+      "source_attribution",
+      "role_disambiguation"
+    ]
+  },
+  {
+    "id": "direct-09",
+    "category": "direct",
+    "question": "According to the product brief, how are calendar export and bulk import classified for the pilot and first public release?",
+    "answerable": true,
+    "reference_answer": "Calendar export is included in the pilot, while bulk import is deferred until after the first public release.",
+    "expected_sources": [
+      "product_overview.md"
+    ],
+    "expected_evidence": [
+      {
+        "source": "product_overview.md",
+        "start_line": 8,
+        "end_line": 8,
+        "text": "The pilot covers shared calendars, recurring-event edits, cancellations, and daylight-saving transitions. Calendar export is included, but bulk import is deferred until after the first public release."
+      }
+    ],
+    "challenge_tags": [
+      "source_attribution",
+      "product_scope"
+    ]
+  },
+  {
+    "id": "direct-10",
+    "category": "direct",
+    "question": "According to the approved May 20 council minutes, how many recurring-event scenarios had passed on RC-17?",
+    "answerable": true,
+    "reference_answer": "Four of the five recurring-event scenarios had passed on RC-17.",
+    "expected_sources": [
+      "meeting_notes.md"
+    ],
+    "expected_evidence": [
+      {
+        "source": "meeting_notes.md",
+        "start_line": 8,
+        "end_line": 8,
+        "text": "Priya reported that four of five recurring-event scenarios passed on RC-17. The cancellation retest is outstanding because the approved hotfix build was not available during the meeting."
+      }
+    ],
+    "challenge_tags": [
+      "source_attribution",
+      "temporal_status"
+    ]
+  },
+  {
     "id": "multi-hop-01",
     "category": "multi_hop",
     "question": "How much are engineering and QA allocated together, and what percentage is that of the approved project budget?",
