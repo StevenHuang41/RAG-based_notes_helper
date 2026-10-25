@@ -340,7 +340,8 @@
     "challenge_tags": [
       "multi_document",
       "temporal_status",
-      "source_attribution"
+      "source_attribution",
+      "chunk_boundary"
     ]
   },
   {
