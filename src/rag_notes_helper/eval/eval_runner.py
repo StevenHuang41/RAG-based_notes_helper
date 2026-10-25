@@ -21,7 +21,13 @@ from tqdm import tqdm
 
 from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.eval.dataset_builder import build_dataset
-from rag_notes_helper.eval.ragas_runner import METRIC_NAMES
+from rag_notes_helper.eval.ragas_runner import (
+    GENERATION_METRIC_NAMES,
+    LEGACY_METRIC_NAMES,
+    METRIC_NAMES,
+    RETRIEVAL_METRIC_NAMES,
+)
+from rag_notes_helper.eval.retrieval_metrics import calculate_retrieval_metrics
 from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE
 from rag_notes_helper.rag.agentic import MAX_SEARCHES
 from rag_notes_helper.rag.index import RagIndex, load_or_build_index
@@ -67,7 +73,7 @@ def _run_ragas_rows_isolated(
     usage_recorder: Callable[[dict[str, Any]], None],
 ) -> list[dict[str, Any]]:
     return _run_ragas_batches_isolated(
-        [{"rows": rows, "metric_names": list(METRIC_NAMES)}],
+        [{"rows": rows, "metric_names": list(LEGACY_METRIC_NAMES)}],
         usage_recorder=usage_recorder,
     )[0]
 
@@ -122,6 +128,14 @@ def _run_ragas_isolated(
         }
         for case in scored_cases
     ]
+    correctness_rows = [
+        {
+            "question": case["question"],
+            "answer": case["answer"] or "",
+            "reference_answer": case["reference_answer"],
+        }
+        for case in scored_cases
+    ]
     retrieval_metrics = [
         "answer_relevancy",
         "context_utilization",
@@ -130,15 +144,24 @@ def _run_ragas_isolated(
         [
             {"rows": retrieval_rows, "metric_names": retrieval_metrics},
             {"rows": answer_rows, "metric_names": ["faithfulness"]},
+            {"rows": correctness_rows, "metric_names": ["answer_correctness"]},
         ],
         usage_recorder=usage_recorder,
     )
     if any(len(scores) != len(scored_cases) for scores in score_sets):
         raise ValueError("Ragas returned a different number of scores than cases.")
-    scored_results = [
-        {**retrieval_scores, **faithfulness_scores}
-        for retrieval_scores, faithfulness_scores in zip(*score_sets)
-    ]
+    scored_results = []
+    for batch_rows in zip(*score_sets):
+        scores: dict[str, Any] = {}
+        reasons: dict[str, Any] = {}
+        for row_scores in batch_rows:
+            scores.update({
+                name: score
+                for name, score in row_scores.items()
+                if name != "metric_reasons"
+            })
+            reasons.update(row_scores.get("metric_reasons", {}))
+        scored_results.append({**scores, "metric_reasons": reasons})
     scored_iter = iter(scored_results)
     return [
         next(scored_iter) if case["expected_answerable"] else {}
@@ -511,10 +534,12 @@ def _record_case(
         answer = result.get("answer")
         citations = result.get("citations", [])
         evidence = result.get("retrieved_evidence", [])
+        retrieval_searches = result.get("retrieval_searches") or [evidence]
     except Exception as exc:
         answer = None
         citations = []
         evidence = []
+        retrieval_searches = []
         workflow_error = type(exc).__name__
 
     evidence_records = [
@@ -522,6 +547,8 @@ def _record_case(
             "source": hit["source"],
             "chunk_id": hit["chunk_id"],
             "score": _safe_score(hit.get("score")),
+            "start_line": hit.get("start_line"),
+            "end_line": hit.get("end_line"),
             "text": hit["text"],
         }
         for hit in evidence
@@ -531,6 +558,8 @@ def _record_case(
             "source": citation["source"],
             "chunk_id": citation["chunk_id"],
             "score": _safe_score(citation.get("score")),
+            "start_line": citation.get("start_line"),
+            "end_line": citation.get("end_line"),
         }
         for citation in citations
     ]
@@ -543,6 +572,11 @@ def _record_case(
         for item in evidence_records
         if (item["source"], item["chunk_id"]) in citation_references
     ]
+    retrieval_metrics = calculate_retrieval_metrics(
+        expected_evidence=case["expected_evidence"],
+        retrieval_lists=retrieval_searches,
+        top_k=get_settings().top_k,
+    )
     record = {
         "case_id": case["id"],
         "category": case["category"],
@@ -551,6 +585,20 @@ def _record_case(
         "answer": answer,
         "citations": citation_records,
         "retrieved_evidence": evidence_records,
+        "retrieval_searches": [
+            [
+                {
+                    "source": hit["source"],
+                    "chunk_id": hit["chunk_id"],
+                    "score": _safe_score(hit.get("score")),
+                    "start_line": hit.get("start_line"),
+                    "end_line": hit.get("end_line"),
+                    "text": hit["text"],
+                }
+                for hit in ranked_hits
+            ]
+            for ranked_hits in retrieval_searches
+        ],
         "contexts": [item["text"] for item in evidence_records],
         "answer_contexts": answer_contexts,
         "reference_answer": case["reference_answer"],
@@ -558,7 +606,14 @@ def _record_case(
         "expected_evidence": case["expected_evidence"],
         **_answerability_fields(case, answer),
         **_retrieval_coverage(case, evidence_records),
-        "metrics": {name: None for name in METRIC_NAMES},
+        "retrieval_metrics": {
+            **retrieval_metrics,
+            **{name: None for name in RETRIEVAL_METRIC_NAMES},
+        },
+        "generation_metrics": {
+            name: None for name in GENERATION_METRIC_NAMES
+        },
+        "metric_reasons": {},
         "generation_usage": _aggregate_usage(generation_calls),
     }
     if workflow_error is not None:
@@ -578,10 +633,15 @@ def _attach_ragas_scores(
     if len(scores) != len(workflow_cases):
         raise ValueError("Ragas returned a different number of scores than cases.")
     for case, case_scores in zip(workflow_cases, scores):
-        case["metrics"] = {
+        case["generation_metrics"] = {
             metric: _safe_score(case_scores.get(metric))
-            for metric in METRIC_NAMES
+            for metric in GENERATION_METRIC_NAMES
         }
+        case["retrieval_metrics"].update({
+            metric: _safe_score(case_scores.get(metric))
+            for metric in RETRIEVAL_METRIC_NAMES
+        })
+        case["metric_reasons"] = case_scores.get("metric_reasons", {})
 
 
 def _workflow_summary(cases: list[dict[str, Any]]) -> dict[str, Any]:
@@ -592,13 +652,20 @@ def _workflow_summary(cases: list[dict[str, Any]]) -> dict[str, Any]:
     def summarize_group(group: list[dict[str, Any]]) -> dict[str, Any]:
         return {
             "case_count": len(group),
-        "ragas_case_count": sum(
-            case["metrics"].get("faithfulness") is not None
-            for case in group
-        ),
-            "metrics": {
-                metric: _mean([case["metrics"].get(metric) for case in group])
-                for metric in METRIC_NAMES
+            "ragas_case_count": sum(
+                case["generation_metrics"].get("faithfulness") is not None
+                for case in group
+            ),
+            "generation_metrics": {
+                metric: _mean([
+                    case["generation_metrics"].get(metric)
+                    for case in group
+                ])
+                for metric in GENERATION_METRIC_NAMES
+            },
+            "retrieval_metrics": {
+                metric: _mean([case["retrieval_metrics"].get(metric) for case in group])
+                for metric in ("recall", "precision", "ndcg", *RETRIEVAL_METRIC_NAMES)
             },
             "expected_source_coverage": _mean(
                 [case["expected_source_coverage"] for case in group]

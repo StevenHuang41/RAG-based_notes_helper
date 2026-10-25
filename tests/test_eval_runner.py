@@ -164,20 +164,29 @@ def test_paired_benchmark_uses_synthetic_notes_and_writes_run_artifacts(
     assert all("expected_evidence_coverage" in case for case in results["cases"])
     assert all("answerability_correct" in case for case in results["cases"])
     assert all(
-        set(case["metrics"]) == {
-            "faithfulness",
-            "answer_relevancy",
+        set(case["retrieval_metrics"]) == {
+            "recall",
+            "precision",
+            "ndcg",
             "context_utilization",
         }
         for case in results["cases"]
     )
     assert all(
-        all(value == 1.0 for value in case["metrics"].values())
+        set(case["generation_metrics"]) == {
+            "faithfulness",
+            "answer_relevancy",
+            "answer_correctness",
+        }
+        for case in results["cases"]
+    )
+    assert all(
+        all(value == 1.0 for value in case["generation_metrics"].values())
         for case in results["cases"]
         if case["expected_answerable"]
     )
     assert all(
-        all(value is None for value in case["metrics"].values())
+        all(value is None for value in case["generation_metrics"].values())
         for case in results["cases"]
         if not case["expected_answerable"]
     )
@@ -262,10 +271,18 @@ def test_paired_benchmark_uses_synthetic_notes_and_writes_run_artifacts(
         "context_utilization",
     ]
     assert agentic_batches[1]["metric_names"] == ["faithfulness"]
+    assert agentic_batches[2]["metric_names"] == ["answer_correctness"]
     assert all(
         not {"ground_truth", "reference", "reference_answer"}.intersection(row)
         for row in [*retrieved_rows, *answer_rows]
     )
+    assert all("reference_answer" not in row for row in agentic_batches[1]["rows"])
+    correctness_rows = agentic_batches[2]["rows"]
+    assert [row["reference_answer"] for row in correctness_rows] == [
+        case["reference_answer"]
+        for case in results["cases"]
+        if case["workflow"] == "agentic" and case["expected_answerable"]
+    ]
     assert agentic_case["reference_answer"] == (
         "Lena Ortiz is the product owner for Aurora Planner."
     )
