@@ -62,13 +62,17 @@ def _load_evaluation_function(
     return getattr(module, function_name)
 
 
-def run_evaluation(*, output_root: Path | None = None) -> Path:
+def run_evaluation(
+    *,
+    output_root: Path | None = None,
+    agentic: bool = False,
+) -> Path:
     """Load the development-only evaluator only when the benchmark is requested."""
     evaluate = _load_evaluation_function("run_evaluation")
 
     if output_root is None:
-        return evaluate()
-    return evaluate(output_root=output_root)
+        return evaluate(agentic=agentic)
+    return evaluate(output_root=output_root, agentic=agentic)
 
 
 def run_base_smoke_evaluation() -> None:
@@ -371,7 +375,7 @@ def build_parser() -> argparse.ArgumentParser:
         "-ev",
         "--eval",
         action="store_true",
-        help="Compare Classic and Agentic RAG on the synthetic notes benchmark",
+        help="Evaluate Classic RAG, or Agentic RAG when used with --agentic",
     )
 
     parser.add_argument(
@@ -424,7 +428,7 @@ def main():
 
     if args.eval:
         try:
-            run_evaluation()
+            run_evaluation(agentic=args.agentic)
         except EvaluationUnavailableError as exc:
             parser.error(str(exc))
         return

@@ -517,14 +517,23 @@ def _record_case(
         evidence = []
         workflow_error = type(exc).__name__
 
-    evidence_records = [
-        {
+    def evidence_record(hit: dict[str, Any]) -> dict[str, Any]:
+        return {
             "source": hit["source"],
             "chunk_id": hit["chunk_id"],
+            "start_line": hit.get("start_line"),
+            "end_line": hit.get("end_line"),
             "score": _safe_score(hit.get("score")),
             "text": hit["text"],
         }
-        for hit in evidence
+
+    evidence_records = [evidence_record(hit) for hit in evidence]
+    raw_search_results = result.get("search_results") if workflow_error is None else None
+    if not isinstance(raw_search_results, list):
+        raw_search_results = [evidence]
+    search_result_records = [
+        [evidence_record(hit) for hit in search_hits]
+        for search_hits in raw_search_results
     ]
     citation_records = [
         {
@@ -551,6 +560,7 @@ def _record_case(
         "answer": answer,
         "citations": citation_records,
         "retrieved_evidence": evidence_records,
+        "search_results": search_result_records,
         "contexts": [item["text"] for item in evidence_records],
         "answer_contexts": answer_contexts,
         "reference_answer": case["reference_answer"],
@@ -647,8 +657,13 @@ def _write_json(path: Path, payload: Any) -> None:
     )
 
 
-def run_evaluation(*, output_root: Path | None = None) -> Path:
-    """Compare Classic and Agentic against the repository's isolated fixture set."""
+def run_evaluation(
+    *,
+    output_root: Path | None = None,
+    agentic: bool = False,
+) -> Path:
+    """Evaluate one selected workflow against the isolated fixture set."""
+    workflow: Workflow = "agentic" if agentic else "classic"
     project_root = Path(__file__).resolve().parents[3]
     output_root = output_root or project_root / "eval"
     timestamp, run_dir = _new_run_directory(Path(output_root))
@@ -656,7 +671,7 @@ def run_evaluation(*, output_root: Path | None = None) -> Path:
     run_log.touch()
     results_path = run_dir / "results.json"
     summary_path = run_dir / "summary.json"
-    _log(run_log, "Starting paired synthetic-notes RAG evaluation.")
+    _log(run_log, f"Starting {workflow} synthetic-notes RAG evaluation.")
 
     results: dict[str, Any] = {
         "schema_version": 1,
@@ -670,6 +685,7 @@ def run_evaluation(*, output_root: Path | None = None) -> Path:
             _log(run_log, "Synthetic-notes index is ready.")
             results["run_metadata"] = {
                 "timestamp_utc": timestamp,
+                "workflow": workflow,
                 "fixture_sha256": _fixture_digest(),
                 "answer_provider": settings.llm.provider,
                 "answer_model": settings.llm.model,
@@ -685,8 +701,8 @@ def run_evaluation(*, output_root: Path | None = None) -> Path:
             }
             workflow_results: dict[Workflow, list[dict[str, Any]]] = {}
             judge_usage_by_workflow: dict[Workflow, list[dict[str, Any]]] = {}
-            workflows: tuple[Workflow, ...] = ("classic", "agentic")
-            progress_total = len(cases) * len(workflows) + len(workflows)
+            workflows: tuple[Workflow, ...] = (workflow,)
+            progress_total = len(cases) + 1
 
             with tqdm(
                 total=progress_total,

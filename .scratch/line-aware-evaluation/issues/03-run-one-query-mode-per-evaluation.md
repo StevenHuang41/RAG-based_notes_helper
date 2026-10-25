@@ -4,13 +4,13 @@
 
 **Blocked by:** 01: Line-anchored fixture evidence and chunks.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `rag-app --eval` runs only Classic RAG.
-- [ ] `rag-app --agentic --eval` runs only Agentic RAG.
-- [ ] Each run uses the same fixed fixture QA and synthetic notes, builds a fresh temporary index, and avoids user `data/` and persistent `storage/`.
-- [ ] Record the selected workflow in run metadata and each case record.
-- [ ] Preserve Agentic's per-search result order and search boundaries for ranking metrics and report details.
-- [ ] Keep `--eval-base` behavior separate and unchanged.
-- [ ] Add CLI/evaluator coverage proving one workflow is called per invocation and the user index is not loaded.
+- [x] `rag-app --eval` runs only Classic RAG.
+- [x] `rag-app --agentic --eval` runs only Agentic RAG.
+- [x] Each run uses the same fixed fixture QA and synthetic notes, builds a fresh temporary index, and avoids user `data/` and persistent `storage/`.
+- [x] Record the selected workflow in run metadata and each case record.
+- [x] Preserve Agentic's per-search result order and search boundaries for ranking metrics and report details.
+- [x] Keep `--eval-base` behavior separate and unchanged.
+- [x] Add CLI/evaluator coverage proving one workflow is called per invocation and the user index is not loaded.
 

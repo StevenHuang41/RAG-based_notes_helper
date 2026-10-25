@@ -258,7 +258,9 @@ def agentic_answer(
 
     if on_progress is not None:
         on_progress("searching", 1)
-    hits = _deduplicate_hits(search(query))
+    initial_search_hits = _deduplicate_hits(search(query))
+    search_results = [initial_search_hits]
+    hits = list(initial_search_hits)
     if not hits:
         if on_progress is not None:
             on_progress("abstaining", 1)
@@ -266,6 +268,7 @@ def agentic_answer(
             "answer": ABSTENTION_MESSAGE,
             "citations": [],
             "retrieved_evidence": [],
+            "search_results": search_results,
         }
 
     controller = controller if controller is not None else get_llm()
@@ -289,13 +292,16 @@ def agentic_answer(
                 "answer": ABSTENTION_MESSAGE,
                 "citations": [],
                 "retrieved_evidence": hits,
+                "search_results": search_results,
             }
 
         if isinstance(action, SearchAction):
             next_search_count = searches_used + 1
             if on_progress is not None:
                 on_progress("searching", next_search_count)
-            hits = _deduplicate_hits(hits + search(action.query))
+            search_hits = _deduplicate_hits(search(action.query))
+            search_results.append(search_hits)
+            hits = _deduplicate_hits(hits + search_hits)
             searches_used = next_search_count
             continue
 
@@ -327,4 +333,5 @@ def agentic_answer(
                 stream=stream,
             )
         result["retrieved_evidence"] = hits
+        result["search_results"] = search_results
         return result

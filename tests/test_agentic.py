@@ -149,6 +149,10 @@ def test_agentic_answer_refines_search_and_deduplicates_evidence():
     ]
     assert answer_calls == [[first_hit, second_hit]]
     assert result["answer"] == "Two phases; 20,000 budget."
+    assert result["search_results"] == [
+        [first_hit],
+        [first_hit, second_hit],
+    ]
 
 
 def test_agentic_answer_reports_progress_for_each_search_and_decision():
@@ -238,6 +242,7 @@ def test_agentic_empty_initial_search_abstains_without_llm(monkeypatch):
         "answer": ABSTENTION_MESSAGE,
         "citations": [],
         "retrieved_evidence": [],
+        "search_results": [[]],
     }
 
 
@@ -365,4 +370,5 @@ def test_agentic_searches_at_most_three_times_then_can_abstain():
         "answer": ABSTENTION_MESSAGE,
         "citations": [],
         "retrieved_evidence": [hit],
+        "search_results": [[hit], [hit], [hit]],
     }

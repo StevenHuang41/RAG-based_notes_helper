@@ -335,7 +335,11 @@ def test_eval_command_runs_benchmark_without_loading_user_index(monkeypatch):
     calls = []
     monkeypatch.setattr(sys, "argv", ["rag-app", "--eval"])
     monkeypatch.setattr(cli, "get_settings", lambda: DummySettings())
-    monkeypatch.setattr(cli, "run_evaluation", lambda: calls.append("benchmark"))
+    monkeypatch.setattr(
+        cli,
+        "run_evaluation",
+        lambda **kwargs: calls.append(("benchmark", kwargs)),
+    )
     monkeypatch.setattr(
         cli,
         "load_or_build_index",
@@ -344,7 +348,39 @@ def test_eval_command_runs_benchmark_without_loading_user_index(monkeypatch):
 
     cli.main()
 
-    assert calls == ["benchmark"]
+    assert calls == [("benchmark", {"agentic": False})]
+
+
+def test_agentic_eval_command_selects_agentic_fixture_workflow(monkeypatch):
+    calls = []
+    monkeypatch.setattr(sys, "argv", ["rag-app", "--agentic", "--eval"])
+    monkeypatch.setattr(
+        cli,
+        "run_evaluation",
+        lambda **kwargs: calls.append(kwargs),
+    )
+    monkeypatch.setattr(
+        cli,
+        "load_or_build_index",
+        lambda: pytest.fail("--eval must use the fixed fixture corpus"),
+    )
+
+    cli.main()
+
+    assert calls == [{"agentic": True}]
+
+
+def test_run_evaluation_forwards_selected_workflow(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        cli,
+        "_load_evaluation_function",
+        lambda name: lambda **kwargs: calls.append((name, kwargs)),
+    )
+
+    cli.run_evaluation(agentic=True)
+
+    assert calls == [("run_evaluation", {"agentic": True})]
 
 
 def test_eval_command_explains_its_source_checkout_requirement(monkeypatch, capsys):

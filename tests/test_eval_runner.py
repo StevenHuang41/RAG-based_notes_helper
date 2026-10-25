@@ -5,6 +5,7 @@ import re
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from rag_notes_helper.eval import eval_runner
 from rag_notes_helper.rag.agentic import MAX_SEARCHES
@@ -59,9 +60,15 @@ class FixtureController:
         return self.last_output
 
 
-def test_paired_benchmark_uses_synthetic_notes_and_writes_run_artifacts(
+@pytest.mark.parametrize(
+    "agentic,workflow",
+    [(False, "classic"), (True, "agentic")],
+)
+def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     monkeypatch,
     tmp_path,
+    agentic,
+    workflow,
 ):
     user_notes = Path(os.environ["NOTES_DIR"])
     user_storage = Path(os.environ["STORAGE_DIR"])
@@ -137,7 +144,7 @@ def test_paired_benchmark_uses_synthetic_notes_and_writes_run_artifacts(
     monkeypatch.setattr(eval_runner.subprocess, "run", fake_ragas_worker)
     output_root = tmp_path / "eval-runs"
 
-    run_dir = eval_runner.run_evaluation(output_root=output_root)
+    run_dir = eval_runner.run_evaluation(output_root=output_root, agentic=agentic)
 
     assert run_dir.parent == output_root
     assert re.fullmatch(r"\d{8}T\d{12}Z", run_dir.name)
@@ -150,11 +157,9 @@ def test_paired_benchmark_uses_synthetic_notes_and_writes_run_artifacts(
     assert summary["run_metadata"]["judge_provider"] == "ollama"
     assert summary["run_metadata"]["judge_model"] == "llama3.1"
     assert summary["run_metadata"]["agentic_max_searches"] == MAX_SEARCHES
-    assert len(results["cases"]) == 32
-    assert {case["workflow"] for case in results["cases"]} == {
-        "classic",
-        "agentic",
-    }
+    assert summary["run_metadata"]["workflow"] == workflow
+    assert len(results["cases"]) == 16
+    assert {case["workflow"] for case in results["cases"]} == {workflow}
     assert len({case["case_id"] for case in results["cases"]}) == 16
     assert all(case["answer"] for case in results["cases"])
     assert all(case["citations"] for case in results["cases"])
@@ -192,49 +197,37 @@ def test_paired_benchmark_uses_synthetic_notes_and_writes_run_artifacts(
         for case in results["cases"]
         if not case["expected_answerable"]
     )
-    assert summary["workflows"]["classic"]["case_count"] == 16
-    assert summary["workflows"]["agentic"]["case_count"] == 16
+    assert set(summary["workflows"]) == {workflow}
+    assert summary["workflows"][workflow]["case_count"] == 16
     assert summary["judge_usage"]["total"]["token_usage"] == {
-        "status": "partial",
+        "status": "available",
         "input_tokens": 100,
         "output_tokens": 20,
         "total_tokens": 120,
     }
-    assert summary["judge_usage"]["by_workflow"]["classic"]["calls"][0][
+    assert summary["judge_usage"]["by_workflow"][workflow]["calls"][0][
         "provider"
     ] == "ollama"
-    assert summary["judge_usage"]["by_workflow"]["classic"]["calls"][0][
+    assert summary["judge_usage"]["by_workflow"][workflow]["calls"][0][
         "model"
     ] == "llama3.1"
-    assert (
-        summary["judge_usage"]["by_workflow"]["agentic"]["token_usage"]["status"]
-        == "unavailable"
-    )
-    classic_case = next(
-        case for case in results["cases"] if case["workflow"] == "classic"
-    )
-    agentic_case = next(
-        case for case in results["cases"] if case["workflow"] == "agentic"
-    )
-    assert classic_case["generation_usage"]["call_count"] == 1
-    assert agentic_case["generation_usage"]["call_count"] == 2
-    assert classic_case["generation_usage"]["token_usage"] == {
+    selected_case = results["cases"][0]
+    assert selected_case["generation_usage"]["call_count"] == (2 if agentic else 1)
+    assert selected_case["generation_usage"]["token_usage"] == {
         "status": "available",
-        "input_tokens": 10,
-        "output_tokens": 2,
-        "total_tokens": 12,
+        "input_tokens": 13 if agentic else 10,
+        "output_tokens": 6 if agentic else 2,
+        "total_tokens": 19 if agentic else 12,
     }
-    assert agentic_case["generation_usage"]["token_usage"] == {
-        "status": "available",
-        "input_tokens": 13,
-        "output_tokens": 6,
-        "total_tokens": 19,
-    }
-    assert agentic_case["generation_usage"]["character_usage"]["input"] > 0
-    assert agentic_case["generation_usage"]["character_usage"]["output"] > 0
-    assert summary["workflows"]["agentic"]["generation_usage"]["call_count"] == 32
-    assert summary["workflows"]["classic"]["generation_usage"]["token_usage"]["total_tokens"] == 192
-    assert summary["workflows"]["agentic"]["generation_usage"]["token_usage"]["total_tokens"] == 304
+    if agentic:
+        assert selected_case["generation_usage"]["character_usage"]["input"] > 0
+        assert selected_case["generation_usage"]["character_usage"]["output"] > 0
+    assert summary["workflows"][workflow]["generation_usage"]["call_count"] == (
+        32 if agentic else 16
+    )
+    assert summary["workflows"][workflow]["generation_usage"]["token_usage"][
+        "total_tokens"
+    ] == (304 if agentic else 192)
     assert summary["category_counts"] == {
         "direct": 4,
         "multi_hop": 4,
@@ -253,28 +246,34 @@ def test_paired_benchmark_uses_synthetic_notes_and_writes_run_artifacts(
     assert fixture_index_observations == [True]
     assert RagIndex._model is embedding_cache_sentinel
 
-    agentic_batches = worker_requests[1]["batches"]
-    retrieved_rows = agentic_batches[0]["rows"]
-    answer_rows = agentic_batches[1]["rows"]
+    workflow_batches = worker_requests[0]["batches"]
+    retrieved_rows = workflow_batches[0]["rows"]
+    answer_rows = workflow_batches[1]["rows"]
     assert len(retrieved_rows) == 8
-    assert agentic_batches[0]["metric_names"] == [
+    assert workflow_batches[0]["metric_names"] == [
         "answer_relevancy",
         "context_utilization",
     ]
-    assert agentic_batches[1]["metric_names"] == ["faithfulness"]
+    assert workflow_batches[1]["metric_names"] == ["faithfulness"]
     assert all(
         not {"ground_truth", "reference", "reference_answer"}.intersection(row)
         for row in [*retrieved_rows, *answer_rows]
     )
-    assert agentic_case["reference_answer"] == (
+    assert selected_case["reference_answer"] == (
         "Lena Ortiz is the product owner for Aurora Planner."
     )
     assert [row["contexts"] for row in answer_rows] == [
         case["answer_contexts"]
         for case in results["cases"]
-        if case["workflow"] == "agentic" and case["expected_answerable"]
+        if case["expected_answerable"]
     ]
-    assert any(
-        len(answer_row["contexts"]) < len(retrieved_row["contexts"])
-        for answer_row, retrieved_row in zip(answer_rows, retrieved_rows)
-    )
+    if agentic:
+        assert any(
+            len(answer_row["contexts"]) < len(retrieved_row["contexts"])
+            for answer_row, retrieved_row in zip(answer_rows, retrieved_rows)
+        )
+    else:
+        assert all(
+            answer_row["contexts"] == retrieved_row["contexts"]
+            for answer_row, retrieved_row in zip(answer_rows, retrieved_rows)
+        )
