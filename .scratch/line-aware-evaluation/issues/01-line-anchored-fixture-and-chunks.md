@@ -4,12 +4,16 @@
 
 **Status:** ready-for-agent
 
-- [ ] Replace each fixture `expected_evidence` text entry with an object containing `source`, 1-based inclusive `start_line`/`end_line`, and exact `text`.
-- [ ] Migrate all existing seed cases without removing IDs or changing the four categories and their minimum counts.
-- [ ] Validate source paths remain within the synthetic fixture corpus, line bounds exist, and annotated text matches the indicated source lines; failures identify case ID and path.
-- [ ] Extend chunk records and all text loaders to retain 1-based inclusive source line ranges; overlapping lines may appear in adjacent chunks.
-- [ ] Preserve enough line boundaries in chunk text to audit the recorded range against the source file.
-- [ ] Persist and retrieve chunk line metadata through index metadata storage.
-- [ ] Keep legacy persistent indexes queryable; represent missing legacy line positions as unknown and never fabricate a line range. Fresh fixture indexes must always have valid line ranges.
-- [ ] Add automated coverage for single-line, multi-line, overlapping, invalid, and text-mismatched annotations, plus metadata round-tripping.
+- [x] Replace each fixture `expected_evidence` text entry with an object containing `source`, 1-based inclusive `start_line`/`end_line`, and exact `text`.
+- [x] Migrate all existing seed cases without removing IDs or changing the four categories and their minimum counts.
+- [x] Validate source paths remain within the synthetic fixture corpus, line bounds exist, and annotated text matches the indicated source lines; failures identify case ID and path.
+- [x] Extend chunk records and all text loaders to retain 1-based inclusive source line ranges; overlapping lines may appear in adjacent chunks.
+- [x] Preserve enough line boundaries in chunk text to audit the recorded range against the source file.
+- [x] Persist and retrieve chunk line metadata through index metadata storage.
+- [x] Keep legacy persistent indexes queryable; represent missing legacy line positions as unknown and never fabricate a line range. Fresh fixture indexes must always have valid line ranges.
+- [x] Add automated coverage for single-line, multi-line, overlapping, invalid, and text-mismatched annotations, plus metadata round-tripping.
+
+## Comments
+
+- Resolved in commit `17e8f30`, merged to the integration branch at `fecb6d8`. Focused coverage passed (27 tests); the implementer also reported the full suite passed (100 tests). `git diff --check` passed.
 
