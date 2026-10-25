@@ -716,11 +716,18 @@
     "answerable": false,
     "reference_answer": "The notes identify marketing review as a pending approval gate but do not name the individual who must sign off on the contact card.",
     "expected_sources": [
+      "product_overview.md",
       "delivery_timeline.md",
       "launch_checklist.md",
       "meeting_notes.md"
     ],
     "expected_evidence": [
+      {
+        "source": "product_overview.md",
+        "start_line": 5,
+        "end_line": 5,
+        "text": "Product owner: Lena Ortiz. Launch coordinator: Marco Bell. QA lead: Priya Shah. These are separate responsibilities, even when meeting notes shorten them to “owner.”"
+      },
       {
         "source": "delivery_timeline.md",
         "start_line": 6,
