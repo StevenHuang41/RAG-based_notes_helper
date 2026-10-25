@@ -2,7 +2,7 @@
 
 **What to build:** Add validated source-line provenance to reviewed QA evidence and newly indexed chunks, so evaluation can compare evidence by file and line rather than unstable chunk IDs.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Replace each fixture `expected_evidence` text entry with an object containing `source`, 1-based inclusive `start_line`/`end_line`, and exact `text`.
 - [x] Migrate all existing seed cases without removing IDs or changing the four categories and their minimum counts.

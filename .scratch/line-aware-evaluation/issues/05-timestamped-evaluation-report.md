@@ -4,7 +4,7 @@
 
 **Blocked by:** 02: Line-aware retrieval metrics and answer correctness; 03: Run one query mode per evaluation; 04: Per-query latency and provider token usage.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Name run directories `eval/YYYY-MM-DD-HHmmss/` using `Asia/Taipei` local time.
 - [x] Refuse to overwrite a directory with the same timestamp and return a clear collision error.

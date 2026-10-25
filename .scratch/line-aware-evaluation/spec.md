@@ -1,6 +1,6 @@
 # Line-Aware, Mode-Specific RAG Evaluation
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 

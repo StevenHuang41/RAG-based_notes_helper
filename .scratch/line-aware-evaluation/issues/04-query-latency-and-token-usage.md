@@ -4,7 +4,7 @@
 
 **Blocked by:** 03: Run one query mode per evaluation.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Record each search/retrieval latency and the per-query aggregate.
 - [x] Record each Agentic controller LLM call latency separately from vector-search latency; record final answer generation latency.

@@ -4,7 +4,7 @@
 
 **Blocked by:** 01: Line-anchored fixture evidence and chunks.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Compute Recall and Precision over unique `(source path, line number)` positions using inclusive intervals.
 - [x] Match ground-truth lines only against retrieved lines from the same source path; count retrieved lines from unrelated files in the Precision denominator only.

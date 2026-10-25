@@ -4,7 +4,7 @@
 
 **Blocked by:** 03: Run one query mode per evaluation; 05: Timestamped evaluation artifacts and README report.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Show concise evaluation progress for the selected workflow and fixture-index lifecycle when stderr is a terminal.
 - [x] Do not display the user-index message `Index not found. Building index from notes ...` during fixture evaluation.
