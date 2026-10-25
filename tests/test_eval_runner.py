@@ -219,6 +219,7 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
         case["id"] for case in fixture_cases
     ]
     assert sum(case["category"] == "multi_hop" for case in results["cases"]) == 15
+    assert sum(case["category"] == "unanswerable" for case in results["cases"]) == 13
     assert {case["workflow"] for case in results["cases"]} == {workflow}
     assert len({case["case_id"] for case in results["cases"]}) == len(fixture_cases)
     assert all(case["challenge_tags"] for case in results["cases"])
