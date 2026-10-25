@@ -18,8 +18,10 @@ def _fixture_records():
 
 def test_fixture_loader_accepts_reviewed_cases_beyond_the_seed_set(tmp_path):
     records = _fixture_records()
+    existing_count = len(records)
+    existing_direct_count = sum(record["category"] == "direct" for record in records)
     records.append({
-        "id": "direct-05",
+        "id": "direct-test-extra",
         "category": "direct",
         "question": "Which review is due by May 12?",
         "answerable": True,
@@ -35,8 +37,11 @@ def test_fixture_loader_accepts_reviewed_cases_beyond_the_seed_set(tmp_path):
 
     loaded = eval_runner.load_qa_fixture(_write_fixture(tmp_path, records))
 
-    assert len(loaded) == 17
-    assert sum(record["category"] == "direct" for record in loaded) == 5
+    assert len(loaded) == existing_count + 1
+    loaded_direct_count = sum(
+        record["category"] == "direct" for record in loaded
+    )
+    assert loaded_direct_count == existing_direct_count + 1
 
 
 def test_fixture_loader_rejects_duplicate_ids(tmp_path):
@@ -61,7 +66,7 @@ def test_fixture_loader_requires_all_original_seed_case_ids(tmp_path):
     records = _fixture_records()
     records = [record for record in records if record["id"] != "direct-01"]
     records.append({
-        "id": "direct-05",
+        "id": "direct-test-extra",
         "category": "direct",
         "question": "Which review is due by May 12?",
         "answerable": True,
@@ -122,7 +127,7 @@ def test_fixture_loader_rejects_unreviewed_candidate_drafts(tmp_path):
 def test_fixture_loader_requires_source_for_answerable_cases(tmp_path):
     records = _fixture_records()
     records.append({
-        "id": "direct-05",
+        "id": "direct-test-extra",
         "category": "direct",
         "question": "Which review is due by May 12?",
         "answerable": True,
