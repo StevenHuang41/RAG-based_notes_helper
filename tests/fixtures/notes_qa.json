@@ -1094,5 +1094,271 @@
         "text": "Marketing review is still open. The support contact card needs approval for the public-facing help page; the pilot email address alone does not satisfy this gate."
       }
     ]
+  },
+  {
+    "id": "ambiguous-05",
+    "category": "ambiguous",
+    "question": "How long is the QA testing window?",
+    "answerable": false,
+    "reference_answer": "The notes give tester capacity but do not state the calendar duration of the QA testing window.",
+    "expected_sources": [
+      "team_capacity.md",
+      "test_plan.md"
+    ],
+    "expected_evidence": [
+      {
+        "source": "team_capacity.md",
+        "start_line": 2,
+        "end_line": 3,
+        "text": "Two QA testers are assigned to the project.\nEach has five full test days, for ten tester-days total."
+      },
+      {
+        "source": "test_plan.md",
+        "start_line": 5,
+        "end_line": 5,
+        "text": "Two QA testers are assigned for five full days each. The plan therefore provides ten tester-days; it does not promise ten calendar days or five days per scenario."
+      }
+    ],
+    "challenge_tags": [
+      "ambiguity",
+      "capacity_semantics",
+      "source_attribution"
+    ],
+    "ambiguity_reason": "The notes say each of two testers has five full test days, or ten tester-days total, but do not give a calendar start or end date. The question does not distinguish elapsed time from aggregate tester capacity."
+  },
+  {
+    "id": "ambiguous-06",
+    "category": "ambiguous",
+    "question": "Which product version will ship in the first public release?",
+    "answerable": false,
+    "reference_answer": "The notes do not map a product version to the first public release.",
+    "expected_sources": [
+      "product_overview.md",
+      "test_plan.md"
+    ],
+    "expected_evidence": [
+      {
+        "source": "product_overview.md",
+        "start_line": 12,
+        "end_line": 12,
+        "text": "The current product brief does not assign a ship date to version 2.0. The next-release backlog is being estimated separately from Aurora Planner’s first public launch."
+      },
+      {
+        "source": "test_plan.md",
+        "start_line": 7,
+        "end_line": 7,
+        "text": "The 2026-05-20 run summary marks all five scenarios executed. Four passed on release candidate RC-17. The cancellation case needs a retest because the first result used a build that was replaced after code freeze."
+      }
+    ],
+    "challenge_tags": [
+      "ambiguity",
+      "version_disambiguation",
+      "source_attribution"
+    ],
+    "ambiguity_reason": "The test plan names release candidate RC-17, while the product brief says version 2.0 is a separate next-release backlog item with no ship date. The notes do not identify which product version corresponds to the tested build or first public release."
+  },
+  {
+    "id": "ambiguous-07",
+    "category": "ambiguous",
+    "question": "How much budget is still available for the team to spend?",
+    "answerable": false,
+    "reference_answer": "The notes distinguish the approved envelope, allocations, and reserve but do not state the unspent balance.",
+    "expected_sources": [
+      "budget.md"
+    ],
+    "expected_evidence": [
+      {
+        "source": "budget.md",
+        "start_line": 4,
+        "end_line": 4,
+        "text": "The approved total budget is $24,000. This envelope includes planned allocations and a separately held contingency reserve."
+      },
+      {
+        "source": "budget.md",
+        "start_line": 8,
+        "end_line": 9,
+        "text": "A $2,000 contingency reserve remains unassigned. It is part of the $24,000 approved envelope, but it is not available as a team allocation unless finance approves its use.\nThe allocations total $22,000 before contingency: $10,000 engineering, $8,000 design, and $4,000 QA and validation. Do not describe that subtotal as the full approved budget."
+      },
+      {
+        "source": "budget.md",
+        "start_line": 11,
+        "end_line": 11,
+        "text": "Purchase orders and forecast actuals are tracked elsewhere. This note records the approved project envelope and allocations, not the amount already spent or the vendors paid."
+      }
+    ],
+    "challenge_tags": [
+      "ambiguity",
+      "budget_scope",
+      "source_attribution"
+    ],
+    "ambiguity_reason": "The question could mean the unallocated $2,000 reserve, the $22,000 allocated to teams, or the unspent balance. Actual spending is tracked elsewhere, and reserve use requires separate finance approval."
+  },
+  {
+    "id": "ambiguous-08",
+    "category": "ambiguous",
+    "question": "Which support contact is approved for public launch materials?",
+    "answerable": false,
+    "reference_answer": "The notes do not identify an approved public support contact; the pilot mailbox is listed while the public contact card remains unapproved.",
+    "expected_sources": [
+      "product_overview.md",
+      "launch_checklist.md"
+    ],
+    "expected_evidence": [
+      {
+        "source": "product_overview.md",
+        "start_line": 7,
+        "end_line": 7,
+        "text": "Customer support requests go to support@northstar.example. Marco checks that mailbox each business day during the pilot, while Priya owns verification of calendar-export behavior."
+      },
+      {
+        "source": "launch_checklist.md",
+        "start_line": 6,
+        "end_line": 6,
+        "text": "Marketing review is still open. The support contact card needs approval for the public-facing help page; the pilot email address alone does not satisfy this gate."
+      }
+    ],
+    "challenge_tags": [
+      "ambiguity",
+      "pilot_vs_public",
+      "source_attribution"
+    ],
+    "ambiguity_reason": "The product brief gives the support mailbox used by customers during the pilot, but the checklist says the public-facing contact card still needs approval. The pilot channel cannot be assumed to be the approved public contact."
+  },
+  {
+    "id": "ambiguous-09",
+    "category": "ambiguous",
+    "question": "Who is responsible for resolving the calendar-export risk?",
+    "answerable": false,
+    "reference_answer": "The notes assign verification and product-scope responsibilities to different people but do not name one end-to-end risk resolver.",
+    "expected_sources": [
+      "risks.md"
+    ],
+    "expected_evidence": [
+      {
+        "source": "risks.md",
+        "start_line": 3,
+        "end_line": 5,
+        "text": "Risk register version 2.0 was reviewed on 2026-05-20. Owners below are accountable for the listed follow-up, not necessarily the product or release as a whole.\nPrimary launch risk: calendar export can duplicate recurring events when an event is edited across daylight-saving boundaries.\nQA lead Priya Shah owns verification of the five recurring-event cases before launch. She must attach the cancellation retest result to the checklist; a run without the approved build identifier is not final evidence."
+      },
+      {
+        "source": "risks.md",
+        "start_line": 8,
+        "end_line": 9,
+        "text": "Product owner Lena Ortiz decides whether a requested behavior is inside the first-release scope. She does not sign off QA evidence or approve legal review.\nThe risk register uses “owner” to mean the person accountable for a risk action. Meeting minutes sometimes use the word for the person presenting a topic, which is not an ownership change."
+      }
+    ],
+    "challenge_tags": [
+      "ambiguity",
+      "role_disambiguation",
+      "source_attribution"
+    ],
+    "ambiguity_reason": "Priya owns verification of the required cases, while Lena decides whether behavior belongs in first-release scope. The risk register does not assign one person responsibility for resolving every aspect of the risk, and the question does not specify which action it means."
+  },
+  {
+    "id": "ambiguous-10",
+    "category": "ambiguous",
+    "question": "Are all five recurring-event tests complete?",
+    "answerable": false,
+    "reference_answer": "The notes report all scenarios executed, four passed, and a cancellation retest still outstanding; they do not define which meaning of complete the question intends.",
+    "expected_sources": [
+      "test_plan.md",
+      "launch_checklist.md"
+    ],
+    "expected_evidence": [
+      {
+        "source": "test_plan.md",
+        "start_line": 7,
+        "end_line": 8,
+        "text": "The 2026-05-20 run summary marks all five scenarios executed. Four passed on release candidate RC-17. The cancellation case needs a retest because the first result used a build that was replaced after code freeze.\nThe cancellation retest is assigned to Priya Shah and depends on the approved hotfix build. No passing retest is recorded in this plan as of 2026-05-20."
+      },
+      {
+        "source": "launch_checklist.md",
+        "start_line": 9,
+        "end_line": 9,
+        "text": "The test-plan summary reports five scenarios executed, but one cancellation retest remains blocked on the approved build. “Executed” is not equivalent to “passed and signed off.”"
+      }
+    ],
+    "challenge_tags": [
+      "ambiguity",
+      "test_completion_status",
+      "source_attribution"
+    ],
+    "ambiguity_reason": "The test plan distinguishes execution from passing and records a blocked cancellation retest; the checklist requires verification and sign-off. The question does not say whether complete means executed, passed, or signed off."
+  },
+  {
+    "id": "ambiguous-11",
+    "category": "ambiguous",
+    "question": "When should the pilot-to-public support transition happen?",
+    "answerable": false,
+    "reference_answer": "The notes do not establish an approved date for the pilot-to-public support transition.",
+    "expected_sources": [
+      "delivery_timeline.md",
+      "launch_checklist.md"
+    ],
+    "expected_evidence": [
+      {
+        "source": "delivery_timeline.md",
+        "start_line": 6,
+        "end_line": 9,
+        "text": "Marketing review was due by 2026-05-15. The review remains open because the support contact card has not been approved for the pilot-to-public transition.\nCode freeze was scheduled for 2026-05-18 and passed that evening. A code freeze means release candidates are locked except for approved fixes; it does not mean every launch gate is complete.\nThe public launch target remains 2026-06-01 in the planning calendar. No final public launch date has been approved because the marketing review is still open.\nThe date 2026-06-03 appeared in Marco Bell’s 2026-05-19 contingency proposal as a possible fallback if marketing approval missed the council’s 2026-05-28 checkpoint. The council did not approve that fallback."
+      },
+      {
+        "source": "launch_checklist.md",
+        "start_line": 6,
+        "end_line": 11,
+        "text": "Marketing review is still open. The support contact card needs approval for the public-facing help page; the pilot email address alone does not satisfy this gate.\nCode freeze passed on 2026-05-18. Any subsequent fix must be approved, recorded, and included in the release candidate before the gate is considered satisfied.\nPriya Shah must verify all five recurring-event cases: duplicate events, missing events, time-zone changes, recurring edits, and cancellation.\nThe test-plan summary reports five scenarios executed, but one cancellation retest remains blocked on the approved build. “Executed” is not equivalent to “passed and signed off.”\nIf any required review or verification is incomplete, the launch must be postponed. The checklist does not name a replacement date; only the launch council can approve one.\nThe planning target of 2026-06-01 is conditional and is not an approved launch date. Marco’s proposed 2026-06-03 fallback is also not approved."
+      }
+    ],
+    "challenge_tags": [
+      "ambiguity",
+      "temporal_status",
+      "pilot_vs_public"
+    ],
+    "ambiguity_reason": "The June 1 date is a conditional public-launch target and June 3 is an unapproved fallback proposal. The support contact card is still awaiting approval, and no transition date is authorized."
+  },
+  {
+    "id": "ambiguous-12",
+    "category": "ambiguous",
+    "question": "Who must sign off on the public support contact card?",
+    "answerable": false,
+    "reference_answer": "The notes identify marketing review as a pending approval gate but do not name the individual who must sign off on the contact card.",
+    "expected_sources": [
+      "product_overview.md",
+      "delivery_timeline.md",
+      "launch_checklist.md",
+      "meeting_notes.md"
+    ],
+    "expected_evidence": [
+      {
+        "source": "product_overview.md",
+        "start_line": 5,
+        "end_line": 5,
+        "text": "Product owner: Lena Ortiz. Launch coordinator: Marco Bell. QA lead: Priya Shah. These are separate responsibilities, even when meeting notes shorten them to “owner.”"
+      },
+      {
+        "source": "delivery_timeline.md",
+        "start_line": 6,
+        "end_line": 6,
+        "text": "Marketing review was due by 2026-05-15. The review remains open because the support contact card has not been approved for the pilot-to-public transition."
+      },
+      {
+        "source": "launch_checklist.md",
+        "start_line": 6,
+        "end_line": 6,
+        "text": "Marketing review is still open. The support contact card needs approval for the public-facing help page; the pilot email address alone does not satisfy this gate."
+      },
+      {
+        "source": "meeting_notes.md",
+        "start_line": 6,
+        "end_line": 6,
+        "text": "The council kept 2026-06-01 as the planning target but did not approve a public launch date. Marketing review remains open until the public support contact card is approved."
+      }
+    ],
+    "challenge_tags": [
+      "ambiguity",
+      "missing_approval_owner",
+      "source_attribution"
+    ],
+    "ambiguity_reason": "The notes say marketing review and contact-card approval are required, but they do not identify an individual approver. Marco is identified as launch coordinator, not as the card approver."
   }
 ]
