@@ -20,3 +20,11 @@ _Avoid_: Hallucination-free answer
 
 **Note Search Tool**:
 A read-only interface that searches indexed notes and returns candidate chunks with source metadata and relevance scores for an agent to examine.
+
+## Evaluation
+
+**Evidence span**:
+A contiguous range of source lines that supports an expected answer. Its source and line bounds identify where the evidence appears, while its text records the reviewed content.
+
+**Evaluation run**:
+One execution of a reviewed synthetic QA fixture through one selected RAG query mode, producing results that can be inspected and compared with later runs.
