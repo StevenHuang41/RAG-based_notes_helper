@@ -25,7 +25,12 @@ def test_fixture_loader_accepts_reviewed_cases_beyond_the_seed_set(tmp_path):
         "answerable": True,
         "reference_answer": "Legal review is due by May 12, 2026.",
         "expected_sources": ["delivery_timeline.md"],
-        "expected_evidence": ["Legal review is due by May 12, 2026."],
+        "expected_evidence": [{
+            "source": "delivery_timeline.md",
+            "start_line": 4,
+            "end_line": 4,
+            "text": "Legal review is due by May 12, 2026.",
+        }],
     })
 
     loaded = eval_runner.load_qa_fixture(_write_fixture(tmp_path, records))
@@ -119,4 +124,37 @@ def test_fixture_loader_requires_source_for_answerable_cases(tmp_path):
     })
 
     with pytest.raises(ValueError, match="expected source"):
+        eval_runner.load_qa_fixture(_write_fixture(tmp_path, records))
+
+
+def test_fixture_loader_accepts_multiline_evidence_spans(tmp_path):
+    records = _fixture_records()
+    case = next(record for record in records if record["id"] == "direct-01")
+    case["expected_evidence"] = [{
+        "source": "product_overview.md",
+        "start_line": 4,
+        "end_line": 5,
+        "text": "Product owner: Lena Ortiz.\nLaunch coordinator: Marco Bell.",
+    }]
+
+    loaded = eval_runner.load_qa_fixture(_write_fixture(tmp_path, records))
+
+    assert loaded[0]["expected_evidence"] == case["expected_evidence"]
+
+
+@pytest.mark.parametrize(
+    ("update", "message"),
+    [
+        ({"start_line": 0}, "line range"),
+        ({"end_line": 999}, "line range"),
+        ({"source": "../../private.md"}, "source path"),
+        ({"text": "not the source text"}, "does not match"),
+    ],
+)
+def test_fixture_loader_rejects_invalid_evidence_annotations(tmp_path, update, message):
+    records = _fixture_records()
+    evidence = records[0]["expected_evidence"][0]
+    evidence.update(update)
+
+    with pytest.raises(ValueError, match=message):
         eval_runner.load_qa_fixture(_write_fixture(tmp_path, records))

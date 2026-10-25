@@ -5,6 +5,7 @@ import numpy as np
 
 from rag_notes_helper.rag.index import build_index, RagIndex
 from rag_notes_helper.rag.chunking import Chunk
+from rag_notes_helper.rag.meta_store import MetaStore
 from rag_notes_helper.core.config import get_settings
 
 
@@ -33,3 +34,30 @@ def test_build_index_creates_faiss_index(monkeypatch, tmp_path):
     rag = build_index(chunks)
 
     assert rag.index.ntotal == 2
+
+
+def test_build_index_persists_chunk_line_ranges(monkeypatch):
+    mock_model = MagicMock()
+    mock_model.encode.return_value = np.array([[1.0, 0.0, 0.0]]).astype("float32")
+    monkeypatch.setattr(
+        RagIndex,
+        "embed_model",
+        PropertyMock(return_value=mock_model),
+    )
+
+    build_index([
+        Chunk(
+            doc_id="d1",
+            chunk_id=0,
+            source="note.md",
+            text="first\nsecond",
+            start_line=8,
+            end_line=9,
+        )
+    ])
+
+    with MetaStore(get_settings().storage_dir) as meta_store:
+        record = meta_store.get(0)
+
+    assert record["start_line"] == 8
+    assert record["end_line"] == 9

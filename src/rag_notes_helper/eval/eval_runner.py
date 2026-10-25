@@ -9,6 +9,7 @@ import json
 import math
 import os
 from pathlib import Path
+from pathlib import PurePosixPath, PureWindowsPath
 import shutil
 import subprocess
 import sys
@@ -215,15 +216,62 @@ def load_qa_fixture(path: Path = QA_FIXTURE) -> list[dict[str, Any]]:
             not isinstance(source, str) or not source.strip() for source in sources
         ):
             raise ValueError(f"QA case {case_id} has invalid expected_sources.")
-        if not isinstance(evidence, list) or any(
-            not isinstance(snippet, str) or not snippet.strip()
-            for snippet in evidence
-        ):
+        if not isinstance(evidence, list):
             raise ValueError(f"QA case {case_id} has invalid expected_evidence.")
+        fixture_root = NOTES_FIXTURE.resolve()
+        for source in sources:
+            _fixture_source_path(case_id, source, fixture_root)
         if record["answerable"] and not sources:
             raise ValueError(
                 f"Answerable QA case {case_id} requires expected source annotations."
             )
+        for annotation in evidence:
+            if not isinstance(annotation, dict) or not {
+                "source",
+                "start_line",
+                "end_line",
+                "text",
+            }.issubset(annotation):
+                raise ValueError(
+                    f"QA case {case_id} has invalid expected_evidence; each span "
+                    "requires source, start_line, end_line, and text."
+                )
+            source = annotation["source"]
+            if not isinstance(source, str) or not source.strip():
+                raise ValueError(f"QA case {case_id} has an invalid evidence source path.")
+            source_path = _fixture_source_path(case_id, source, fixture_root)
+            if source not in sources:
+                raise ValueError(
+                    f"QA case {case_id} evidence source {source!r} is not listed "
+                    "in expected_sources."
+                )
+            start_line = annotation["start_line"]
+            end_line = annotation["end_line"]
+            if (
+                type(start_line) is not int
+                or type(end_line) is not int
+                or start_line < 1
+                or end_line < start_line
+            ):
+                raise ValueError(
+                    f"QA case {case_id} has an invalid evidence line range for "
+                    f"{source!r}."
+                )
+            source_lines = source_path.read_text(encoding="utf-8").splitlines()
+            if end_line > len(source_lines):
+                raise ValueError(
+                    f"QA case {case_id} evidence line range {start_line}-{end_line} "
+                    f"is outside source {source!r} (1-{len(source_lines)})."
+                )
+            text = annotation["text"]
+            if not isinstance(text, str) or not text.strip():
+                raise ValueError(f"QA case {case_id} has empty evidence text.")
+            actual_text = "\n".join(source_lines[start_line - 1 : end_line])
+            if text != actual_text:
+                raise ValueError(
+                    f"QA case {case_id} evidence text does not match source "
+                    f"{source!r} lines {start_line}-{end_line}."
+                )
 
     missing_seed_cases = SEED_CASE_IDS - seen_ids
     if missing_seed_cases:
@@ -233,6 +281,25 @@ def load_qa_fixture(path: Path = QA_FIXTURE) -> list[dict[str, Any]]:
             + "."
         )
     return records
+
+
+def _fixture_source_path(case_id: str, source: str, fixture_root: Path) -> Path:
+    relative = PurePosixPath(source)
+    windows_path = PureWindowsPath(source)
+    if (
+        relative.is_absolute()
+        or windows_path.is_absolute()
+        or windows_path.drive
+        or ".." in relative.parts
+        or "\\" in source
+    ):
+        raise ValueError(f"QA case {case_id} has an unsafe source path {source!r}.")
+    source_path = (fixture_root / Path(*relative.parts)).resolve()
+    if not source_path.is_relative_to(fixture_root) or not source_path.is_file():
+        raise ValueError(
+            f"QA case {case_id} source path {source!r} is not a fixture file."
+        )
+    return source_path
 
 
 def _fixture_digest() -> str:
@@ -403,7 +470,9 @@ def _retrieval_coverage(
     sources = {item["source"] for item in evidence}
     combined_text = "\n".join(item["text"] for item in evidence).casefold()
     expected_sources = case["expected_sources"]
-    expected_evidence = case["expected_evidence"]
+    expected_evidence = [
+        annotation["text"] for annotation in case["expected_evidence"]
+    ]
     return {
         "expected_source_coverage": (
             sum(source in sources for source in expected_sources) / len(expected_sources)

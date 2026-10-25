@@ -3,6 +3,7 @@ import struct
 import pytest
 
 from rag_notes_helper.rag.meta_store import MetaStore
+from rag_notes_helper.rag.chunking import Chunk
 
 
 @pytest.fixture
@@ -30,6 +31,15 @@ def test_meta_store_get(create_mock_meta_files):
         assert meta_store.get(0)["text"] == "d1c0"
         assert meta_store.get(1)["chunk_id"] == 1
         assert meta_store.get(2)["doc_id"] == "d2"
+
+
+def test_legacy_metadata_remains_readable_with_unknown_line_ranges(create_mock_meta_files):
+    with MetaStore(create_mock_meta_files) as meta_store:
+        chunk = Chunk(**meta_store.get(0))
+
+    assert chunk.source == "note1.md"
+    assert chunk.start_line is None
+    assert chunk.end_line is None
 
 def test_list_sources_sorted_and_unique(create_mock_meta_files):
     with MetaStore(create_mock_meta_files) as meta_store:

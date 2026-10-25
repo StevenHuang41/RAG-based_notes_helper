@@ -128,6 +128,8 @@ def _process_batch(
             "chunk_id": chunk.chunk_id,
             "source": chunk.source,
             "text": chunk.text,
+            "start_line": chunk.start_line,
+            "end_line": chunk.end_line,
         }
 
         # write meta_f
@@ -291,6 +293,8 @@ def _smart_process_chunks(
             "chunk_id": chunk.chunk_id,
             "source": chunk.source,
             "text": chunk.text,
+            "start_line": chunk.start_line,
+            "end_line": chunk.end_line,
         }
 
         # write meta_f

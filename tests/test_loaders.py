@@ -53,3 +53,19 @@ def test_load_text_file(tmp_path: Path):
     assert all(c.doc_id == "doc_id2" for c in chunks)
     assert all(c.source == "test.txt" for c in chunks)
     assert [c.chunk_id for c in chunks] == list(range(len(chunks)))
+
+
+def test_load_text_file_uses_physical_line_numbers_when_skipping_chunk_content(tmp_path):
+    text_path = tmp_path / "with-gap.txt"
+    text_path.write_text("first\n\nthird\n", encoding="utf-8")
+
+    chunks = list(load_text_file(
+        text_path,
+        doc_id="doc_id3",
+        source="with-gap.txt",
+        chunk_size=100,
+        overlap=1,
+    ))
+
+    assert [(chunk.start_line, chunk.end_line) for chunk in chunks] == [(1, 3)]
+    assert chunks[0].text == "first\n\nthird"

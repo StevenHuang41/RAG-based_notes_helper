@@ -6,7 +6,14 @@
     "answerable": true,
     "reference_answer": "Lena Ortiz is the product owner for Aurora Planner.",
     "expected_sources": ["product_overview.md"],
-    "expected_evidence": ["Product owner: Lena Ortiz."]
+    "expected_evidence": [
+      {
+        "source": "product_overview.md",
+        "start_line": 4,
+        "end_line": 4,
+        "text": "Product owner: Lena Ortiz."
+      }
+    ]
   },
   {
     "id": "direct-02",
@@ -15,7 +22,14 @@
     "answerable": true,
     "reference_answer": "The customer pilot began on April 6, 2026.",
     "expected_sources": ["product_overview.md"],
-    "expected_evidence": ["The customer pilot began on April 6, 2026."]
+    "expected_evidence": [
+      {
+        "source": "product_overview.md",
+        "start_line": 7,
+        "end_line": 7,
+        "text": "The customer pilot began on April 6, 2026."
+      }
+    ]
   },
   {
     "id": "direct-03",
@@ -24,7 +38,14 @@
     "answerable": true,
     "reference_answer": "The approved total budget is $24,000.",
     "expected_sources": ["budget.md"],
-    "expected_evidence": ["The approved total budget is $24,000."]
+    "expected_evidence": [
+      {
+        "source": "budget.md",
+        "start_line": 3,
+        "end_line": 3,
+        "text": "The approved total budget is $24,000."
+      }
+    ]
   },
   {
     "id": "direct-04",
@@ -33,7 +54,14 @@
     "answerable": true,
     "reference_answer": "Customers should email support@northstar.example.",
     "expected_sources": ["product_overview.md"],
-    "expected_evidence": ["Customer support requests go to support@northstar.example."]
+    "expected_evidence": [
+      {
+        "source": "product_overview.md",
+        "start_line": 8,
+        "end_line": 8,
+        "text": "Customer support requests go to support@northstar.example."
+      }
+    ]
   },
   {
     "id": "multi-hop-01",
@@ -42,7 +70,11 @@
     "answerable": true,
     "reference_answer": "Engineering and testing total $14,000, about 58.3% of the $24,000 approved budget.",
     "expected_sources": ["budget.md", "test_plan.md"],
-    "expected_evidence": ["Engineering is allocated $10,000.", "The test budget is $4,000.", "The approved total budget is $24,000."]
+    "expected_evidence": [
+      {"source": "budget.md", "start_line": 4, "end_line": 4, "text": "Engineering is allocated $10,000."},
+      {"source": "test_plan.md", "start_line": 3, "end_line": 3, "text": "The test budget is $4,000."},
+      {"source": "budget.md", "start_line": 3, "end_line": 3, "text": "The approved total budget is $24,000."}
+    ]
   },
   {
     "id": "multi-hop-02",
@@ -51,7 +83,12 @@
     "answerable": true,
     "reference_answer": "Legal review must be complete, marketing review must be complete, and the May 18 code freeze must have passed before the June 1 target launch can proceed.",
     "expected_sources": ["delivery_timeline.md", "launch_checklist.md"],
-    "expected_evidence": ["Legal review is due by May 12, 2026.", "Marketing review is due by May 15, 2026.", "Code freeze is May 18, 2026.", "Launch may proceed only after legal review and marketing review are complete and the code freeze has passed."]
+    "expected_evidence": [
+      {"source": "delivery_timeline.md", "start_line": 4, "end_line": 4, "text": "Legal review is due by May 12, 2026."},
+      {"source": "delivery_timeline.md", "start_line": 5, "end_line": 5, "text": "Marketing review is due by May 15, 2026."},
+      {"source": "delivery_timeline.md", "start_line": 6, "end_line": 6, "text": "Code freeze is May 18, 2026."},
+      {"source": "launch_checklist.md", "start_line": 3, "end_line": 3, "text": "Launch may proceed only after legal review and marketing review are complete and the code freeze has passed."}
+    ]
   },
   {
     "id": "multi-hop-03",
@@ -60,7 +97,10 @@
     "answerable": true,
     "reference_answer": "The plan has ten tester-days for $4,000, or $400 per tester-day.",
     "expected_sources": ["team_capacity.md", "test_plan.md"],
-    "expected_evidence": ["The planned test capacity is ten tester-days in total.", "The test budget is $4,000."]
+    "expected_evidence": [
+      {"source": "team_capacity.md", "start_line": 5, "end_line": 5, "text": "The planned test capacity is ten tester-days in total."},
+      {"source": "test_plan.md", "start_line": 3, "end_line": 3, "text": "The test budget is $4,000."}
+    ]
   },
   {
     "id": "multi-hop-04",
@@ -69,7 +109,10 @@
     "answerable": true,
     "reference_answer": "QA lead Priya Shah owns the verification, and QA must cover five recurring-event cases.",
     "expected_sources": ["risks.md", "test_plan.md"],
-    "expected_evidence": ["QA lead Priya Shah owns verification of the five recurring-event cases before launch.", "QA must verify five recurring-event cases before launch."]
+    "expected_evidence": [
+      {"source": "risks.md", "start_line": 4, "end_line": 4, "text": "QA lead Priya Shah owns verification of the five recurring-event cases before launch."},
+      {"source": "test_plan.md", "start_line": 4, "end_line": 4, "text": "QA must verify five recurring-event cases before launch."}
+    ]
   },
   {
     "id": "unanswerable-01",
@@ -114,7 +157,12 @@
     "answerable": false,
     "reference_answer": "I cannot find the answers in the notes.",
     "expected_sources": ["delivery_timeline.md"],
-    "expected_evidence": ["Design freeze is April 20, 2026.", "Legal review is due by May 12, 2026.", "Marketing review is due by May 15, 2026.", "Code freeze is May 18, 2026."]
+    "expected_evidence": [
+      {"source": "delivery_timeline.md", "start_line": 3, "end_line": 3, "text": "Design freeze is April 20, 2026."},
+      {"source": "delivery_timeline.md", "start_line": 4, "end_line": 4, "text": "Legal review is due by May 12, 2026."},
+      {"source": "delivery_timeline.md", "start_line": 5, "end_line": 5, "text": "Marketing review is due by May 15, 2026."},
+      {"source": "delivery_timeline.md", "start_line": 6, "end_line": 6, "text": "Code freeze is May 18, 2026."}
+    ]
   },
   {
     "id": "ambiguous-02",
@@ -123,7 +171,10 @@
     "answerable": false,
     "reference_answer": "I cannot find the answers in the notes.",
     "expected_sources": ["product_overview.md"],
-    "expected_evidence": ["Product owner: Lena Ortiz.", "Launch coordinator: Marco Bell."]
+    "expected_evidence": [
+      {"source": "product_overview.md", "start_line": 4, "end_line": 4, "text": "Product owner: Lena Ortiz."},
+      {"source": "product_overview.md", "start_line": 5, "end_line": 5, "text": "Launch coordinator: Marco Bell."}
+    ]
   },
   {
     "id": "ambiguous-03",
@@ -132,7 +183,11 @@
     "answerable": false,
     "reference_answer": "I cannot find the answers in the notes.",
     "expected_sources": ["budget.md", "test_plan.md"],
-    "expected_evidence": ["Engineering is allocated $10,000.", "Design is allocated $8,000.", "The test budget is $4,000."]
+    "expected_evidence": [
+      {"source": "budget.md", "start_line": 4, "end_line": 4, "text": "Engineering is allocated $10,000."},
+      {"source": "budget.md", "start_line": 5, "end_line": 5, "text": "Design is allocated $8,000."},
+      {"source": "test_plan.md", "start_line": 3, "end_line": 3, "text": "The test budget is $4,000."}
+    ]
   },
   {
     "id": "ambiguous-04",
@@ -141,6 +196,9 @@
     "answerable": false,
     "reference_answer": "I cannot find the answers in the notes.",
     "expected_sources": ["test_plan.md", "launch_checklist.md"],
-    "expected_evidence": ["QA must verify five recurring-event cases before launch.", "Launch may proceed only after legal review and marketing review are complete and the code freeze has passed."]
+    "expected_evidence": [
+      {"source": "test_plan.md", "start_line": 4, "end_line": 4, "text": "QA must verify five recurring-event cases before launch."},
+      {"source": "launch_checklist.md", "start_line": 3, "end_line": 3, "text": "Launch may proceed only after legal review and marketing review are complete and the code freeze has passed."}
+    ]
   }
 ]
