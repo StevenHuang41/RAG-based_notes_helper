@@ -36,23 +36,80 @@ def _metric_rows(metrics: dict[str, Any]) -> list[list[Any]]:
     return [[name, value] for name, value in metrics.items()]
 
 
-def _token_usage_summary(usage: dict[str, Any]) -> str:
-    token_usage = usage.get("token_usage", {})
+def _usage_values(usage: dict[str, Any] | None) -> list[Any]:
+    if not usage:
+        return ["N/A"] * 7
+
+    token_usage = usage.get("token_usage", usage)
     input_tokens = token_usage.get("input_tokens")
     output_tokens = token_usage.get("output_tokens")
-    total_tokens = token_usage.get("total_tokens")
+    provider_total = token_usage.get("total_tokens")
+    calls = usage.get("calls")
+    calculated_total = None
+    if calls is not None:
+        call_usages = [call.get("token_usage", {}) for call in calls]
+        if call_usages and all(
+            call_usage.get("total_tokens") is not None
+            for call_usage in call_usages
+        ):
+            provider_total = sum(
+                call_usage["total_tokens"]
+                for call_usage in call_usages
+            )
+        else:
+            provider_total = None
+            if call_usages and all(
+                call_usage.get("input_tokens") is not None
+                and call_usage.get("output_tokens") is not None
+                for call_usage in call_usages
+            ):
+                calculated_total = sum(
+                    call_usage["input_tokens"] + call_usage["output_tokens"]
+                    for call_usage in call_usages
+                )
+    elif usage.get("call_count", 1) != 1 and (
+        token_usage.get("status") != "available"
+    ):
+        provider_total = None
+    elif provider_total is None and usage.get("call_count", 1) == 1 and (
+        input_tokens is not None and output_tokens is not None
+    ):
+        calculated_total = input_tokens + output_tokens
+
+    character_usage = usage.get(
+        "character_usage",
+        usage.get("characters", {}),
+    ) or {}
+    return [
+        token_usage.get("status", "unavailable"),
+        input_tokens,
+        output_tokens,
+        provider_total,
+        calculated_total,
+        character_usage.get("input"),
+        character_usage.get("output"),
+    ]
+
+
+def _usage_summary(usage: dict[str, Any]) -> str:
+    (
+        status,
+        input_tokens,
+        output_tokens,
+        provider_total,
+        calculated_total,
+        input_characters,
+        output_characters,
+    ) = _usage_values(usage)
     return (
-        f"{token_usage.get('status', 'unavailable')}: "
-        f"in={input_tokens if input_tokens is not None else 'N/A'}, "
-        f"out={output_tokens if output_tokens is not None else 'N/A'}, "
-        f"total={total_tokens if total_tokens is not None else 'N/A'}"
+        f"{status}: input={input_tokens if input_tokens is not None else 'N/A'}, "
+        f"output={output_tokens if output_tokens is not None else 'N/A'}, "
+        f"provider total={provider_total if provider_total is not None else 'N/A'}, "
+        "calculated input+output="
+        f"{calculated_total if calculated_total is not None else 'N/A'}, "
+        f"input chars={input_characters if input_characters is not None else 'N/A'}, "
+        f"output chars={output_characters if output_characters is not None else 'N/A'}"
     )
-
-
-def _token_usage_cell(usage: dict[str, Any] | None) -> str:
-    if not usage:
-        return "N/A"
-    return _token_usage_summary({"token_usage": usage})
 
 
 def _answer_behavior(case: dict[str, Any]) -> str:
@@ -73,7 +130,7 @@ def _execution_rows(case: dict[str, Any]) -> list[list[Any]]:
             f"Retrieval search {call.get('search_index', index)}",
             call.get("latency_ms"),
             "N/A",
-            "N/A",
+            *(["N/A"] * 7),
         ])
     for index, call in enumerate(
         case.get("generation_usage", {}).get("calls", []),
@@ -83,7 +140,7 @@ def _execution_rows(case: dict[str, Any]) -> list[list[Any]]:
             f"{call.get('call_type', 'generation')} call {index}",
             call.get("latency_ms"),
             f"{call.get('provider', 'N/A')} / {call.get('model', 'N/A')}",
-            _token_usage_cell(call.get("token_usage")),
+            *_usage_values(call),
         ])
     for metric, usage in case.get("judge_usage_by_metric", {}).items():
         calls = usage.get("calls", [])
@@ -98,17 +155,16 @@ def _execution_rows(case: dict[str, Any]) -> list[list[Any]]:
             f"Judge: {metric}",
             metric_latency,
             ", ".join(providers) if providers else "N/A",
-            _token_usage_cell(usage.get("token_usage")),
+            *_usage_values(usage),
         ])
 
     for key, label, usage_key in (
-        ("retrieval_ms", "Retrieval total", None),
-        ("controller_ms", "Controller total", None),
-        ("answer_generation_ms", "Answer generation total", None),
-        ("generation_ms", "RAG generation total", "generation_usage"),
-        ("judge_ms", "Judge total", "judge_usage"),
-        ("rag_query_ms", "RAG query total", None),
-        ("end_to_end_ms", "End-to-end total", None),
+        ("retrieval_ms", "Retrieval latency total", None),
+        ("controller_ms", "Controller latency total", None),
+        ("answer_generation_ms", "Answer generation latency total", None),
+        ("judge_ms", "Judge latency total", "judge_usage"),
+        ("rag_query_ms", "RAG query latency", None),
+        ("end_to_end_ms", "Evaluation latency", None),
     ):
         if key in latency:
             usage = case.get(usage_key, {}) if usage_key else {}
@@ -116,7 +172,7 @@ def _execution_rows(case: dict[str, Any]) -> list[list[Any]]:
                 label,
                 latency.get(key),
                 f"{usage.get('call_count')} calls" if usage_key else "—",
-                _token_usage_cell(usage.get("token_usage")) if usage_key else "—",
+                *(_usage_values(usage) if usage_key else (["—"] * 7)),
             ])
     return rows
 
@@ -207,49 +263,59 @@ def _readme_report(results: dict[str, Any]) -> str:
             ["Correct abstention rate", workflow_summary.get("correct_abstention_rate")],
         ],
     ))
-    lines.extend(["", "### Mean latency (milliseconds)", ""])
+    latency_labels = (
+        ("retrieval_ms", "Retrieval"),
+        ("controller_ms", "Controller"),
+        ("answer_generation_ms", "Final answer generation"),
+        ("judge_ms", "Ragas judge"),
+        ("rag_query_ms", "RAG query latency"),
+        ("end_to_end_ms", "Evaluation latency"),
+    )
+    mean_latency = workflow_summary.get("latency_ms", {})
+    lines.extend(["", "### Mean latency (ms)", ""])
     lines.extend(_markdown_table(
-        ["Stage", "Latency"],
-        _metric_rows(workflow_summary.get("latency_ms", {})),
+        ["Stage", "Latency (ms)"],
+        [[label, mean_latency.get(key)] for key, label in latency_labels],
     ))
     generation_usage = workflow_summary.get("generation_usage", {})
-    lines.extend(["", "### Provider token usage", ""])
+    lines.extend(["", "### Provider usage", ""])
     usage_rows = []
     for label, usage in [
         ("Controller and answer", generation_usage),
         ("Judge total", summary.get("judge_usage", {}).get("total", {})),
     ]:
-        token_usage = usage.get("token_usage", {})
         usage_rows.append([
             label,
             usage.get("call_count"),
-            token_usage.get("status"),
-            token_usage.get("input_tokens"),
-            token_usage.get("output_tokens"),
-            token_usage.get("total_tokens"),
+            *_usage_values(usage),
         ])
     lines.extend(_markdown_table(
-        ["Calls", "Count", "Status", "Input", "Output", "Total"],
+        [
+            "Call group", "Calls", "Status", "Provider input tokens",
+            "Provider output tokens", "Provider total tokens",
+            "Calculated input+output tokens", "Input chars", "Output chars",
+        ],
         usage_rows,
     ))
     judge_by_metric = workflow_summary.get("judge_usage_by_metric", {})
-    if judge_by_metric:
-        lines.extend(["", "#### Judge usage by metric", ""])
-        lines.extend(_markdown_table(
-            ["Metric", "Calls", "Status", "Input", "Output", "Total"],
-            [
-                [
-                    metric,
-                    usage.get("call_count"),
-                    usage.get("token_usage", {}).get("status"),
-                    usage.get("token_usage", {}).get("input_tokens"),
-                    usage.get("token_usage", {}).get("output_tokens"),
-                    usage.get("token_usage", {}).get("total_tokens"),
-                ]
-                for metric, usage in judge_by_metric.items()
-                if metric in {"faithfulness", "answer_relevancy", "answer_correctness"}
-            ],
-        ))
+    lines.extend(["", "#### Judge usage by metric", ""])
+    lines.extend(_markdown_table(
+        [
+            "Metric", "Calls", "Status", "Provider input tokens",
+            "Provider output tokens", "Provider total tokens",
+            "Calculated input+output tokens", "Input chars", "Output chars",
+        ],
+        [
+            [metric, judge_by_metric.get(metric, {}).get("call_count", 0),
+             *_usage_values(judge_by_metric.get(metric, {}))]
+            for metric in (
+                "faithfulness",
+                "answer_relevancy",
+                "answer_correctness",
+                "context_utilization",
+            )
+        ],
+    ))
 
     category_summaries = workflow_summary.get("by_category", {})
     lines.extend(["", "## Metrics by category", ""])
@@ -267,15 +333,16 @@ def _readme_report(results: dict[str, Any]) -> str:
             metrics.get("answerability_accuracy"),
             metrics.get("correct_abstention_rate"),
             metrics.get("latency_ms", {}).get("end_to_end_ms"),
-            _token_usage_summary(metrics.get("generation_usage", {})),
-            _token_usage_summary(metrics.get("judge_usage", {})),
+            _usage_summary(metrics.get("generation_usage", {})),
+            _usage_summary(metrics.get("judge_usage", {})),
         ])
     lines.extend(_markdown_table(
         [
             "Category", "Cases", "Recall", "Precision", "NDCG",
             "Faithfulness", "Answer relevancy", "Answer correctness",
-            "Answerability accuracy", "Correct abstention", "Mean end-to-end ms",
-            "Controller/answer tokens", "Judge tokens",
+            "Answerability accuracy", "Correct abstention",
+            "Mean evaluation latency (ms)", "Controller/answer usage",
+            "Judge usage",
         ],
         category_rows,
     ))
@@ -291,7 +358,7 @@ def _readme_report(results: dict[str, Any]) -> str:
         "5. Deterministic answerability checks compare expected answerability with whether the workflow answered or abstained.",
         "6. Ragas scores run only for expected-answerable cases with an answer. Faithfulness checks whether answer claims are supported by the answer context; Answer Relevancy checks whether the response addresses the question; Answer Correctness compares the response with the reference answer. Answer Relevancy and Answer Correctness also use the configured local evaluation embeddings. These judge scores are diagnostics, not pass/fail guarantees.",
         "7. Context Utilization may still be computed as an advanced diagnostic in `results.json`; its score is omitted here. Its judge-call latency and provider-reported token usage remain visible in the query execution audit.",
-        "8. Latency is measured per process. Token usage covers provider-reported LLM calls; local embedding work is not represented as token usage. Missing values are marked unavailable and are never estimated. Retrieval does not use LLM tokens.",
+        "8. Per-call latency is shown in milliseconds. RAG query latency runs from query processing through the terminal answer or abstention. Evaluation latency adds all Ragas judge latency to RAG query latency. Token fields are provider-reported. A calculated input+output total appears only when every included call has both counts and provider totals are missing. Partial or unavailable status stays visible. Recorded character counts are shown separately and never converted to tokens; retrieval and local embedding work are not provider token usage.",
         "",
         "Retrieved similarity scores are ranking signals, not calibrated probabilities. A search rank is local to that search; the answer-context table shows the final order provided to answer generation.",
         "",
@@ -442,7 +509,12 @@ def _readme_report(results: dict[str, Any]) -> str:
         ))
         lines.extend(["", "#### Execution audit: latency and token usage", ""])
         lines.extend(_markdown_table(
-            ["Process/call", "Latency (ms)", "Provider / model", "Token usage (status, in/out/total)"],
+            [
+                "Process/call", "Latency (ms)", "Provider / model", "Usage status",
+                "Provider input tokens", "Provider output tokens",
+                "Provider total tokens", "Calculated input+output tokens",
+                "Input chars", "Output chars",
+            ],
             _execution_rows(case),
         ))
         lines.extend([""])
