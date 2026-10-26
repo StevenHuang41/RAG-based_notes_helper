@@ -38,11 +38,14 @@ def _metric_rows(metrics: dict[str, Any]) -> list[list[Any]]:
 
 def _token_usage_summary(usage: dict[str, Any]) -> str:
     token_usage = usage.get("token_usage", {})
+    input_tokens = token_usage.get("input_tokens")
+    output_tokens = token_usage.get("output_tokens")
+    total_tokens = token_usage.get("total_tokens")
     return (
         f"{token_usage.get('status', 'unavailable')}: "
-        f"in={token_usage.get('input_tokens', 'N/A')}, "
-        f"out={token_usage.get('output_tokens', 'N/A')}, "
-        f"total={token_usage.get('total_tokens', 'N/A')}"
+        f"in={input_tokens if input_tokens is not None else 'N/A'}, "
+        f"out={output_tokens if output_tokens is not None else 'N/A'}, "
+        f"total={total_tokens if total_tokens is not None else 'N/A'}"
     )
 
 
@@ -288,6 +291,7 @@ def _readme_report(results: dict[str, Any]) -> str:
         lines.extend([
             f"### {case.get('case_id', 'unknown')}",
             "",
+            "- **Artifacts:** [results.json](results.json) · [run.log](run.log)",
             f"- **Category:** `{case.get('category', 'unknown')}`",
             f"- **Question:** {_markdown_cell(case.get('question'))}",
             f"- **Reference answer:** {_markdown_cell(case.get('reference_answer'))}",

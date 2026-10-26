@@ -185,6 +185,43 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert (run_dir / "README.md").is_file()
     assert not (run_dir / "summary.json").exists()
     results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
+    assert results["schema_version"] == 3
+    for case in results["cases"]:
+        assert len(case["search_queries"]) == len(case["search_results"])
+        assert case["search_queries"][0] == case["question"]
+        assert all(
+            isinstance(query, str) and query
+            for query in case["search_queries"]
+        )
+
+        retrieved_by_reference = {
+            (hit["source"], hit["chunk_id"]): hit
+            for search_hits in case["search_results"]
+            for hit in search_hits
+        }
+        context_references = [
+            (item["source"], item["chunk_id"])
+            for item in case["generation_context"]
+        ]
+        assert context_references == [
+            (citation["source"], citation["chunk_id"])
+            for citation in case["citations"]
+        ]
+        expected_answer_contexts = []
+        for item in case["generation_context"]:
+            reference = (item["source"], item["chunk_id"])
+            if item["content_changed"]:
+                assert item["text"] is not None
+                assert item["prompt_block"] is not None
+                expected_answer_contexts.append(item["text"])
+            else:
+                assert item["text"] is None
+                assert item["prompt_block"] is None
+                expected_answer_contexts.append(
+                    retrieved_by_reference[reference]["text"]
+                )
+        assert case["answer_contexts"] == expected_answer_contexts
+
     summary = results["summary"]
     readme = (run_dir / "README.md").read_text(encoding="utf-8")
     assert results["judge_usage"] == summary["judge_usage"]
@@ -197,13 +234,26 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert results["run_metadata"]["chunk_overlap"] == 50
     assert "[results.json](results.json)" in readme
     assert "[run.log](run.log)" in readme
-    assert readme.index("## Overall metrics") < readme.index("## Query details")
+    assert readme.index("## Overall metrics") < readme.index(
+        "## Evaluation process and metric guide"
+    ) < readme.index("## Query details")
     assert "## Query details" in readme
-    assert "similarity_score (FAISS)" in readme
-    assert "Chunk text" in readme
+    assert "Search query" in readme
+    assert "Retrieved chunk text" in readme
+    assert "Context passed to answer generation" in readme
+    assert "Ragas judge diagnostics" in readme
+    assert "Execution audit: latency and token usage" in readme
     assert "question" in readme
     assert "answer_correctness" in readme
-    assert "retrieval_ms" in readme
+    assert "similarity_score (FAISS)" not in readme
+    assert "expected_source_coverage" not in readme
+    assert "expected_evidence_coverage" not in readme
+    assert "| context_utilization |" not in readme
+    assert "Judge: context_utilization" in readme
+    assert "#### Citations" not in readme
+    assert readme.count("#### Execution audit: latency and token usage") == len(
+        results["cases"]
+    )
     assert "direct-01" in readme
     assert any(
         hit["source"] in readme

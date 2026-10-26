@@ -257,6 +257,10 @@ def test_agentic_answer_refines_search_and_deduplicates_evidence():
         [first_hit],
         [first_hit, second_hit],
     ]
+    assert result["search_queries"] == [
+        "Summarize the project plan and budget.",
+        "project budget",
+    ]
 
 
 def test_agentic_answer_reports_progress_for_each_search_and_decision():
@@ -347,6 +351,7 @@ def test_agentic_empty_initial_search_abstains_without_llm(monkeypatch):
         "citations": [],
         "retrieved_evidence": [],
         "search_results": [[]],
+        "search_queries": ["Question without note evidence"],
     }
 
 
@@ -475,6 +480,7 @@ def test_agentic_searches_at_most_three_times_then_can_abstain():
         "citations": [],
         "retrieved_evidence": [hit],
         "search_results": [[hit], [hit], [hit]],
+        "search_queries": ["original question", "second search", "third search"],
     }
 
 
@@ -511,3 +517,4 @@ def test_agentic_preserves_each_search_ranking_for_retrieval_evaluation():
     )
 
     assert result["search_results"] == [first_ranked, second_ranked]
+    assert result["search_queries"] == ["Question", "follow-up"]
