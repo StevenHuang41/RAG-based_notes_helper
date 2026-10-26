@@ -44,6 +44,9 @@ The ordered evidence blocks actually provided to the final answer-generation cal
 **Context prefix**:
 The first k chunks of an answer generation context, in the exact order provided to the answer generator. Prefix metrics describe the evidence available after including those chunks.
 
+**Final context evidence metric**:
+A line-grounded Recall, Precision, or NDCG score computed from the complete answer generation context. It measures the evidence the answer model received after Agentic RAG selected from retrieved chunks.
+
 **Evaluation run**:
 An assessment of a RAG query mode against prepared questions and expected evidence, with results available for review.
 
