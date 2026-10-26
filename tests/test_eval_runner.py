@@ -247,32 +247,18 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert "Search query" in readme
     assert "Retrieved chunk text" in readme
     assert "Context passed to answer generation" in readme
-    assert "Ragas judge diagnostics" in readme
+    assert "Ragas diagnostics" in readme
     assert "Execution audit: latency and token usage" in readme
     assert "question" in readme
     assert "answer_correctness" in readme
     assert "| Answer Correctness | 1.0000 |" in readme
-    assert "| Answer Correctness | 1.0000 | reason for answer_correctness |" in readme
+    assert "| Answer Correctness | 1.0000 |" in readme
     assert "similarity_score (FAISS)" not in readme
     assert "expected_source_coverage" not in readme
     assert "expected_evidence_coverage" not in readme
-    assert "Context Utilization (context/retrieval diagnostic)" in readme
-    assert (
-        "| Context Utilization (context/retrieval diagnostic) | 1.0000 | "
-        f"{answerable_count}/{len(fixture_cases)} |"
-    ) in readme
-    assert "Eligible cases / selected cases" in readme
-    assert "### Answerability outcomes" in readme
-    assert (
-        f"| Expected answerable | {answerable_count} | {answerable_count} | "
-        f"0 | 0 | {answerable_count}/{answerable_count} |"
-    ) in readme
-    assert (
-        f"| Expected unanswerable | {unanswerable_count} | "
-        f"{unanswerable_count} | 0 | 0 | 0/{unanswerable_count} |"
-    ) in readme
-    assert f"N/A (0/{unanswerable_category_count} eligible)" in readme
-    assert "Skipped because expected answerability is unanswerable." in readme
+    assert "| Context Utilization | 1.0000 |" in readme
+    assert "Eligible cases / selected cases" not in readme
+    assert "### Answerability outcomes" not in readme
     assert "Judge: context_utilization" in readme
     assert "#### Citations" not in readme
     assert readme.count("#### Execution audit: latency and token usage") == len(
@@ -285,10 +271,9 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
         for search_hits in case["search_results"]
         for hit in search_hits
     )
-    assert "reason for faithfulness" in readme
+    assert "reason for faithfulness" not in readme
     assert "## Metrics by category" in readme
-    assert "Controller/answer usage" in readme
-    assert "Judge usage" in readme
+    assert "Judge usage by metric" in readme
     run_log = (run_dir / "run.log").read_text(encoding="utf-8")
     assert "Evaluation artifacts written successfully." in run_log
     assert "Who is the product owner for Aurora Planner?" not in run_log
@@ -917,8 +902,8 @@ def test_whitespace_answer_is_unavailable_and_not_ragas_eligible(
         "answer_correctness": None,
     }
     assert worker_requests == []
-    assert "- **Observed behavior:** `unavailable`" in (
-        run_dir.joinpath("README.md").read_text(encoding="utf-8")
+    assert "| Faithfulness | — |" in run_dir.joinpath("README.md").read_text(
+        encoding="utf-8"
     )
 
 
