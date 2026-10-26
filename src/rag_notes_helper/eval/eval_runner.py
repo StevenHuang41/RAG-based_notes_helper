@@ -10,6 +10,7 @@ import math
 import os
 from pathlib import Path
 from pathlib import PurePosixPath, PureWindowsPath
+import random
 import shutil
 import subprocess
 import sys
@@ -1040,9 +1041,23 @@ def run_evaluation(
     *,
     output_root: Path | None = None,
     agentic: bool = False,
+    sample: int | None = None,
+    seed: int | None = None,
 ) -> Path:
     """Evaluate one selected workflow against the isolated fixture set."""
     workflow: Workflow = "agentic" if agentic else "classic"
+    cases = load_qa_fixture()
+    if sample is not None:
+        if sample <= 0:
+            raise ValueError("--sample must be a positive integer")
+        if sample > len(cases):
+            raise ValueError(
+                f"--sample cannot exceed the fixture size ({len(cases)} cases)"
+            )
+        sampled_cases = random.Random(seed).sample(cases, sample)
+        sampled_ids = {case["id"] for case in sampled_cases}
+        cases = [case for case in cases if case["id"] in sampled_ids]
+
     project_root = Path(__file__).resolve().parents[3]
     output_root = output_root or project_root / "eval"
     timestamp, run_dir = _new_run_directory(Path(output_root))
@@ -1058,12 +1073,14 @@ def run_evaluation(
             "timestamp_local": timestamp,
             "timezone": "Asia/Taipei",
             "workflow": workflow,
+            "sample_count": sample,
+            "seed": seed,
+            "selected_case_ids": [case["id"] for case in cases],
         },
         "cases": [],
     }
     _terminal_progress(f"Starting {workflow} fixture evaluation")
     try:
-        cases = load_qa_fixture()
         _log(run_log, f"Loaded {len(cases)} reviewed QA cases.")
         _log(run_log, "Building isolated synthetic-notes index.")
         with _isolated_fixture_index() as (settings, rag, meta_store):
@@ -1072,6 +1089,9 @@ def run_evaluation(
                 "timestamp_local": timestamp,
                 "timezone": "Asia/Taipei",
                 "workflow": workflow,
+                "sample_count": sample,
+                "seed": seed,
+                "selected_case_ids": [case["id"] for case in cases],
                 "fixture_sha256": _fixture_digest(),
                 "answer_provider": settings.llm.provider,
                 "answer_model": settings.llm.model,
@@ -1204,11 +1224,11 @@ def run_evaluation(
                 "case_count": len(cases),
                 "category_counts": results["category_counts"],
                 "interpretation": (
-                    "This fixture is a regression seed, not a statistically "
-                    "representative benchmark. Its original 16 cases cover direct, "
-                    "multi-hop, unanswerable, and ambiguous questions. Ragas metrics "
-                    "apply only to expected-answerable cases; inspect abstention "
-                    "cases through answerability and evidence coverage."
+                    "This fixture is a regression set, not a statistically "
+                    "representative benchmark. A sampled run may omit categories; "
+                    "selected case IDs and category counts identify the coverage. "
+                    "Ragas metrics apply only to expected-answerable cases; inspect "
+                    "abstention cases through answerability and evidence coverage."
                 ),
                 "workflows": {
                     workflow: _workflow_summary(records)

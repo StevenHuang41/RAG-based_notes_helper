@@ -171,15 +171,19 @@ one retrieval        bounded Python loop
 
 ## Evaluation
 
-From a source checkout with development dependencies installed, `--eval` compares Classic and Agentic RAG using the same fictional notes corpus and the reviewed QA fixture under `tests/fixtures/`, initially seeded with 16 cases. The benchmark builds a temporary index and does not read or modify the user's `data/` or `storage/` directories:
+From a source checkout with development dependencies installed, `--eval` evaluates Classic RAG and `--agentic --eval` evaluates Agentic RAG against the reviewed QA fixture and fictional notes corpus under `tests/fixtures/`. Each run builds a temporary index and does not read or modify the user's `data/` or `storage/` directories:
 
 ```bash
 rag-app --eval
+rag-app --eval --sample 5 --seed 42
+rag-app --agentic --eval --sample 5 --seed 42
 ```
 
-Each run writes `run.log`, per-case `results.json`, and `summary.json` under `eval/<UTC timestamp>/`. These generated reports are ignored by Git. When stderr is a terminal, `--eval` shows a progress bar for answer generation and RAGAS metric stages. The start and completion of indexing, each benchmark case, RAGAS scoring, and interruptions are also written to `rag.log` in the configured log directory (`logs/` by default) and to the per-run `run.log`; log entries use case IDs and do not include query or note text. Results include reference-free faithfulness, answer relevancy, and context utilization diagnostics, plus expected source/evidence coverage, answerability behavior, generation token usage, and separate RAGAS judge usage. RAGAS metrics use the generated answer and retrieved contexts, not the fixture reference answer; the reference answer remains in each case result for human inspection. RAGAS metrics are not applicable to unanswerable and ambiguous cases; those cases are evaluated through answerability, abstention, and evidence coverage. Token counts are provider-reported; unavailable values remain marked unavailable, while character counts are recorded separately.
+Each run writes `README.md`, `results.json`, and `run.log` under a local-time, Taipei timestamped directory in `eval/`. These generated reports are ignored by Git. When stderr is a terminal, evaluation shows a progress bar for case execution and RAGAS metric stages. Run metadata records the selected workflow, sampling settings, and selected case IDs. Sample selection is uniform without replacement; cases run in fixture order. The same fixture, sample count, and seed select the same cases. Without a seed, a sampled run may select a different subset each time. A seed without `--sample` still runs the full fixture. `--sample` must be a positive integer no larger than the fixture size. Sampling flags require fixture `--eval` and do not apply to `--eval-base`.
 
-The initial 16 cases cover direct lookup, multi-hop integration, unanswerable questions, and ambiguous questions. The fixture can grow with additional reviewed cases while retaining the original cases. Treat it as a regression seed, not a statistically representative benchmark. The legacy `base.json` system smoke set remains separate and can be run with `--eval-base`; unlike `--eval`, it uses the configured user index.
+The fixture is a regression set, not a statistically representative benchmark. A small sample can omit fixture categories; inspect the selected case IDs and category counts in the report. Evaluation logs use case IDs and do not include query or note text. Results include reference-free faithfulness, answer relevancy, and context utilization diagnostics, plus expected source/evidence coverage, answerability behavior, generation token usage, and separate RAGAS judge usage. RAGAS metrics use the generated answer and retrieved contexts, not the fixture reference answer; the reference answer remains in each case result for human inspection. RAGAS metrics are not applicable to unanswerable and ambiguous cases; those cases are evaluated through answerability, abstention, and evidence coverage. Token counts are provider-reported; unavailable values remain marked unavailable, while character counts are recorded separately.
+
+The fixture covers direct lookup, multi-hop integration, unanswerable questions, and ambiguous questions. It can grow with additional reviewed cases while retaining the original seed cases. The legacy `base.json` system smoke set remains separate and can be run with `--eval-base`; unlike `--eval`, it uses the configured user index.
 
 To author additional QA candidates once from the fictional notes, run the development-only Ragas test-set generator:
 
@@ -299,7 +303,9 @@ uv run rag-app "What is RAG?" --citations   # include source citations
 uv run rag-app --sources                     # list indexed source files
 uv run rag-app --config                      # show validated configuration
 uv run rag-app "What is RAG?" --agentic      # use Agentic RAG for one query
-uv run rag-app --eval                        # compare workflows on synthetic notes
+uv run rag-app --eval                        # evaluate Classic RAG on synthetic notes
+uv run rag-app --eval --sample 5 --seed 42   # reproducible small sample
+uv run rag-app --agentic --eval --sample 5 --seed 42 # sample Agentic RAG
 uv run rag-app --eval-base                   # legacy smoke set on the user index
 ```
 

@@ -23,6 +23,38 @@ def test_parser_accepts_agentic_repl_combination():
     assert args.agentic is True
 
 
+def test_parser_accepts_evaluation_sample_and_seed():
+    args = cli.build_parser().parse_args([
+        "--agentic",
+        "--eval",
+        "--sample",
+        "3",
+        "--seed",
+        "17",
+    ])
+
+    assert args.sample == 3
+    assert args.seed == 17
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["rag-app", "--sample", "2"],
+        ["rag-app", "--seed", "17"],
+        ["rag-app", "--eval-base", "--sample", "2"],
+        ["rag-app", "--eval-base", "--seed", "17"],
+    ],
+)
+def test_sampling_options_require_fixture_evaluation(monkeypatch, argv):
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == 2
+
+
 def test_run_onetime_dispatches_to_agentic_workflow(monkeypatch):
     answer = {"answer": "Agentic answer.", "citations": []}
     calls = []
@@ -348,7 +380,43 @@ def test_eval_command_runs_benchmark_without_loading_user_index(monkeypatch):
 
     cli.main()
 
-    assert calls == [("benchmark", {"agentic": False})]
+    assert calls == [("benchmark", {
+        "agentic": False,
+        "sample": None,
+        "seed": None,
+    })]
+
+
+def test_eval_command_forwards_sample_and_seed(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["rag-app", "--agentic", "--eval", "--sample", "4", "--seed", "27"],
+    )
+    monkeypatch.setattr(
+        cli,
+        "run_evaluation",
+        lambda **kwargs: calls.append(kwargs),
+    )
+
+    cli.main()
+
+    assert calls == [{"agentic": True, "sample": 4, "seed": 27}]
+
+
+@pytest.mark.parametrize("sample", ["0", "-1"])
+def test_eval_command_rejects_nonpositive_sample(monkeypatch, sample):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["rag-app", "--eval", "--sample", sample],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == 2
 
 
 def test_classic_query_reports_retrieval_latency(monkeypatch):
@@ -393,7 +461,7 @@ def test_agentic_eval_command_selects_agentic_fixture_workflow(monkeypatch):
 
     cli.main()
 
-    assert calls == [{"agentic": True}]
+    assert calls == [{"agentic": True, "sample": None, "seed": None}]
 
 
 def test_run_evaluation_forwards_selected_workflow(monkeypatch):
@@ -406,7 +474,11 @@ def test_run_evaluation_forwards_selected_workflow(monkeypatch):
 
     cli.run_evaluation(agentic=True)
 
-    assert calls == [("run_evaluation", {"agentic": True})]
+    assert calls == [("run_evaluation", {
+        "agentic": True,
+        "sample": None,
+        "seed": None,
+    })]
 
 
 def test_eval_command_explains_its_source_checkout_requirement(monkeypatch, capsys):

@@ -151,10 +151,20 @@ def _readme_report(results: dict[str, Any]) -> str:
         ("Minimum retrieval score", "min_retrieval_score"),
         ("Maximum answer chunks", "max_answer_chunks"),
         ("Agentic maximum searches", "agentic_max_searches"),
+        ("Sample size", "sample_count"),
+        ("Sampling seed", "seed"),
     )
+    config_values = []
+    for label, key in config_fields:
+        value = metadata.get(key)
+        if key == "sample_count" and value is None:
+            value = "Full fixture"
+        elif key == "seed" and value is None:
+            value = "Not set"
+        config_values.append([label, value])
     lines.extend(_markdown_table(
         ["Setting", "Value"],
-        [[label, metadata.get(key)] for label, key in config_fields],
+        config_values,
     ))
     category_counts = results.get("category_counts", {})
     lines.extend([
@@ -163,6 +173,8 @@ def _readme_report(results: dict[str, Any]) -> str:
         "",
         f"- **Cases:** {summary.get('case_count', len(results.get('cases', [])))}",
         f"- **Interpretation:** {_markdown_cell(summary.get('interpretation'))}",
+        "- **Selected case IDs:** "
+        + _markdown_cell(", ".join(metadata.get("selected_case_ids", []))),
         "",
     ])
     lines.extend(_markdown_table(
@@ -406,23 +418,27 @@ def _readme_report(results: dict[str, Any]) -> str:
             lines.append("No final-answer context was sent.")
         lines.extend(["", "#### Ragas judge diagnostics", ""])
         judge_metrics = case.get("judge_metrics", {})
-        visible_judge_metrics = {
-            name: judge_metrics.get(name, {})
-            for name in ("faithfulness", "answer_relevancy", "answer_correctness")
-        }
+        visible_judge_metrics = (
+            ("Faithfulness", "faithfulness"),
+            ("Answer Relevancy", "answer_relevancy"),
+            ("Answer Correctness", "answer_correctness"),
+        )
+        judge_rows = []
+        for label, metric in visible_judge_metrics:
+            detail = judge_metrics.get(metric, {})
+            score = detail.get(
+                "score",
+                case.get("generation_metrics", {}).get(metric),
+            )
+            reason = (
+                detail.get("reason")
+                or case.get("metric_reasons", {}).get(metric)
+                or ("scored" if score is not None else "not scored")
+            )
+            judge_rows.append([label, score, reason])
         lines.extend(_markdown_table(
             ["Metric", "Score", "Status/reason"],
-            [
-                [
-                    metric,
-                    detail.get("score", case.get("generation_metrics", {}).get(metric)),
-                    detail.get("reason") or case.get("metric_reasons", {}).get(metric) or (
-                        "scored" if detail.get("score", case.get("generation_metrics", {}).get(metric)) is not None
-                        else "not scored"
-                    ),
-                ]
-                for metric, detail in visible_judge_metrics.items()
-            ],
+            judge_rows,
         ))
         lines.extend(["", "#### Execution audit: latency and token usage", ""])
         lines.extend(_markdown_table(

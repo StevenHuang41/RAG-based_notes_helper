@@ -34,3 +34,6 @@ The ordered evidence blocks actually provided to the final answer-generation cal
 
 **Evaluation run**:
 An assessment of a RAG query mode against prepared questions and expected evidence, with results available for review.
+
+**Evaluation sample**:
+A subset of prepared evaluation cases selected for one run; it is not a claim that the cases statistically represent a broader question population.

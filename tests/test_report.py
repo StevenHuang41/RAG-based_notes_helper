@@ -269,9 +269,9 @@ def test_report_distinguishes_evidence_context_diagnostics_and_execution_cost(
     judge = report.split("#### Ragas judge diagnostics", 1)[1].split(
         "#### Execution audit: latency and token usage", 1
     )[0]
-    for metric in ("faithfulness", "answer_relevancy", "answer_correctness"):
+    for metric in ("Faithfulness", "Answer Relevancy", "Answer Correctness"):
         assert judge.count(metric) == 1
-    assert "context_utilization" not in judge
+    assert "Context Utilization" not in judge
     assert "scored" in judge
 
 

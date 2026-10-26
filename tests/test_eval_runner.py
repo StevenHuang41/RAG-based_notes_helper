@@ -245,6 +245,8 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert "Execution audit: latency and token usage" in readme
     assert "question" in readme
     assert "answer_correctness" in readme
+    assert "| Answer Correctness | 1.0000 |" in readme
+    assert "| Answer Correctness | 1.0000 | reason for answer_correctness |" in readme
     assert "similarity_score (FAISS)" not in readme
     assert "expected_source_coverage" not in readme
     assert "expected_evidence_coverage" not in readme
@@ -464,6 +466,173 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
             answer_row["contexts"] == retrieved_row["contexts"]
             for answer_row, retrieved_row in zip(answer_rows, retrieved_rows)
         )
+
+
+
+@pytest.mark.parametrize("agentic,workflow", [(False, "classic"), (True, "agentic")])
+@pytest.mark.parametrize("seed", [271, None])
+def test_sampled_run_records_reproducible_case_selection(
+    monkeypatch, tmp_path, agentic, workflow, seed
+):
+    settings = SimpleNamespace(
+        llm=SimpleNamespace(
+            provider="fixture",
+            model="fixture-answer",
+            effective_eval_provider="fixture",
+            effective_eval_model="fixture-judge",
+            max_chunks=2,
+        ),
+        embed_model_name="fixture-embedding",
+        chunk_size=200,
+        chunk_overlap=50,
+        top_k=3,
+        min_retrieval_score=0.0,
+    )
+
+    @contextmanager
+    def isolated_index():
+        yield settings, object(), object()
+
+    def record_case(case, *, workflow, rag, meta_store):
+        return {
+            "case_id": case["id"],
+            "category": case["category"],
+            "question": case["question"],
+            "reference_answer": case["reference_answer"],
+            "answer": "fixture answer",
+            "expected_answerable": case["answerable"],
+            "predicted_answerable": case["answerable"],
+            "answerability_correct": True,
+            "abstained": False,
+            "correct_abstention": False,
+            "expected_sources": [],
+            "expected_evidence": [],
+            "retrieval_metrics": {},
+            "expected_source_coverage": 0.0,
+            "expected_evidence_coverage": 0.0,
+            "latency": {},
+            "generation_usage": {"calls": [], "call_count": 0},
+            "judge_usage": {"calls": []},
+            "generation_metrics": {},
+            "search_queries": [],
+            "search_results": [],
+            "generation_context": [],
+            "judge_metrics": {},
+            "workflow": workflow,
+        }
+
+    monkeypatch.setattr(eval_runner, "_isolated_fixture_index", isolated_index)
+    monkeypatch.setattr(eval_runner, "_record_case", record_case)
+    monkeypatch.setattr(eval_runner, "_attach_ragas_scores", lambda *args, **kwargs: None)
+
+    run_dir = eval_runner.run_evaluation(
+        output_root=tmp_path / workflow,
+        agentic=agentic,
+        sample=5,
+        seed=seed,
+    )
+
+    results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
+    readme = (run_dir / "README.md").read_text(encoding="utf-8")
+    fixture_cases = eval_runner.load_qa_fixture()
+    expected_ids = [case["id"] for case in fixture_cases]
+    sampled_ids = results["run_metadata"]["selected_case_ids"]
+
+    if seed == 271:
+        assert sampled_ids == [
+            "ambiguous-04",
+            "multi-hop-05",
+            "multi-hop-13",
+            "unanswerable-05",
+            "unanswerable-07",
+        ]
+    assert len(sampled_ids) == 5
+    assert len(set(sampled_ids)) == 5
+    assert sampled_ids == [case_id for case_id in expected_ids if case_id in sampled_ids]
+    assert [case["case_id"] for case in results["cases"]] == sampled_ids
+    assert results["run_metadata"]["sample_count"] == 5
+    assert results["run_metadata"]["seed"] == seed
+    assert results["run_metadata"]["workflow"] == workflow
+    assert "Sample size | 5" in readme
+    assert f"Sampling seed | {'Not set' if seed is None else seed}" in readme
+    assert ", ".join(sampled_ids) in readme
+
+
+def test_seed_without_sample_runs_full_fixture(monkeypatch, tmp_path):
+    recorded_ids = []
+
+    @contextmanager
+    def isolated_index():
+        yield SimpleNamespace(
+            llm=SimpleNamespace(
+                provider="fixture",
+                model="fixture-answer",
+                effective_eval_provider="fixture",
+                effective_eval_model="fixture-judge",
+                max_chunks=2,
+            ),
+            embed_model_name="fixture-embedding",
+            chunk_size=200,
+            chunk_overlap=50,
+            top_k=3,
+            min_retrieval_score=0.0,
+        ), object(), object()
+
+    def record_case(case, *, workflow, rag, meta_store):
+        recorded_ids.append(case["id"])
+        return {
+            "case_id": case["id"], "category": case["category"],
+            "question": case["question"],
+            "reference_answer": case["reference_answer"], "answer": "answer",
+            "expected_answerable": case["answerable"],
+            "predicted_answerable": case["answerable"],
+            "answerability_correct": True, "abstained": False,
+            "correct_abstention": False, "expected_sources": [],
+            "expected_evidence": [], "retrieval_metrics": {},
+            "expected_source_coverage": 0.0, "expected_evidence_coverage": 0.0,
+            "latency": {}, "generation_usage": {"calls": [], "call_count": 0},
+            "judge_usage": {"calls": []}, "generation_metrics": {},
+            "search_queries": [], "search_results": [], "generation_context": [],
+            "judge_metrics": {}, "workflow": workflow,
+        }
+
+    monkeypatch.setattr(eval_runner, "_isolated_fixture_index", isolated_index)
+    monkeypatch.setattr(eval_runner, "_record_case", record_case)
+    monkeypatch.setattr(eval_runner, "_attach_ragas_scores", lambda *args, **kwargs: None)
+
+    run_dir = eval_runner.run_evaluation(output_root=tmp_path, seed=19)
+    results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
+    readme = (run_dir / "README.md").read_text(encoding="utf-8")
+    fixture_ids = [case["id"] for case in eval_runner.load_qa_fixture()]
+
+    assert recorded_ids == fixture_ids
+    assert results["run_metadata"]["selected_case_ids"] == fixture_ids
+    assert results["run_metadata"]["sample_count"] is None
+    assert results["run_metadata"]["seed"] == 19
+    assert "Sample size | Full fixture" in readme
+    assert "Sampling seed | 19" in readme
+
+
+@pytest.mark.parametrize(
+    "sample,message",
+    [(0, "positive integer"), (-1, "positive integer"), (51, "fixture size")],
+)
+def test_evaluation_rejects_invalid_sample_count_before_creating_run(
+    monkeypatch, tmp_path, sample, message
+):
+    monkeypatch.setattr(
+        eval_runner,
+        "load_qa_fixture",
+        lambda: [{"id": "case-1"}, {"id": "case-2"}],
+    )
+
+    with pytest.raises(ValueError, match=message):
+        eval_runner.run_evaluation(output_root=tmp_path, sample=sample, seed=1)
+
+    assert not any(
+        re.fullmatch(r"\d{4}-\d{2}-\d{2}-\d{6}", path.name)
+        for path in tmp_path.iterdir()
+    )
 
 
 def test_ragas_metrics_skip_context_dependent_scores_when_retrieval_is_empty(

@@ -67,13 +67,20 @@ def run_evaluation(
     *,
     output_root: Path | None = None,
     agentic: bool = False,
+    sample: int | None = None,
+    seed: int | None = None,
 ) -> Path:
     """Load the development-only evaluator only when the benchmark is requested."""
     evaluate = _load_evaluation_function("run_evaluation")
 
     if output_root is None:
-        return evaluate(agentic=agentic)
-    return evaluate(output_root=output_root, agentic=agentic)
+        return evaluate(agentic=agentic, sample=sample, seed=seed)
+    return evaluate(
+        output_root=output_root,
+        agentic=agentic,
+        sample=sample,
+        seed=seed,
+    )
 
 
 def run_base_smoke_evaluation() -> None:
@@ -391,6 +398,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--sample",
+        type=int,
+        help="Evaluate this many randomly selected fixture cases (requires --eval)",
+    )
+
+    parser.add_argument(
+        "--seed",
+        type=int,
+        help="Seed fixture case sampling when used with --sample (requires --eval)",
+    )
+
+    parser.add_argument(
         "--eval-base",
         action="store_true",
         help="Run the legacy base.json system smoke evaluation on the user index",
@@ -438,10 +457,22 @@ def main():
     parser = build_parser()
     args = parser.parse_args()
 
+    if (args.sample is not None or args.seed is not None) and not args.eval:
+        parser.error("--sample and --seed can only be used with --eval")
+
+    if args.sample is not None and args.sample <= 0:
+        parser.error("--sample must be a positive integer")
+
     if args.eval:
         try:
-            run_evaluation(agentic=args.agentic)
+            run_evaluation(
+                agentic=args.agentic,
+                sample=args.sample,
+                seed=args.seed,
+            )
         except EvaluationUnavailableError as exc:
+            parser.error(str(exc))
+        except ValueError as exc:
             parser.error(str(exc))
         return
     if args.eval_base:
