@@ -185,7 +185,7 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert (run_dir / "README.md").is_file()
     assert not (run_dir / "summary.json").exists()
     results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
-    assert results["schema_version"] == 4
+    assert results["schema_version"] == 5
     for case in results["cases"]:
         assert len(case["search_queries"]) == len(case["search_results"])
         assert case["search_queries"][0] == case["question"]
@@ -478,9 +478,9 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
         for batch in request["batches"]
     ]
     answer_relevancy_rows = workflow_batches[0]["rows"]
-    retrieved_rows = workflow_batches[1]["rows"]
+    context_utilization_rows = workflow_batches[1]["rows"]
     answer_rows = workflow_batches[2]["rows"]
-    assert len(retrieved_rows) == answerable_count
+    assert len(context_utilization_rows) == answerable_count
     assert len(answer_relevancy_rows) == answerable_count
     assert len(answer_rows) == answerable_count
     assert [batch["metric_names"] for batch in workflow_batches] == [
@@ -491,7 +491,11 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     ]
     assert all(
         not {"ground_truth", "reference", "reference_answer"}.intersection(row)
-        for row in [*answer_relevancy_rows, *retrieved_rows, *answer_rows]
+        for row in [
+            *answer_relevancy_rows,
+            *context_utilization_rows,
+            *answer_rows,
+        ]
     )
     correctness_rows = workflow_batches[3]["rows"]
     assert [row["reference_answer"] for row in correctness_rows] == [
@@ -507,16 +511,11 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
         for case in results["cases"]
         if case["expected_answerable"]
     ]
-    if agentic:
-        assert any(
-            len(answer_row["contexts"]) < len(retrieved_row["contexts"])
-            for answer_row, retrieved_row in zip(answer_rows, retrieved_rows)
-        )
-    else:
-        assert all(
-            answer_row["contexts"] == retrieved_row["contexts"]
-            for answer_row, retrieved_row in zip(answer_rows, retrieved_rows)
-        )
+    assert [row["contexts"] for row in context_utilization_rows] == [
+        case["answer_contexts"]
+        for case in results["cases"]
+        if case["expected_answerable"]
+    ]
 
 
 
@@ -1027,7 +1026,7 @@ def test_ragas_metrics_skip_context_dependent_scores_when_retrieval_is_empty(
     assert scores[0]["answer_correctness"] == 0.5
     assert "context_utilization" not in scores[0]
     assert "faithfulness" not in scores[0]
-    assert "no retrieved context" in scores[0]["metric_reasons"][
+    assert "no answer context" in scores[0]["metric_reasons"][
         "context_utilization"
     ]
     assert "no answer context" in scores[0]["metric_reasons"]["faithfulness"]
@@ -1192,10 +1191,10 @@ def test_run_evaluation_records_ordered_context_prefix_metrics(
     first_hit = {
         "source": "notes/alpha.md",
         "chunk_id": 1,
-        "start_line": 1,
-        "end_line": 2,
+        "start_line": 4,
+        "end_line": 4,
         "score": 0.95,
-        "text": "first line\nshared",
+        "text": "irrelevant context",
         "stage": "retrieval",
         "method": "FAISS vector search",
     }
@@ -1287,11 +1286,11 @@ def test_run_evaluation_records_ordered_context_prefix_metrics(
     assert [prefix["context_prefix_k"] for prefix in prefixes] == [1, 2]
     assert prefixes[0] == {
         "context_prefix_k": 1,
-        "evidence_lines_covered": 1,
+        "evidence_lines_covered": 0,
         "ground_truth_line_count": 2,
-        "recall": 0.5,
-        "precision": 0.5,
-        "ndcg": 1.0,
+        "recall": 0.0,
+        "precision": 0.0,
+        "ndcg": 0.0,
         "line_provenance_available": True,
     }
     if transformed_context:
@@ -1311,6 +1310,111 @@ def test_run_evaluation_records_ordered_context_prefix_metrics(
             "ground_truth_line_count": 2,
             "recall": 1.0,
             "precision": 2 / 3,
-            "ndcg": pytest.approx(0.5436432511904858),
+            "ndcg": pytest.approx(0.6309297535714575),
             "line_provenance_available": True,
         }
+
+    assert case_result["final_context_metrics"] == prefixes[-1]
+    assert results["summary"]["workflows"][
+        "agentic" if agentic else "classic"
+    ]["final_context_metrics"] == {
+        name: prefixes[-1][name]
+        for name in ("recall", "precision", "ndcg")
+    }
+
+
+@pytest.mark.parametrize("agentic", [False, True])
+def test_run_evaluation_uses_final_answer_context_for_context_utilization(
+    monkeypatch,
+    tmp_path,
+    agentic,
+):
+    case = {
+        "id": "final-context-utilization",
+        "category": "direct",
+        "challenge_tags": [],
+        "question": "What final context reaches the answer?",
+        "reference_answer": "Only the selected chunk.",
+        "answerable": True,
+        "expected_sources": ["notes/alpha.md"],
+        "expected_evidence": [{
+            "source": "notes/alpha.md",
+            "start_line": 1,
+            "end_line": 1,
+            "text": "selected evidence",
+        }],
+    }
+    settings = SimpleNamespace(
+        llm=SimpleNamespace(
+            provider="fixture",
+            model="fixture-answer",
+            effective_eval_provider="fixture",
+            effective_eval_model="fixture-judge",
+            max_chunks=1,
+        ),
+        embed_model_name="fixture-embedding",
+        chunk_size=200,
+        chunk_overlap=50,
+        top_k=2,
+        min_retrieval_score=0.0,
+    )
+    selected_hit = {
+        "source": "notes/alpha.md", "chunk_id": 1,
+        "start_line": 1, "end_line": 1, "score": 0.95,
+        "text": "selected evidence",
+    }
+    rejected_hit = {
+        "source": "notes/alpha.md", "chunk_id": 2,
+        "start_line": 2, "end_line": 2, "score": 0.90,
+        "text": "candidate only",
+    }
+
+    @contextmanager
+    def isolated_index():
+        yield settings, object(), object()
+
+    def fake_run_query(*_args, **_kwargs):
+        return {
+            "answer": "Only the selected chunk.",
+            "citations": [selected_hit],
+            "retrieved_evidence": [selected_hit, rejected_hit],
+            "search_results": [[selected_hit, rejected_hit]],
+            "search_queries": [case["question"]],
+            "generation_context": [selected_hit],
+        }
+
+    captured_batches = []
+
+    def fake_worker(_command, *, input, capture_output, text, check):
+        request = json.loads(input)
+        captured_batches.extend(request["batches"])
+        return SimpleNamespace(
+            stdout=json.dumps({
+                "scores": [[{
+                    **{metric: 1.0 for metric in batch["metric_names"]},
+                    "metric_reasons": {},
+                    "metric_latencies_ms": {},
+                } for _row in batch["rows"]]
+                for batch in request["batches"]],
+                "judge_calls": [],
+            }),
+            returncode=0,
+        )
+
+    monkeypatch.setattr(eval_runner, "load_qa_fixture", lambda: [case])
+    monkeypatch.setattr(eval_runner, "get_settings", lambda: settings)
+    monkeypatch.setattr(eval_runner, "_isolated_fixture_index", isolated_index)
+    monkeypatch.setattr("rag_notes_helper.cli.run_query", fake_run_query)
+    monkeypatch.setattr(eval_runner.subprocess, "run", fake_worker)
+
+    eval_runner.run_evaluation(output_root=tmp_path, agentic=agentic)
+
+    context_utilization_rows = next(
+        batch["rows"] for batch in captured_batches
+        if batch["metric_names"] == ["context_utilization"]
+    )
+    assert context_utilization_rows == [{
+        "question": case["question"],
+        "answer": "Only the selected chunk.",
+        "contexts": [selected_hit["text"]],
+    }]
