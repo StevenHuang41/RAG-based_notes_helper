@@ -5,6 +5,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+from rag_notes_helper.eval.ragas_runner import (
+    GENERATION_METRIC_NAMES,
+)
+
 
 def _markdown_cell(value: Any) -> str:
     if value is None:
@@ -34,6 +38,16 @@ def _markdown_table(headers: list[str], rows: list[list[Any]]) -> list[str]:
 
 def _metric_rows(metrics: dict[str, Any]) -> list[list[Any]]:
     return [[name, value] for name, value in metrics.items()]
+
+
+def _metric_with_coverage(
+    score: Any,
+    eligible_case_count: int | None,
+    case_count: int | None,
+) -> Any:
+    if eligible_case_count is None or case_count is None:
+        return score
+    return f"{_markdown_cell(score)} ({eligible_case_count}/{case_count} eligible)"
 
 
 def _usage_values(usage: dict[str, Any] | None) -> list[Any]:
@@ -249,19 +263,68 @@ def _readme_report(results: dict[str, Any]) -> str:
         ["Retrieval metric", "Score"],
         _metric_rows(visible_retrieval_metrics),
     ))
-    lines.extend(["", "### Ragas answer metrics", ""])
+    lines.extend(["", "### Ragas metrics and context diagnostics", ""])
+    ragas_metric_rows = []
+    ragas_eligible_counts = workflow_summary.get(
+        "ragas_metric_eligible_case_counts",
+        {},
+    )
+    selected_case_count = summary.get(
+        "case_count",
+        len(results.get("cases", [])),
+    )
+    for label, metric, source in (
+        ("Faithfulness", "faithfulness", "generation_metrics"),
+        ("Answer Relevancy", "answer_relevancy", "generation_metrics"),
+        ("Answer Correctness", "answer_correctness", "generation_metrics"),
+        (
+            "Context Utilization (context/retrieval diagnostic)",
+            "context_utilization",
+            "retrieval_metrics",
+        ),
+    ):
+        eligible_case_count = ragas_eligible_counts.get(metric)
+        ragas_metric_rows.append([
+            label,
+            workflow_summary.get(source, {}).get(metric),
+            (
+                f"{eligible_case_count}/{selected_case_count}"
+                if eligible_case_count is not None
+                else None
+            ),
+        ])
     lines.extend(_markdown_table(
-        ["Ragas answer metric", "Score"],
-        _metric_rows(workflow_summary.get("generation_metrics", {})),
+        ["Ragas metric", "Score", "Eligible cases / selected cases"],
+        ragas_metric_rows,
     ))
-    lines.extend(["", "### Answerability behavior", ""])
+    lines.extend(["", "### Answerability outcomes", ""])
+    answerability_outcomes = workflow_summary.get("answerability_outcomes", {})
+    answerability_rows = []
+    for group_key, label in (
+        ("expected_answerable", "Expected answerable"),
+        ("expected_unanswerable", "Expected unanswerable"),
+    ):
+        outcome = answerability_outcomes.get(group_key, {})
+        group_case_count = outcome.get("case_count")
+        correct_count = outcome.get("correct_behavior_count")
+        answerability_rows.append([
+            label,
+            group_case_count,
+            outcome.get("answered_count"),
+            outcome.get("abstained_count"),
+            outcome.get("unavailable_or_error_count"),
+            (
+                f"{correct_count}/{group_case_count}"
+                if group_case_count and correct_count is not None
+                else None
+            ),
+        ])
     lines.extend(_markdown_table(
-        ["Metric", "Score"],
         [
-            ["Answerability accuracy", workflow_summary.get("answerability_accuracy")],
-            ["Abstention rate", workflow_summary.get("abstention_rate")],
-            ["Correct abstention rate", workflow_summary.get("correct_abstention_rate")],
+            "Expected answerability", "Cases", "Answered", "Abstained",
+            "Unavailable/error", "Correct behavior (count/cases)",
         ],
+        answerability_rows,
     ))
     latency_labels = (
         ("retrieval_ms", "Retrieval"),
@@ -321,17 +384,34 @@ def _readme_report(results: dict[str, Any]) -> str:
     lines.extend(["", "## Metrics by category", ""])
     category_rows = []
     for category, metrics in sorted(category_summaries.items()):
+        metric_case_counts = metrics.get("ragas_metric_eligible_case_counts", {})
+        category_case_count = metrics.get("case_count")
         category_rows.append([
             category,
-            metrics.get("case_count"),
+            category_case_count,
             metrics.get("retrieval_metrics", {}).get("recall"),
             metrics.get("retrieval_metrics", {}).get("precision"),
             metrics.get("retrieval_metrics", {}).get("ndcg"),
-            metrics.get("generation_metrics", {}).get("faithfulness"),
-            metrics.get("generation_metrics", {}).get("answer_relevancy"),
-            metrics.get("generation_metrics", {}).get("answer_correctness"),
-            metrics.get("answerability_accuracy"),
-            metrics.get("correct_abstention_rate"),
+            _metric_with_coverage(
+                metrics.get("generation_metrics", {}).get("faithfulness"),
+                metric_case_counts.get("faithfulness"),
+                category_case_count,
+            ),
+            _metric_with_coverage(
+                metrics.get("generation_metrics", {}).get("answer_relevancy"),
+                metric_case_counts.get("answer_relevancy"),
+                category_case_count,
+            ),
+            _metric_with_coverage(
+                metrics.get("generation_metrics", {}).get("answer_correctness"),
+                metric_case_counts.get("answer_correctness"),
+                category_case_count,
+            ),
+            _metric_with_coverage(
+                metrics.get("retrieval_metrics", {}).get("context_utilization"),
+                metric_case_counts.get("context_utilization"),
+                category_case_count,
+            ),
             metrics.get("latency_ms", {}).get("end_to_end_ms"),
             _usage_summary(metrics.get("generation_usage", {})),
             _usage_summary(metrics.get("judge_usage", {})),
@@ -339,8 +419,10 @@ def _readme_report(results: dict[str, Any]) -> str:
     lines.extend(_markdown_table(
         [
             "Category", "Cases", "Recall", "Precision", "NDCG",
-            "Faithfulness", "Answer relevancy", "Answer correctness",
-            "Answerability accuracy", "Correct abstention",
+            "Faithfulness (score, eligible/selected)",
+            "Answer relevancy (score, eligible/selected)",
+            "Answer correctness (score, eligible/selected)",
+            "Context Utilization diagnostic (score, eligible/selected)",
             "Mean evaluation latency (ms)", "Controller/answer usage",
             "Judge usage",
         ],
@@ -355,9 +437,9 @@ def _readme_report(results: dict[str, Any]) -> str:
         "2. The selected Classic or Agentic workflow runs retrieval. Each search returns ranked candidate chunks; Agentic RAG can search repeatedly and select a subset for final generation.",
         "3. The answer generator receives the ordered context chunks shown in each query's context section. Each chunk is formatted as `file:<source>\\n<chunk text>` and blocks are separated by a blank line. If the workflow abstains, no final-answer context is sent.",
         "4. Deterministic retrieval scores compare retrieved source lines with the reviewed evidence: Recall measures evidence coverage, Precision measures the share of retrieved lines that are relevant, and NDCG measures whether relevant evidence ranks early. For Agentic RAG, Recall and Precision use the union of search results, while NDCG is averaged across applicable searches.",
-        "5. Deterministic answerability checks compare expected answerability with whether the workflow answered or abstained.",
-        "6. Ragas scores run only for expected-answerable cases with an answer. Faithfulness checks whether answer claims are supported by the answer context; Answer Relevancy checks whether the response addresses the question; Answer Correctness compares the response with the reference answer. Answer Relevancy and Answer Correctness also use the configured local evaluation embeddings. These judge scores are diagnostics, not pass/fail guarantees.",
-        "7. Context Utilization may still be computed as an advanced diagnostic in `results.json`; its score is omitted here. Its judge-call latency and provider-reported token usage remain visible in the query execution audit.",
+        "5. Answerability outcomes are counts grouped by the fixture's expected answerability. Errors and unavailable answers do not count as correct behavior; an empty group is shown as N/A.",
+        "6. Ragas scores apply only to expected-answerable cases that produced an answer. The eligible-case count is shown beside each score; N/A means no selected case was eligible. Faithfulness checks whether answer claims are supported by the answer context; Answer Relevancy checks whether the response addresses the question; Answer Correctness compares the response with the reference answer. Answer Relevancy and Answer Correctness also use the configured local evaluation embeddings. These judge scores are diagnostics, not pass/fail guarantees.",
+        "7. Context Utilization is a context/retrieval diagnostic, not an answer-quality metric. It is computed only when the case has retrieved context; its judge-call latency and provider-reported token usage remain visible in the query execution audit.",
         "8. Per-call latency is shown in milliseconds. RAG query latency runs from query processing through the terminal answer or abstention. Evaluation latency adds all Ragas judge latency to RAG query latency. Token fields are provider-reported. A calculated input+output total appears only when every included call has both counts and provider totals are missing. Partial or unavailable status stays visible. Recorded character counts are shown separately and never converted to tokens; retrieval and local embedding work are not provider token usage.",
         "",
         "Retrieved similarity scores are ranking signals, not calibrated probabilities. A search rank is local to that search; the answer-context table shows the final order provided to answer generation.",
@@ -489,19 +571,33 @@ def _readme_report(results: dict[str, Any]) -> str:
             ("Faithfulness", "faithfulness"),
             ("Answer Relevancy", "answer_relevancy"),
             ("Answer Correctness", "answer_correctness"),
+            ("Context Utilization (context/retrieval diagnostic)", "context_utilization"),
         )
         judge_rows = []
         for label, metric in visible_judge_metrics:
             detail = judge_metrics.get(metric, {})
-            score = detail.get(
-                "score",
-                case.get("generation_metrics", {}).get(metric),
+            metric_scores = (
+                case.get("generation_metrics", {})
+                if metric in GENERATION_METRIC_NAMES
+                else case.get("retrieval_metrics", {})
             )
-            reason = (
-                detail.get("reason")
-                or case.get("metric_reasons", {}).get(metric)
-                or ("scored" if score is not None else "not scored")
-            )
+            score = detail.get("score", metric_scores.get(metric))
+            reason = detail.get("reason") or case.get(
+                "metric_reasons", {}
+            ).get(metric)
+            if reason is None:
+                if case.get("ragas_error"):
+                    reason = f"Ragas evaluation failed ({case['ragas_error']})."
+                elif score is not None:
+                    reason = "Scored."
+                elif case.get("expected_answerable") is not True:
+                    reason = (
+                        "Skipped because expected answerability is unanswerable."
+                    )
+                elif not case.get("answer"):
+                    reason = "Skipped because no generated answer was available."
+                else:
+                    reason = "Not scored: no eligible result was returned."
             judge_rows.append([label, score, reason])
         lines.extend(_markdown_table(
             ["Metric", "Score", "Status/reason"],
