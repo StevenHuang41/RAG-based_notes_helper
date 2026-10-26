@@ -23,6 +23,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from rag_notes_helper.core.config import get_settings
+from rag_notes_helper.eval.answerability import has_nonblank_answer
 from rag_notes_helper.eval.dataset_builder import build_dataset
 from rag_notes_helper.eval.ragas_runner import (
     GENERATION_METRIC_NAMES,
@@ -122,7 +123,7 @@ def _run_ragas_isolated(
     scored_cases = [
         (case_index, case)
         for case_index, case in enumerate(cases)
-        if case["expected_answerable"]
+        if case.get("expected_answerable") is True
     ]
     if not scored_cases:
         return [{} for _case in cases]
@@ -138,58 +139,59 @@ def _run_ragas_isolated(
     metric_specs = (
         (
             "answer_relevancy",
-            [item for item in scored_cases if item[1]["answer"]],
             lambda case: {
                 "question": case["question"],
-                "answer": case["answer"] or "",
+                "answer": case["answer"],
             },
             None,
         ),
         (
             "context_utilization",
-            [item for item in scored_cases if item[1]["answer"] and item[1]["contexts"]],
             lambda case: {
                 "question": case["question"],
-                "answer": case["answer"] or "",
+                "answer": case["answer"],
                 "contexts": case["contexts"],
             },
             "no retrieved context was available",
         ),
         (
             "faithfulness",
-            [item for item in scored_cases if item[1]["answer"] and item[1]["answer_contexts"]],
             lambda case: {
                 "question": case["question"],
-                "answer": case["answer"] or "",
+                "answer": case["answer"],
                 "contexts": case["answer_contexts"],
             },
             "no answer context was available",
         ),
         (
             "answer_correctness",
-            [item for item in scored_cases if item[1]["answer"]],
             lambda case: {
                 "question": case["question"],
-                "answer": case["answer"] or "",
+                "answer": case["answer"],
                 "reference_answer": case["reference_answer"],
             },
             None,
         ),
     )
 
-    for metric_name, eligible_cases, row_factory, skip_reason in metric_specs:
+    for metric_name, row_factory, skip_reason in metric_specs:
+        eligible_cases = [
+            item
+            for item in scored_cases
+            if _ragas_metric_is_eligible(item[1], metric_name)
+        ]
         eligible_positions = [
             scored_position_by_case_index[case_index]
             for case_index, _case in eligible_cases
         ]
         for scored_position, (_case_index, case) in enumerate(scored_cases):
-            if not case["answer"]:
+            if not has_nonblank_answer(case.get("answer")):
                 scored_results[scored_position]["metric_reasons"][metric_name] = (
                     "Skipped because no generated answer was available."
                 )
-            elif skip_reason and not case[
+            elif skip_reason and not case.get(
                 "contexts" if metric_name == "context_utilization" else "answer_contexts"
-            ]:
+            ):
                 scored_results[scored_position]["metric_reasons"][metric_name] = (
                     f"Skipped because {skip_reason}."
                 )
@@ -588,7 +590,7 @@ def _aggregate_usage(calls: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _answerability_fields(case: dict[str, Any], answer: Any) -> dict[str, Any]:
     expected_answerable = bool(case["answerable"])
-    if not isinstance(answer, str) or not answer.strip():
+    if not has_nonblank_answer(answer):
         return {
             "expected_answerable": expected_answerable,
             "predicted_answerable": None,
@@ -634,13 +636,13 @@ def _answerability_group_summary(
     error_count = sum(bool(case.get("workflow_error")) for case in group)
     unavailable_count = sum(
         not case.get("workflow_error")
-        and not case.get("answer")
+        and not has_nonblank_answer(case.get("answer"))
         and case.get("abstained") is not True
         for case in group
     )
     answered_count = sum(
         not case.get("workflow_error")
-        and bool(case.get("answer"))
+        and has_nonblank_answer(case.get("answer"))
         and case.get("abstained") is not True
         for case in group
     )
@@ -650,7 +652,7 @@ def _answerability_group_summary(
     )
     correct_behavior_count = sum(
         not case.get("workflow_error")
-        and bool(case.get("answer"))
+        and has_nonblank_answer(case.get("answer"))
         and case.get("answerability_correct") is True
         for case in group
     )
@@ -679,7 +681,10 @@ def _answerability_outcomes(cases: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _ragas_metric_is_eligible(case: dict[str, Any], metric: str) -> bool:
-    if case.get("expected_answerable") is not True or not case.get("answer"):
+    if (
+        case.get("expected_answerable") is not True
+        or not has_nonblank_answer(case.get("answer"))
+    ):
         return False
     required_context = {
         "faithfulness": "answer_contexts",
@@ -1335,7 +1340,7 @@ def run_evaluation(
                     "representative benchmark. A sampled run may omit categories; "
                     "selected case IDs and category counts identify the coverage. "
                     "Ragas metrics apply only to eligible expected-answerable cases "
-                    "that produced an answer; per-metric eligible counts are recorded. "
+                    "that produced a nonblank answer; per-metric eligible counts are recorded. "
                     "Inspect abstention cases through grouped answerability outcomes "
                     "and reviewed evidence."
                 ),

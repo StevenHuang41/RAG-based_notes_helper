@@ -804,6 +804,125 @@ def test_run_summary_counts_errors_and_unavailable_answers_separately(
     }
 
 
+def test_whitespace_answer_is_unavailable_and_not_ragas_eligible(
+    monkeypatch,
+    tmp_path,
+):
+    case = {
+        "id": "answerable-whitespace",
+        "category": "direct",
+        "challenge_tags": [],
+        "question": "Who owns the review?",
+        "reference_answer": "Mina owns the review.",
+        "answerable": True,
+        "expected_sources": [],
+        "expected_evidence": [],
+    }
+    settings = SimpleNamespace(
+        llm=SimpleNamespace(
+            provider="fixture",
+            model="fixture-answer",
+            effective_eval_provider="fixture",
+            effective_eval_model="fixture-judge",
+            max_chunks=2,
+        ),
+        embed_model_name="fixture-embedding",
+        chunk_size=200,
+        chunk_overlap=50,
+        top_k=3,
+        min_retrieval_score=0.0,
+    )
+
+    @contextmanager
+    def isolated_index():
+        yield settings, object(), object()
+
+    hit = {
+        "source": "notes/review.md",
+        "chunk_id": 1,
+        "start_line": 1,
+        "end_line": 1,
+        "score": 0.9,
+        "text": "Mina owns the review.",
+    }
+
+    def fake_run_query(
+        _rag,
+        _meta_store,
+        *,
+        query,
+        agentic,
+        stream,
+        on_generation,
+        on_retrieval,
+    ):
+        return {
+            "answer": "  \n ",
+            "citations": [],
+            "retrieved_evidence": [hit],
+            "search_results": [[hit]],
+            "search_queries": [query],
+            "generation_context": [{
+                "source": hit["source"],
+                "chunk_id": hit["chunk_id"],
+            }],
+        }
+
+    worker_requests = []
+
+    def fake_ragas_worker(_command, *, input, capture_output, text, check):
+        request = json.loads(input)
+        worker_requests.append(request)
+        score_sets = [
+            [{metric: 1.0 for metric in batch["metric_names"]} for _ in batch["rows"]]
+            for batch in request["batches"]
+        ]
+        return SimpleNamespace(
+            stdout=json.dumps({"scores": score_sets, "judge_calls": []}),
+            returncode=0,
+        )
+
+    monkeypatch.setattr(eval_runner, "load_qa_fixture", lambda: [case])
+    monkeypatch.setattr(eval_runner, "get_settings", lambda: settings)
+    monkeypatch.setattr(eval_runner, "_isolated_fixture_index", isolated_index)
+    monkeypatch.setattr("rag_notes_helper.cli.run_query", fake_run_query)
+    monkeypatch.setattr(eval_runner.subprocess, "run", fake_ragas_worker)
+
+    run_dir = eval_runner.run_evaluation(output_root=tmp_path)
+
+    results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
+    record = results["cases"][0]
+    workflow_summary = results["summary"]["workflows"]["classic"]
+    assert record["answer"] == "  \n "
+    assert record["predicted_answerable"] is None
+    assert record["answerability_correct"] is None
+    assert record["abstained"] is None
+    assert workflow_summary["answerability_outcomes"]["expected_answerable"] == {
+        "case_count": 1,
+        "answered_count": 0,
+        "abstained_count": 0,
+        "unavailable_count": 1,
+        "error_count": 0,
+        "unavailable_or_error_count": 1,
+        "correct_behavior_count": 0,
+    }
+    assert workflow_summary["ragas_metric_eligible_case_counts"] == {
+        "faithfulness": 0,
+        "answer_relevancy": 0,
+        "answer_correctness": 0,
+        "context_utilization": 0,
+    }
+    assert record["generation_metrics"] == {
+        "faithfulness": None,
+        "answer_relevancy": None,
+        "answer_correctness": None,
+    }
+    assert worker_requests == []
+    assert "- **Observed behavior:** `unavailable`" in (
+        run_dir.joinpath("README.md").read_text(encoding="utf-8")
+    )
+
+
 @pytest.mark.parametrize(
     "sample,message",
     [(0, "positive integer"), (-1, "positive integer"), (51, "fixture size")],

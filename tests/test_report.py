@@ -668,6 +668,24 @@ def test_report_separates_provider_totals_calculated_totals_and_characters(
     assert "Provider total tokens" in report
     assert "Calculated input+output tokens" in report
     assert "Input chars" in report and "Output chars" in report
+    assert (
+        "`available` means every included call has provider-reported input, output, "
+        "and total token counts"
+    ) in report
+    assert (
+        "`partial` means at least one provider token count is present but one or "
+        "more token fields are missing from an included call"
+    ) in report
+    assert (
+        "`unavailable` means no provider token counts are available, including "
+        "when there are no calls"
+    ) in report
+    assert (
+        "A calculated input+output total is shown only for a non-empty call group "
+        "when every included call has input and output counts and provider totals "
+        "are incomplete; an empty call group shows N/A. It does not change the "
+        "provider usage status"
+    ) in report
     assert "calculated input+output=12" in report
     assert "calculated input+output=19" in report
     assert "provider total=N/A" in report
@@ -678,6 +696,9 @@ def test_report_separates_provider_totals_calculated_totals_and_characters(
     assert (
         "| answer call 2 | 4.5000 | fixture-answer / answer-v1 | "
         "partial | 7 | 5 | N/A | 12 | 64 | 21 |"
+    ) in report
+    assert (
+        "| Controller and answer | 2 | partial | 10 | 9 | N/A | 19 | 141 | 30 |"
     ) in report
     assert "Judge: context_utilization" in report
     assert "Input chars | Output chars |" in report

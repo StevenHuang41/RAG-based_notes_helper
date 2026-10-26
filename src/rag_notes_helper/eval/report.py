@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from rag_notes_helper.eval.answerability import has_nonblank_answer
 from rag_notes_helper.eval.ragas_runner import (
     GENERATION_METRIC_NAMES,
 )
@@ -131,7 +132,7 @@ def _answer_behavior(case: dict[str, Any]) -> str:
         return f"error ({case['workflow_error']})"
     if case.get("abstained") is True:
         return "abstained"
-    if case.get("answer") is None:
+    if not has_nonblank_answer(case.get("answer")):
         return "unavailable"
     return "answered"
 
@@ -439,9 +440,9 @@ def _readme_report(results: dict[str, Any]) -> str:
         "4. Retrieval top-k Recall, Precision, and NDCG score retrieved candidate lists, not the Answer generation context. Recall measures evidence coverage: the share of reviewed evidence lines retrieved. Precision measures the share of retrieved lines that are relevant to the reviewed evidence. NDCG measures whether relevant evidence ranks early. For Agentic RAG, Recall and Precision use the union of that query's search results, while NDCG is averaged over applicable ranked search lists.",
         "5. Context prefix k counts the first k chunks in the exact Answer generation context order. Each row shows cumulative unique evidence-line coverage and Recall, Precision, and context-order NDCG. For interpretation, prefix rows assess evidence available at each context length while one answer is generated from the complete final context; they are not separate generated answers. Affected metrics show N/A when exact source-line provenance is unavailable, including transformed context without a line mapping.",
         "6. Answerability outcomes are counts grouped by the fixture's expected answerability. Errors and unavailable answers do not count as correct behavior; an empty group is shown as N/A.",
-        "7. Ragas scores apply only to expected-answerable cases that produced an answer. The eligible-case count is shown beside each score; N/A means no selected case was eligible. Faithfulness checks whether answer claims are supported by the answer context; Answer Relevancy checks whether the response addresses the question; Answer Correctness compares the response with the reference answer. Answer Relevancy and Answer Correctness also use the configured local evaluation embeddings. These judge scores are diagnostics, not pass/fail guarantees.",
+        "7. Ragas scores apply only to expected-answerable cases that produced a nonblank answer. The eligible-case count is shown beside each score; N/A means no selected case was eligible. Faithfulness checks whether answer claims are supported by the answer context; Answer Relevancy checks whether the response addresses the question; Answer Correctness compares the response with the reference answer. Answer Relevancy and Answer Correctness also use the configured local evaluation embeddings. These judge scores are diagnostics, not pass/fail guarantees.",
         "8. Context Utilization is a context/retrieval diagnostic, not an answer-quality metric. It is computed only when the case has retrieved context; its judge-call latency and provider-reported token usage remain visible in the query execution audit.",
-        "9. Per-call latency is shown in milliseconds. RAG query latency runs from query processing through the terminal answer or abstention. Evaluation latency adds all Ragas judge latency to RAG query latency. Token fields are provider-reported. A calculated input+output total appears only when every included call has both counts and provider totals are missing. Partial or unavailable status stays visible. Recorded character counts are shown separately and never converted to tokens; retrieval and local embedding work are not provider token usage.",
+        "9. Per-call latency is shown in milliseconds. RAG query latency runs from query processing through the terminal answer or abstention. Evaluation latency adds all Ragas judge latency to RAG query latency. Token fields are provider-reported. `available` means every included call has provider-reported input, output, and total token counts; `partial` means at least one provider token count is present but one or more token fields are missing from an included call; `unavailable` means no provider token counts are available, including when there are no calls. A calculated input+output total is shown only for a non-empty call group when every included call has input and output counts and provider totals are incomplete; an empty call group shows N/A. It does not change the provider usage status. Recorded character counts are shown separately and never converted to tokens; retrieval and local embedding work are not provider token usage.",
         "",
         "Retrieved similarity scores are ranking signals, not calibrated probabilities. A search rank is local to that search; the answer-context table shows the final order provided to answer generation.",
         "",
@@ -661,7 +662,7 @@ def _readme_report(results: dict[str, Any]) -> str:
                     reason = (
                         "Skipped because expected answerability is unanswerable."
                     )
-                elif not case.get("answer"):
+                elif not has_nonblank_answer(case.get("answer")):
                     reason = "Skipped because no generated answer was available."
                 else:
                     reason = "Not scored: no eligible result was returned."
