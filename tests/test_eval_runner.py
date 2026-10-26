@@ -1025,4 +1025,173 @@ def test_artifact_failure_does_not_log_successful_write(
     run_dir = next(output_root.iterdir())
     run_log = (run_dir / "run.log").read_text(encoding="utf-8")
     assert "Evaluation artifacts written successfully." not in run_log
+
+
+@pytest.mark.parametrize("agentic", [False, True])
+@pytest.mark.parametrize("transformed_context", [False, True])
+def test_run_evaluation_records_ordered_context_prefix_metrics(
+    monkeypatch,
+    tmp_path,
+    agentic,
+    transformed_context,
+):
+    case = {
+        "id": "direct-context-prefix",
+        "category": "direct",
+        "challenge_tags": [],
+        "question": "Which lines support the answer?",
+        "reference_answer": "The evidence is on lines two and three.",
+        "answerable": True,
+        "expected_sources": ["notes/alpha.md"],
+        "expected_evidence": [{
+            "source": "notes/alpha.md",
+            "start_line": 2,
+            "end_line": 3,
+            "text": "shared\nanswer evidence",
+        }],
+    }
+    settings = SimpleNamespace(
+        llm=SimpleNamespace(
+            provider="fixture",
+            model="fixture-answer",
+            effective_eval_provider="fixture",
+            effective_eval_model="fixture-judge",
+            max_chunks=2,
+        ),
+        embed_model_name="fixture-embedding",
+        chunk_size=200,
+        chunk_overlap=50,
+        top_k=2,
+        min_retrieval_score=0.0,
+    )
+
+    @contextmanager
+    def isolated_index():
+        yield settings, object(), object()
+
+    first_hit = {
+        "source": "notes/alpha.md",
+        "chunk_id": 1,
+        "start_line": 1,
+        "end_line": 2,
+        "score": 0.95,
+        "text": "first line\nshared",
+        "stage": "retrieval",
+        "method": "FAISS vector search",
+    }
+    second_hit = {
+        "source": "notes/alpha.md",
+        "chunk_id": 2,
+        "start_line": 2,
+        "end_line": 3,
+        "score": 0.90,
+        "text": "shared\nanswer evidence",
+        "stage": "retrieval",
+        "method": "FAISS vector search",
+    }
+
+    def fake_run_query(
+        _rag,
+        _meta_store,
+        *,
+        query,
+        agentic,
+        stream,
+        on_generation,
+        on_retrieval,
+    ):
+        context_second_text = (
+            "answer evidence" if transformed_context else second_hit["text"]
+        )
+        context = [first_hit, second_hit]
+        generation_context = [
+            {
+                "source": hit["source"],
+                "chunk_id": hit["chunk_id"],
+                "start_line": hit["start_line"],
+                "end_line": hit["end_line"],
+                "text": (
+                    context_second_text if hit is second_hit else hit["text"]
+                ),
+                "prompt_block": hit["text"],
+            }
+            for hit in context
+        ]
+        search_results = (
+            [[first_hit], [second_hit]] if agentic else [[first_hit, second_hit]]
+        )
+        search_queries = (
+            [query, "controller follow-up query"] if agentic else [query]
+        )
+        citations = [
+            {
+                "source": hit["source"],
+                "chunk_id": hit["chunk_id"],
+                "score": hit["score"],
+                "start_line": hit["start_line"],
+                "end_line": hit["end_line"],
+            }
+            for hit in context
+        ]
+        return {
+            "answer": "The evidence is on lines two and three.",
+            "citations": citations,
+            "retrieved_evidence": [first_hit, second_hit],
+            "search_results": search_results,
+            "search_queries": search_queries,
+            "generation_context": generation_context,
+        }
+
+    monkeypatch.setattr(eval_runner, "load_qa_fixture", lambda: [case])
+    monkeypatch.setattr(eval_runner, "get_settings", lambda: settings)
+    monkeypatch.setattr(eval_runner, "_isolated_fixture_index", isolated_index)
+    monkeypatch.setattr(
+        "rag_notes_helper.cli.run_query",
+        fake_run_query,
+    )
+    monkeypatch.setattr(
+        eval_runner,
+        "_attach_ragas_scores",
+        lambda *args, **kwargs: None,
+    )
+
+    run_dir = eval_runner.run_evaluation(
+        output_root=tmp_path,
+        agentic=agentic,
+    )
+
+    results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
+    case_result = results["cases"][0]
+    prefixes = case_result["context_prefix_metrics"]
+    assert results["run_metadata"]["top_k"] == 2
+    assert [prefix["context_prefix_k"] for prefix in prefixes] == [1, 2]
+    assert prefixes[0] == {
+        "context_prefix_k": 1,
+        "evidence_lines_covered": 1,
+        "ground_truth_line_count": 2,
+        "recall": 0.5,
+        "precision": 0.5,
+        "ndcg": 1.0,
+        "line_provenance_available": True,
+    }
+    if transformed_context:
+        assert prefixes[1] == {
+            "context_prefix_k": 2,
+            "evidence_lines_covered": None,
+            "ground_truth_line_count": 2,
+            "recall": None,
+            "precision": None,
+            "ndcg": None,
+            "line_provenance_available": False,
+        }
+    else:
+        assert prefixes[1] == {
+            "context_prefix_k": 2,
+            "evidence_lines_covered": 2,
+            "ground_truth_line_count": 2,
+            "recall": 1.0,
+            "precision": 2 / 3,
+            "ndcg": 1.0,
+            "line_provenance_available": True,
+        }
     assert "Evaluation failed (OSError)." in run_log

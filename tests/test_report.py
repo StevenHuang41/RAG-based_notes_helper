@@ -459,3 +459,82 @@ def test_report_shows_missing_provider_usage_without_estimates(
     assert expected in report
     assert "out=None" not in report
     assert "total=None" not in report
+
+
+@pytest.mark.parametrize("workflow", ["classic", "agentic"])
+def test_report_audits_search_registry_and_context_prefixes(tmp_path, workflow):
+    results = _report_results(workflow)
+    results["run_metadata"]["top_k"] = 3
+    case = results["cases"][0]
+    case["context_prefix_metrics"] = (
+        [
+            {
+                "context_prefix_k": 1,
+                "evidence_lines_covered": None,
+                "ground_truth_line_count": 2,
+                "recall": None,
+                "precision": None,
+                "ndcg": None,
+                "line_provenance_available": False,
+            },
+            {
+                "context_prefix_k": 2,
+                "evidence_lines_covered": None,
+                "ground_truth_line_count": 2,
+                "recall": None,
+                "precision": None,
+                "ndcg": None,
+                "line_provenance_available": False,
+            },
+        ]
+        if workflow == "agentic"
+        else [
+            {
+                "context_prefix_k": 1,
+                "evidence_lines_covered": 1,
+                "ground_truth_line_count": 2,
+                "recall": 0.5,
+                "precision": 0.5,
+                "ndcg": 1.0,
+                "line_provenance_available": True,
+            },
+        ]
+    )
+    report_path = tmp_path / f"{workflow}-context-prefix-report.md"
+
+    write_readme(report_path, results)
+
+    report = report_path.read_text(encoding="utf-8")
+    assert "| Retrieval top-k | Recall | Precision | NDCG |" in report
+    assert "| 3 | 0.9000 | 0.7000 | 0.8000 |" in report
+    assert "Retrieval (1) uses the initial question" in report
+    assert "Retrieval (2) identifies a controller-requested search" in report
+    query_section = report.split("## Query details", 1)[1].split("## Artifacts", 1)[0]
+    query_details = query_section.split("### direct-01", 1)[1]
+    search_registry = query_details.split("#### Search registry", 1)[1].split(
+        "#### Ranked retrieval results", 1
+    )[0]
+    ranked_results = query_details.split(
+        "#### Ranked retrieval results", 1
+    )[1].split("#### Context passed to answer generation", 1)[0]
+    assert "| Search ID | Search query | Stage | Method |" in search_registry
+    assert "| Retrieval (1) | When does Project Cedar launch? | retrieval | FAISS vector search |" in search_registry
+    if workflow == "agentic":
+        assert "| Retrieval (2) | Project Cedar launch date confirmation | retrieval | FAISS vector search |" in search_registry
+        assert "When does Project Cedar launch?" not in ranked_results
+        assert "Project Cedar launch date confirmation" not in ranked_results
+    assert "| Search ID | Rank | Chunk ID | Source path | Lines | Score | Retrieved chunk text |" in ranked_results
+    assert "| Retrieval (1) | 1 | 4 |" in ranked_results
+    assert "Search query" not in ranked_results
+    assert "FAISS vector search" not in ranked_results
+    assert "Context prefix k" in query_details
+    assert "Unique evidence lines / Recall" in query_details
+    assert "| 1 | N/A | N/A | N/A |" in query_details if workflow == "agentic" else (
+        "| 1 | 1/2 (0.5000) | 0.5000 | 1.0000 |" in query_details
+    )
+    assert "prefix rows assess evidence available at each context length" in report
+    assert "one answer is generated from the complete final context" in report
+    assert (
+        "- **Expected sources:** [&quot;notes/launch.md&quot;]"
+        "\n\n| Source path | Lines | Reviewed evidence text |"
+    ) in report
