@@ -289,6 +289,10 @@ def test_report_distinguishes_evidence_context_diagnostics_and_execution_cost(
     assert "Reference answer:" in report and "Generated answer:" in report
     assert "expected_source_coverage" not in report
     assert "expected_evidence_coverage" not in report
+    judge_usage_table = report.split("#### Judge usage by metric", 1)[1].split(
+        "## Metrics by category", 1
+    )[0]
+    assert "| context_utilization |" in judge_usage_table
     assert "| context_utilization |" in report
     assert "0.6123" in report and "0.7345" in report
     assert "| Faithfulness | 0.9100 | 1/2 |" in report
@@ -325,11 +329,14 @@ def test_report_distinguishes_evidence_context_diagnostics_and_execution_cost(
     assert "#### Token usage" not in query_details
     assert "#### Latency" not in query_details
     assert "| Process/call | Latency (ms) | Provider / model | " in report
-    assert "Token usage (status, in/out/total) |" in report
+    assert (
+        "Provider total tokens | Calculated input+output tokens | "
+        "Input chars | Output chars |"
+    ) in report
     assert "fixture-answer / answer-v1" in report
     assert "fixture-judge / judge-v1" in report
     assert "Judge: context_utilization" in report
-    assert "partial: in=5, out=N/A, total=N/A" in report
+    assert "| partial | 5 | N/A | N/A | N/A | N/A | N/A |" in report
 
     if workflow == "agentic":
         retrieval = report.split("#### Retrieval", 1)[1].split(
@@ -422,8 +429,12 @@ def test_report_explains_when_ragas_evaluation_fails(tmp_path):
 @pytest.mark.parametrize(
     ("status", "input_tokens", "expected"),
     [
-        ("partial", 5, "partial: in=5, out=N/A, total=N/A"),
-        ("unavailable", None, "unavailable: in=N/A, out=N/A, total=N/A"),
+        ("partial", 5, "| partial | 5 | N/A | N/A | N/A | N/A | N/A |"),
+        (
+            "unavailable",
+            None,
+            "| unavailable | N/A | N/A | N/A | N/A | N/A | N/A |",
+        ),
     ],
 )
 def test_report_shows_missing_provider_usage_without_estimates(
@@ -538,3 +549,196 @@ def test_report_audits_search_registry_and_context_prefixes(tmp_path, workflow):
         "- **Expected sources:** [&quot;notes/launch.md&quot;]"
         "\n\n| Source path | Lines | Reviewed evidence text |"
     ) in report
+
+
+@pytest.mark.parametrize("workflow", ["classic", "agentic"])
+def test_report_separates_provider_totals_calculated_totals_and_characters(
+    tmp_path,
+    workflow,
+):
+    result = _report_results(workflow)
+    workflow_summary = result["summary"]["workflows"][workflow]
+    calculated_usage = {
+        "status": "partial",
+        "input_tokens": 7,
+        "output_tokens": 5,
+        "total_tokens": None,
+    }
+    answer_call = result["cases"][0]["generation_usage"]["calls"][0]
+    answer_call["token_usage"] = calculated_usage
+    answer_call["characters"] = {"input": 64, "output": 21}
+    controller_call = {
+        "call_type": "controller",
+        "provider": "fixture-controller",
+        "model": "controller-v1",
+        "latency_ms": 2.5,
+        "token_usage": {
+            "status": "available",
+            "input_tokens": 3,
+            "output_tokens": 4,
+            "total_tokens": 7,
+        },
+        "characters": {"input": 77, "output": 9},
+    }
+    generation_usage = {
+        "call_count": 2,
+        "token_usage": {
+            "status": "partial",
+            "input_tokens": 10,
+            "output_tokens": 9,
+            "total_tokens": 7,
+        },
+        "character_usage": {"input": 141, "output": 30},
+        "calls": [controller_call, answer_call],
+    }
+    result["cases"][0]["generation_usage"] = generation_usage
+    workflow_summary["generation_usage"] = generation_usage
+
+    metric_names = (
+        "faithfulness",
+        "answer_relevancy",
+        "answer_correctness",
+        "context_utilization",
+    )
+    judge_call = {
+        "call_type": "judge",
+        "provider": "fixture-judge",
+        "model": "judge-v1",
+        "token_usage": {
+            "status": "partial",
+            "input_tokens": 2,
+            "output_tokens": 1,
+            "total_tokens": None,
+        },
+    }
+    judge_usage_by_metric = {
+        metric: {
+            "call_count": 1,
+            "token_usage": judge_call["token_usage"],
+            "calls": [{**judge_call, "metric": metric}],
+        }
+        for metric in metric_names
+    }
+    result["cases"][0]["judge_usage_by_metric"] = judge_usage_by_metric
+    workflow_summary["judge_usage_by_metric"] = judge_usage_by_metric
+    judge_calls = [
+        {**judge_call, "metric": metric}
+        for metric in metric_names
+    ]
+    result["summary"]["judge_usage"]["total"] = {
+        "call_count": len(judge_calls),
+        "token_usage": {
+            "status": "partial",
+            "input_tokens": 8,
+            "output_tokens": 4,
+            "total_tokens": None,
+        },
+        "calls": judge_calls,
+    }
+    workflow_summary["by_category"] = {
+        "direct": {
+            "case_count": 1,
+            "generation_usage": generation_usage,
+            "judge_usage": result["summary"]["judge_usage"]["total"],
+        },
+    }
+
+    report_path = tmp_path / "usage-report.md"
+    write_readme(report_path, result)
+
+    report = report_path.read_text(encoding="utf-8")
+    assert "Provider total tokens" in report
+    assert "Calculated input+output tokens" in report
+    assert "Input chars" in report and "Output chars" in report
+    assert "calculated input+output=12" in report
+    assert "calculated input+output=19" in report
+    assert "provider total=N/A" in report
+    assert (
+        "| controller call 1 | 2.5000 | fixture-controller / controller-v1 | "
+        "available | 3 | 4 | 7 | N/A | 77 | 9 |"
+    ) in report
+    assert (
+        "| answer call 2 | 4.5000 | fixture-answer / answer-v1 | "
+        "partial | 7 | 5 | N/A | 12 | 64 | 21 |"
+    ) in report
+    assert "Judge: context_utilization" in report
+    assert "Input chars | Output chars |" in report
+    assert "N/A | N/A" in report
+    judge_usage_table = report.split("#### Judge usage by metric", 1)[1].split(
+        "## Metrics by category", 1
+    )[0]
+    for metric in (
+        "faithfulness",
+        "answer_relevancy",
+        "answer_correctness",
+        "context_utilization",
+    ):
+        assert f"| {metric} |" in judge_usage_table
+    category_table = report.split("## Metrics by category", 1)[1].split(
+        "## Evaluation process and metric guide", 1
+    )[0]
+    assert "calculated input+output=19" in category_table
+
+
+@pytest.mark.parametrize("workflow", ["classic", "agentic"])
+def test_report_uses_clear_latency_names_and_definitions(tmp_path, workflow):
+    result = _report_results(workflow)
+    workflow_summary = result["summary"]["workflows"][workflow]
+    workflow_summary["latency_ms"] = {
+        "retrieval_ms": 1.5,
+        "controller_ms": 2.5,
+        "answer_generation_ms": 4.5,
+        "generation_ms": 7.0,
+        "judge_ms": 6.0,
+        "rag_query_ms": 8.0,
+        "end_to_end_ms": 14.0,
+    }
+    workflow_summary["by_category"] = {
+        "direct": {
+            "case_count": 1,
+            "latency_ms": {"end_to_end_ms": 14.0},
+            "generation_usage": {"token_usage": {"status": "unavailable"}},
+            "judge_usage": {"token_usage": {"status": "unavailable"}},
+        },
+    }
+    case = result["cases"][0]
+    case["generation_usage"]["calls"].insert(0, {
+        "call_type": "controller",
+        "provider": "fixture-controller",
+        "model": "controller-v1",
+        "latency_ms": 2.5,
+        "token_usage": {
+            "status": "unavailable",
+            "input_tokens": None,
+            "output_tokens": None,
+            "total_tokens": None,
+        },
+    })
+    case["latency"].update({
+        "retrieval_calls": [{"search_index": 1, "latency_ms": 1.5}],
+        "retrieval_ms": 1.5,
+        "controller_ms": 2.5,
+        "answer_generation_ms": 4.5,
+        "generation_ms": 7.0,
+        "judge_ms": 6.0,
+        "rag_query_ms": 8.0,
+        "end_to_end_ms": 14.0,
+    })
+
+    report_path = tmp_path / "latency-report.md"
+    write_readme(report_path, result)
+
+    report = report_path.read_text(encoding="utf-8")
+    assert "Mean latency (ms)" in report
+    assert "Latency (ms)" in report
+    assert "RAG query latency" in report
+    assert "Evaluation latency" in report
+    assert "Mean evaluation latency (ms)" in report
+    assert "Retrieval latency total" in report
+    assert "Controller latency total" in report
+    assert "Answer generation latency total" in report
+    assert "RAG generation total" not in report
+    assert "generation_ms" not in report
+    assert "TTFT" not in report
+    assert "RAG query latency runs from query processing through the terminal answer or abstention" in report
+    assert "Evaluation latency adds all Ragas judge latency to RAG query latency" in report

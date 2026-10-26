@@ -287,8 +287,8 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     )
     assert "reason for faithfulness" in readme
     assert "## Metrics by category" in readme
-    assert "Controller/answer tokens" in readme
-    assert "Judge tokens" in readme
+    assert "Controller/answer usage" in readme
+    assert "Judge usage" in readme
     run_log = (run_dir / "run.log").read_text(encoding="utf-8")
     assert "Evaluation artifacts written successfully." in run_log
     assert "Who is the product owner for Aurora Planner?" not in run_log
