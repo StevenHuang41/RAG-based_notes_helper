@@ -42,8 +42,6 @@ def test_parser_accepts_evaluation_sample_and_seed():
     [
         ["rag-app", "--sample", "2"],
         ["rag-app", "--seed", "17"],
-        ["rag-app", "--eval-base", "--sample", "2"],
-        ["rag-app", "--eval-base", "--seed", "17"],
     ],
 )
 def test_sampling_options_require_fixture_evaluation(monkeypatch, argv):
@@ -496,20 +494,8 @@ def test_eval_command_explains_its_source_checkout_requirement(monkeypatch, caps
     assert "source checkout" in capsys.readouterr().err
 
 
-def test_eval_base_command_keeps_legacy_smoke_separate(monkeypatch):
-    calls = []
-    monkeypatch.setattr(sys, "argv", ["rag-app", "--eval-base"])
-    monkeypatch.setattr(
-        cli,
-        "run_base_smoke_evaluation",
-        lambda: calls.append("legacy smoke"),
-    )
-    monkeypatch.setattr(
-        cli,
-        "load_or_build_index",
-        lambda: pytest.fail("--eval-base manages its own user index"),
-    )
+def test_parser_rejects_removed_eval_base_flag():
+    with pytest.raises(SystemExit) as exc_info:
+        cli.build_parser().parse_args(["--eval-base"])
 
-    cli.main()
-
-    assert calls == ["legacy smoke"]
+    assert exc_info.value.code == 2

@@ -15,11 +15,6 @@ GENERATION_METRIC_NAMES = (
     "answer_correctness",
 )
 RETRIEVAL_METRIC_NAMES = ("context_utilization",)
-LEGACY_METRIC_NAMES = (
-    "faithfulness",
-    "answer_relevancy",
-    "context_utilization",
-)
 METRIC_NAMES = (*GENERATION_METRIC_NAMES, *RETRIEVAL_METRIC_NAMES)
 
 

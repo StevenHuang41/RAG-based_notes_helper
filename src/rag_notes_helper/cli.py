@@ -51,7 +51,7 @@ def _render_agentic_progress(stage: ProgressStage, search_count: int) -> None:
 
 
 def _load_evaluation_function(
-    function_name: Literal["run_evaluation", "run_base_smoke_evaluation"],
+    function_name: Literal["run_evaluation"],
 ) -> Callable[..., Any]:
     try:
         module = importlib.import_module("rag_notes_helper.eval.eval_runner")
@@ -82,10 +82,6 @@ def run_evaluation(
         seed=seed,
     )
 
-
-def run_base_smoke_evaluation() -> None:
-    evaluate = _load_evaluation_function("run_base_smoke_evaluation")
-    evaluate()
 
 @deco_time_block
 def show_config():
@@ -410,12 +406,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--eval-base",
-        action="store_true",
-        help="Run the legacy base.json system smoke evaluation on the user index",
-    )
-
-    parser.add_argument(
         "-ud",
         "--update",
         action="store_true",
@@ -475,13 +465,6 @@ def main():
         except ValueError as exc:
             parser.error(str(exc))
         return
-    if args.eval_base:
-        try:
-            run_base_smoke_evaluation()
-        except EvaluationUnavailableError as exc:
-            parser.error(str(exc))
-        return
-
     query = (" ".join(args.query)).strip()
     logger.info(
         f"[input]: rag-app{f' {query}' if query else ''}"
@@ -493,7 +476,6 @@ def main():
         f"{' --sources' if args.sources else ''}"
         f"{' --config' if args.config else ''}"
         f"{' --eval' if args.eval else ''}"
-        f"{' --eval-base' if args.eval_base else ''}"
     )
     logger.info(f"config: {get_settings().model_dump_json()}")
 
@@ -557,7 +539,6 @@ def main():
         or args.sources
         or args.reindex
         or args.update
-        or args.eval_base
     ):
         parser.print_help()
         sys.exit(1)

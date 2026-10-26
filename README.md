@@ -179,11 +179,11 @@ rag-app --eval --sample 5 --seed 42
 rag-app --agentic --eval --sample 5 --seed 42
 ```
 
-Each run writes `README.md`, `results.json`, and `run.log` under a local-time, Taipei timestamped directory in `eval/`. These generated reports are ignored by Git. When stderr is a terminal, evaluation shows a progress bar for case execution and RAGAS metric stages. Run metadata records the selected workflow, sampling settings, and selected case IDs. Sample selection is uniform without replacement; cases run in fixture order. The same fixture, sample count, and seed select the same cases. Without a seed, a sampled run may select a different subset each time. A seed without `--sample` still runs the full fixture. `--sample` must be a positive integer no larger than the fixture size. Sampling flags require fixture `--eval` and do not apply to `--eval-base`.
+Each run writes `README.md`, `results.json`, and `run.log` under a local-time, Taipei timestamped directory in `eval/`. These generated reports are ignored by Git. When stderr is a terminal, evaluation shows a progress bar for case execution and RAGAS metric stages. Run metadata records the selected workflow, sampling settings, and selected case IDs. Sample selection is uniform without replacement; cases run in fixture order. The same fixture, sample count, and seed select the same cases. Without a seed, a sampled run may select a different subset each time. A seed without `--sample` still runs the full fixture. `--sample` must be a positive integer no larger than the fixture size.
 
 The fixture is a regression set, not a statistically representative benchmark. A small sample can omit fixture categories; inspect the selected case IDs and category counts in the report. Evaluation logs use case IDs and do not include query or note text. Results include reference-free faithfulness, answer relevancy, and context utilization diagnostics, plus expected source/evidence coverage, answerability behavior, generation token usage, and separate RAGAS judge usage. RAGAS metrics use the generated answer and retrieved contexts, not the fixture reference answer; the reference answer remains in each case result for human inspection. RAGAS metrics are not applicable to unanswerable and ambiguous cases; those cases are evaluated through answerability, abstention, and evidence coverage. Token counts are provider-reported; unavailable values remain marked unavailable, while character counts are recorded separately.
 
-The fixture covers direct lookup, multi-hop integration, unanswerable questions, and ambiguous questions. It can grow with additional reviewed cases while retaining the original seed cases. The legacy `base.json` system smoke set remains separate and can be run with `--eval-base`; unlike `--eval`, it uses the configured user index.
+The fixture covers direct lookup, multi-hop integration, unanswerable questions, and ambiguous questions. It can grow with additional reviewed cases while retaining the original seed cases. Evaluation always uses this reviewed fixture and its isolated synthetic index; it never evaluates a user's `data/` directory or persistent `storage/` snapshot.
 
 To author additional QA candidates once from the fictional notes, run the development-only Ragas test-set generator:
 
@@ -193,7 +193,7 @@ uv run python -m rag_notes_helper.eval.candidate_generator --size 8
 
 Generation makes live Ragas model calls and may consume tokens. It reads only `tests/fixtures/notes`, uses the effective Ragas judge provider/model (falling back to the configured generation provider/model) and the existing local evaluation embedding model, and does not build or read the Notes Helper FAISS index. Drafts go to the ignored `eval/candidate-drafts/` directory by default; use `--output PATH` to choose another destination. Ragas `reference_contexts` are candidate-generation context, not trusted source annotations. Before promoting a case into `tests/fixtures/notes_qa.json`, a maintainer must verify the question and reference answer against the source notes, assign a fixture ID/category/answerability value, and add the expected source paths and evidence snippets. `--eval` always reads only the reviewed fixed fixture and never generates candidates.
 
-`--eval` and `--eval-base` are repository development commands. The evaluation code, fixtures, and RAGAS development dependencies are not included in the runtime wheel. In a source checkout, use an editable development install to run these commands.
+`--eval` is a repository development command. The evaluation code, fixtures, and RAGAS development dependencies are not included in the runtime wheel. In a source checkout, use an editable development install to run this command.
 
 ---
 
@@ -306,7 +306,6 @@ uv run rag-app "What is RAG?" --agentic      # use Agentic RAG for one query
 uv run rag-app --eval                        # evaluate Classic RAG on synthetic notes
 uv run rag-app --eval --sample 5 --seed 42   # reproducible small sample
 uv run rag-app --agentic --eval --sample 5 --seed 42 # sample Agentic RAG
-uv run rag-app --eval-base                   # legacy smoke set on the user index
 ```
 
 ### Interactive REPL

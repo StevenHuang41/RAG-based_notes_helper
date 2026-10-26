@@ -19,15 +19,12 @@ from time import perf_counter
 from typing import Any, Iterator, Literal
 from zoneinfo import ZoneInfo
 
-import pandas as pd
 from tqdm import tqdm
 
 from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.eval.answerability import has_nonblank_answer
-from rag_notes_helper.eval.dataset_builder import build_dataset
 from rag_notes_helper.eval.ragas_runner import (
     GENERATION_METRIC_NAMES,
-    LEGACY_METRIC_NAMES,
     METRIC_NAMES,
     RETRIEVAL_METRIC_NAMES,
 )
@@ -38,11 +35,7 @@ from rag_notes_helper.eval.retrieval_metrics import (
 from rag_notes_helper.eval.report import write_readme
 from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE
 from rag_notes_helper.rag.agentic import MAX_SEARCHES
-from rag_notes_helper.rag.index import (
-    RagIndex,
-    build_and_save_rag,
-    load_or_build_index,
-)
+from rag_notes_helper.rag.index import RagIndex, build_and_save_rag
 from rag_notes_helper.rag.meta_store import MetaStore
 from rag_notes_helper.utils.logger import get_logger
 
@@ -77,17 +70,6 @@ SEED_CASE_IDS = frozenset(
 )
 NOTES_FIXTURE = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "notes"
 QA_FIXTURE = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "notes_qa.json"
-
-
-def _run_ragas_rows_isolated(
-    rows: list[dict[str, Any]],
-    *,
-    usage_recorder: Callable[[dict[str, Any]], None],
-) -> list[dict[str, Any]]:
-    return _run_ragas_batches_isolated(
-        [{"rows": rows, "metric_names": list(LEGACY_METRIC_NAMES)}],
-        usage_recorder=usage_recorder,
-    )[0]
 
 
 def _run_ragas_batches_isolated(
@@ -1389,26 +1371,3 @@ def run_evaluation(
 
     print(f"Evaluation artifacts saved to {run_dir}")
     return run_dir
-
-
-def run_base_smoke_evaluation() -> None:
-    """Run the legacy application-behavior smoke set separately from notes QA."""
-    rag = load_or_build_index()
-    meta_store = MetaStore()
-    try:
-        dataset = build_dataset(
-            rag,
-            meta_store,
-            str(Path(__file__).resolve().parent / "testset" / "base.json"),
-        )
-        print("\nLegacy system smoke dataset built. Running Ragas evaluation...\n")
-        scores = _run_ragas_rows_isolated(
-            dataset.to_list(),
-            usage_recorder=lambda _call: None,
-        )
-        df = pd.DataFrame(scores)
-        print("\n=== LEGACY SYSTEM RAGAS RESULT ===\n")
-        for column in df.columns:
-            print(f"{column}: {df[column].mean()}")
-    finally:
-        meta_store.close()
