@@ -18,3 +18,4 @@
 ## Comments
 
 - Implemented on the integration branch in commit `3666c8f` and merged in `ce07d3e`; focused evaluation-runner and report tests passed (27 passed).
+- Code-review follow-up in commit `bcdcdd9` defines provider token statuses and calculated-total semantics; 6 focused tests passed.

@@ -17,4 +17,5 @@
 ## Comments
 
 - Implemented on the integration branch in commit `067c410`; focused evaluation-runner and report tests passed (23 passed).
+- Code-review follow-up in commit `bcdcdd9` aligns whitespace-only answer classification with Ragas eligibility; 6 focused tests passed.
 - --eval-base, TTFT instrumentation, multiple-top-k generation sweeps, retrieval changes, hybrid search, and reranking are outside this feature.
