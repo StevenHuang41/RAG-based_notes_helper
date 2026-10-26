@@ -169,6 +169,8 @@ def calculate_context_prefix_metrics(
                 retrieval_lists=[prefix_chunks],
                 top_k=context_prefix_k,
             )
+            if evidence_lines_covered == 0:
+                metrics = {"recall": 0.0, "precision": 0.0, "ndcg": 0.0}
 
         prefixes.append({
             "context_prefix_k": context_prefix_k,

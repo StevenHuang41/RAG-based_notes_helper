@@ -150,9 +150,9 @@ def _run_ragas_isolated(
             lambda case: {
                 "question": case["question"],
                 "answer": case["answer"],
-                "contexts": case["contexts"],
+                "contexts": case["answer_contexts"],
             },
-            "no retrieved context was available",
+            "no answer context was available",
         ),
         (
             "faithfulness",
@@ -189,9 +189,7 @@ def _run_ragas_isolated(
                 scored_results[scored_position]["metric_reasons"][metric_name] = (
                     "Skipped because no generated answer was available."
                 )
-            elif skip_reason and not case.get(
-                "contexts" if metric_name == "context_utilization" else "answer_contexts"
-            ):
+            elif skip_reason and not case.get("answer_contexts"):
                 scored_results[scored_position]["metric_reasons"][metric_name] = (
                     f"Skipped because {skip_reason}."
                 )
@@ -688,7 +686,7 @@ def _ragas_metric_is_eligible(case: dict[str, Any], metric: str) -> bool:
         return False
     required_context = {
         "faithfulness": "answer_contexts",
-        "context_utilization": "contexts",
+        "context_utilization": "answer_contexts",
     }.get(metric)
     return required_context is None or bool(case.get(required_context))
 
@@ -879,6 +877,24 @@ def _record_case(
         expected_evidence=case["expected_evidence"],
         context_chunks=generation_context_records,
     )
+    final_context_metrics = (
+        context_prefix_metrics[-1]
+        if context_prefix_metrics
+        else {
+            "context_prefix_k": None,
+            "evidence_lines_covered": None,
+            "ground_truth_line_count": sum(
+                span["end_line"] - span["start_line"] + 1
+                for span in case["expected_evidence"]
+                if isinstance(span.get("start_line"), int)
+                and isinstance(span.get("end_line"), int)
+            ),
+            "recall": None,
+            "precision": None,
+            "ndcg": None,
+            "line_provenance_available": False,
+        }
+    )
     record = {
         "case_id": case["id"],
         "category": case["category"],
@@ -892,6 +908,7 @@ def _record_case(
         "search_queries": search_queries,
         "generation_context": generation_context_records,
         "context_prefix_metrics": context_prefix_metrics,
+        "final_context_metrics": final_context_metrics,
         "contexts": [item["text"] for item in evidence_records],
         "answer_contexts": answer_contexts,
         "reference_answer": case["reference_answer"],
@@ -1075,6 +1092,13 @@ def _workflow_summary(cases: list[dict[str, Any]]) -> dict[str, Any]:
                 metric: _mean([case["retrieval_metrics"].get(metric) for case in group])
                 for metric in ("recall", "precision", "ndcg", *RETRIEVAL_METRIC_NAMES)
             },
+            "final_context_metrics": {
+                metric: _mean([
+                    case.get("final_context_metrics", {}).get(metric)
+                    for case in group
+                ])
+                for metric in ("recall", "precision", "ndcg")
+            },
             "expected_source_coverage": _mean(
                 [case["expected_source_coverage"] for case in group]
             ),
@@ -1180,7 +1204,7 @@ def run_evaluation(
     _log(run_log, f"Starting {workflow} synthetic-notes RAG evaluation.")
 
     results: dict[str, Any] = {
-        "schema_version": 4,
+        "schema_version": 5,
         "run_metadata": {
             "timestamp_local": timestamp,
             "timezone": "Asia/Taipei",
