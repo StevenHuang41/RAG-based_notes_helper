@@ -281,10 +281,12 @@ def agentic_answer(
         else partial(search_notes, rag=rag, meta_store=meta_store)
     )
     search_index = 0
+    search_queries: list[str] = []
 
     def timed_search(search_query: str) -> list[dict]:
         nonlocal search_index
         search_index += 1
+        search_queries.append(search_query)
         search_started = perf_counter()
         try:
             hits = search(search_query)
@@ -325,6 +327,7 @@ def agentic_answer(
             "citations": [],
             "retrieved_evidence": [],
             "search_results": search_results,
+            "search_queries": search_queries,
         }
 
     controller = controller if controller is not None else get_llm()
@@ -349,6 +352,7 @@ def agentic_answer(
                 "citations": [],
                 "retrieved_evidence": hits,
                 "search_results": search_results,
+                "search_queries": search_queries,
             }
 
         if isinstance(action, SearchAction):
@@ -390,4 +394,5 @@ def agentic_answer(
             )
         result["retrieved_evidence"] = hits
         result["search_results"] = search_results
+        result["search_queries"] = search_queries
         return result

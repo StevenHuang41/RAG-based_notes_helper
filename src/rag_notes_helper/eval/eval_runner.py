@@ -664,7 +664,7 @@ def _record_case(
     rag_query_latency_ms = round((perf_counter() - query_started) * 1000, 3)
 
     def evidence_record(hit: dict[str, Any]) -> dict[str, Any]:
-        return {
+        record = {
             "source": hit["source"],
             "chunk_id": hit["chunk_id"],
             "start_line": hit.get("start_line"),
@@ -672,6 +672,15 @@ def _record_case(
             "score": _safe_score(hit.get("score")),
             "text": hit["text"],
         }
+        for key in (
+            "stage",
+            "retrieval_stage",
+            "method",
+            "retrieval_method",
+        ):
+            if key in hit:
+                record[key] = hit[key]
+        return record
 
     evidence_records = [evidence_record(hit) for hit in evidence]
     raw_search_results = result.get("search_results") if workflow_error is None else None
@@ -691,15 +700,76 @@ def _record_case(
         }
         for citation in citations
     ]
-    citation_references = {
-        (citation["source"], citation["chunk_id"])
-        for citation in citation_records
+    retrieved_by_reference = {
+        (hit["source"], hit["chunk_id"]): hit
+        for search_hits in search_result_records
+        for hit in search_hits
     }
-    answer_contexts = [
-        item["text"]
-        for item in evidence_records
-        if (item["source"], item["chunk_id"]) in citation_references
-    ]
+    raw_generation_context = (
+        result.get("generation_context", []) if workflow_error is None else []
+    )
+    if not isinstance(raw_generation_context, list):
+        raw_generation_context = []
+    generation_context_records = []
+    for context_item in raw_generation_context:
+        if not isinstance(context_item, dict):
+            continue
+        source = context_item.get("source")
+        chunk_id = context_item.get("chunk_id")
+        retrieved_item = retrieved_by_reference.get((source, chunk_id), {})
+        context_text = context_item.get("text", retrieved_item.get("text"))
+        content_changed = context_text != retrieved_item.get("text")
+        generation_context_records.append({
+            "source": source,
+            "chunk_id": chunk_id,
+            "start_line": context_item.get(
+                "start_line", retrieved_item.get("start_line")
+            ),
+            "end_line": context_item.get(
+                "end_line", retrieved_item.get("end_line")
+            ),
+            "content_changed": content_changed,
+            "text": context_text if content_changed else None,
+            "prompt_block": (
+                context_item.get("prompt_block") if content_changed else None
+            ),
+        })
+    if not generation_context_records:
+        for citation in citation_records:
+            retrieved_item = retrieved_by_reference.get(
+                (citation["source"], citation["chunk_id"]),
+                {},
+            )
+            if retrieved_item:
+                text = retrieved_item.get("text")
+                generation_context_records.append({
+                    "source": citation["source"],
+                    "chunk_id": citation["chunk_id"],
+                    "start_line": retrieved_item.get("start_line"),
+                    "end_line": retrieved_item.get("end_line"),
+                    "text": text,
+                    "prompt_block": (
+                        f"file:{citation['source']}\n{text}"
+                        if isinstance(text, str)
+                        else None
+                    ),
+                })
+    answer_contexts = []
+    for item in generation_context_records:
+        context_text = item.get("text")
+        if context_text is None:
+            context_text = retrieved_by_reference.get(
+                (item.get("source"), item.get("chunk_id")), {}
+            ).get("text")
+        if isinstance(context_text, str):
+            answer_contexts.append(context_text)
+    search_queries = (
+        result.get("search_queries", []) if workflow_error is None else []
+    )
+    if not isinstance(search_queries, list):
+        search_queries = []
+    if not search_queries and search_result_records:
+        search_queries = [case["question"]] * len(search_result_records)
     controller_latency_ms = round(sum(
         call.get("latency_ms") or 0
         for call in generation_calls
@@ -728,6 +798,8 @@ def _record_case(
         "citations": citation_records,
         "retrieved_evidence": evidence_records,
         "search_results": search_result_records,
+        "search_queries": search_queries,
+        "generation_context": generation_context_records,
         "contexts": [item["text"] for item in evidence_records],
         "answer_contexts": answer_contexts,
         "reference_answer": case["reference_answer"],
@@ -981,7 +1053,7 @@ def run_evaluation(
     _log(run_log, f"Starting {workflow} synthetic-notes RAG evaluation.")
 
     results: dict[str, Any] = {
-        "schema_version": 2,
+        "schema_version": 3,
         "run_metadata": {
             "timestamp_local": timestamp,
             "timezone": "Asia/Taipei",

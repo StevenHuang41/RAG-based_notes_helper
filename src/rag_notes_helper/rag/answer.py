@@ -63,13 +63,26 @@ def rag_answer(
     if hits:
         hits = hits[: settings.llm.max_chunks]
 
-    context_blocks = [f"file:{h['source']}\n{h['text']}" for h in hits]
+    generation_context = [
+        {
+            "source": hit["source"],
+            "chunk_id": hit["chunk_id"],
+            "start_line": hit.get("start_line"),
+            "end_line": hit.get("end_line"),
+            "text": hit["text"],
+            "prompt_block": f"file:{hit['source']}\n{hit['text']}",
+        }
+        for hit in hits
+    ]
+    context_blocks = [item["prompt_block"] for item in generation_context]
     context = "\n\n".join(context_blocks)
     citations = [
         {
             "source": h["source"],
             "chunk_id": h["chunk_id"],
             "score": h["score"],
+            "start_line": h.get("start_line"),
+            "end_line": h.get("end_line"),
         } for h in hits
     ]
 
@@ -139,4 +152,5 @@ def rag_answer(
     return {
         "answer": answer_text,
         "citations": citations,
+        "generation_context": generation_context,
     }

@@ -26,5 +26,11 @@ A read-only interface that searches indexed notes and returns candidate chunks w
 **Evidence span**:
 A contiguous range of source lines that supports an expected answer. Its source and line bounds identify where the evidence appears, while its text records the reviewed content.
 
+**Retrieved chunk**:
+A note chunk returned by a retrieval search, identified by its source metadata and rank within that search. A retrieved chunk is a candidate for the answer and is not necessarily passed to the answer generator.
+
+**Answer generation context**:
+The ordered evidence blocks actually provided to the final answer-generation call. It may contain all retrieved chunks or a selected, reordered, or transformed subset.
+
 **Evaluation run**:
 An assessment of a RAG query mode against prepared questions and expected evidence, with results available for review.

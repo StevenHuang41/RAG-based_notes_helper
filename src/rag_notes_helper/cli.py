@@ -222,6 +222,7 @@ def run_query(
         kwargs["on_generation"] = on_generation
     result = rag_answer(query, **kwargs)
     result["retrieved_evidence"] = hits
+    result["search_queries"] = [query]
     return result
 
 
