@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] Store Final context evidence metrics from the final Context prefix for each query, then use them in query, category, and overall structured summaries.
 - [ ] Keep ranked Retrieval top-k candidates as an audit only; do not use them as the primary Recall, Precision, and NDCG scope.
@@ -15,3 +15,8 @@
 ## Comments
 
 - This is a follow-up to resolved evaluation-report-refinements issues. It changes deterministic metric scope from Retrieval top-k candidates to the final Answer generation context.
+
+## Answer
+
+- Implemented in `35dcd40` and merged into the integration branch. Schema v5 records final-context evidence metrics, preserves ranked retrieval data for audit, applies zero scores to grounded misses, and sends final generation context to Context Utilization.
+- Validation: `30 passed` with `tests/test_eval_runner.py tests/test_retrieval_metrics.py -q` on Python 3.13, plus `git diff --check` after merge.
