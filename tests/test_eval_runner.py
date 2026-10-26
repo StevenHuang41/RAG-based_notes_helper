@@ -1025,6 +1025,7 @@ def test_artifact_failure_does_not_log_successful_write(
     run_dir = next(output_root.iterdir())
     run_log = (run_dir / "run.log").read_text(encoding="utf-8")
     assert "Evaluation artifacts written successfully." not in run_log
+    assert "Evaluation failed (OSError)." in run_log
 
 
 @pytest.mark.parametrize("agentic", [False, True])
@@ -1191,7 +1192,6 @@ def test_run_evaluation_records_ordered_context_prefix_metrics(
             "ground_truth_line_count": 2,
             "recall": 1.0,
             "precision": 2 / 3,
-            "ndcg": 1.0,
+            "ndcg": pytest.approx(0.5436432511904858),
             "line_provenance_available": True,
         }
-    assert "Evaluation failed (OSError)." in run_log

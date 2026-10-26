@@ -349,11 +349,11 @@ def test_report_distinguishes_evidence_context_diagnostics_and_execution_cost(
             "#### Ragas judge diagnostics", 1
         )[0]
         assert context.index("file:notes/launch.md<br>Launch date: 2026-07-14.") < context.index(
-            "Same as Retrieval search 1, rank 1"
+            "Same as Retrieval (1), rank 1"
         )
     else:
         assert report.count("When does Project Cedar launch?") >= 2
-        assert "Same as Retrieval search 1, rank 2" in report
+        assert "Same as Retrieval (1), rank 2" in report
 
     judge = report.split("#### Ragas judge diagnostics", 1)[1].split(
         "#### Execution audit: latency and token usage", 1
@@ -477,6 +477,9 @@ def test_report_audits_search_registry_and_context_prefixes(tmp_path, workflow):
     results = _report_results(workflow)
     results["run_metadata"]["top_k"] = 3
     case = results["cases"][0]
+    if workflow == "agentic":
+        case["search_results"][1][0]["stage"] = "rerank"
+        case["search_results"][1][0]["method"] = "FAISS reranker"
     case["context_prefix_metrics"] = (
         [
             {
@@ -531,13 +534,25 @@ def test_report_audits_search_registry_and_context_prefixes(tmp_path, workflow):
     assert "| Search ID | Search query | Stage | Method |" in search_registry
     assert "| Retrieval (1) | When does Project Cedar launch? | retrieval | FAISS vector search |" in search_registry
     if workflow == "agentic":
-        assert "| Retrieval (2) | Project Cedar launch date confirmation | retrieval | FAISS vector search |" in search_registry
+        assert (
+            '| Retrieval (2) | Project Cedar launch date confirmation | '
+            '[&quot;rerank&quot;, &quot;retrieval&quot;] | '
+            '[&quot;FAISS reranker&quot;, &quot;FAISS vector search&quot;] |'
+        ) in search_registry
         assert "When does Project Cedar launch?" not in ranked_results
         assert "Project Cedar launch date confirmation" not in ranked_results
     assert "| Search ID | Rank | Chunk ID | Source path | Lines | Score | Retrieved chunk text |" in ranked_results
     assert "| Retrieval (1) | 1 | 4 |" in ranked_results
     assert "Search query" not in ranked_results
     assert "FAISS vector search" not in ranked_results
+    if workflow == "classic":
+        context = query_details.split(
+            "#### Context passed to answer generation", 1
+        )[1].split("#### Context-prefix metrics", 1)[0]
+        assert "Owner: Mina Chen." in ranked_results
+        assert "Owner: Mina Chen." not in context
+        assert "Same as Retrieval (1), rank 2" in context
+        assert "file:notes/launch.md<br>Launch date: 2026-07-14." not in context
     assert "Context prefix k" in query_details
     assert "Unique evidence lines / Recall" in query_details
     assert "| 1 | N/A | N/A | N/A |" in query_details if workflow == "agentic" else (
@@ -549,6 +564,9 @@ def test_report_audits_search_registry_and_context_prefixes(tmp_path, workflow):
         "- **Expected sources:** [&quot;notes/launch.md&quot;]"
         "\n\n| Source path | Lines | Reviewed evidence text |"
     ) in report
+    abstention_details = query_details.split("### unanswerable-01", 1)[1]
+    assert "| Retrieval (1) | What is the private launch code? | N/A | N/A |" in abstention_details
+    assert "| Retrieval (1) | — | — | — | — | — | No chunk returned |" in abstention_details
 
 
 @pytest.mark.parametrize("workflow", ["classic", "agentic"])

@@ -125,3 +125,57 @@ def calculate_retrieval_metrics(
         "precision": precision,
         "ndcg": sum(ndcg_values) / len(ndcg_values) if ndcg_values else None,
     }
+
+
+def calculate_context_prefix_metrics(
+    *,
+    expected_evidence: Sequence[Mapping[str, Any]],
+    context_chunks: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Score cumulative evidence in answer-generation context order.
+
+    A transformed context chunk is scored only when its exact source-line
+    provenance is available. The current context record does not retain a
+    mapping for transformed text, so that prefix and every later prefix are
+    marked unavailable.
+    """
+    ground_truth = set().union(*(_span_positions(span) for span in expected_evidence))
+    prefix_chunks: list[Mapping[str, Any]] = []
+    prefix_has_line_provenance = True
+    prefixes: list[dict[str, Any]] = []
+
+    for context_prefix_k, chunk in enumerate(context_chunks, start=1):
+        prefix_chunks.append(chunk)
+        prefix_has_line_provenance = (
+            prefix_has_line_provenance
+            and chunk.get("content_changed") is not True
+            and bool(_span_positions(chunk))
+        )
+
+        if not prefix_has_line_provenance:
+            evidence_lines_covered = None
+            metrics = {"recall": None, "precision": None, "ndcg": None}
+        elif not ground_truth:
+            evidence_lines_covered = 0
+            metrics = {"recall": None, "precision": None, "ndcg": None}
+        else:
+            retrieved = set().union(*(
+                _span_positions(prefix_chunk)
+                for prefix_chunk in prefix_chunks
+            ))
+            evidence_lines_covered = len(ground_truth & retrieved)
+            metrics = calculate_retrieval_metrics(
+                expected_evidence=expected_evidence,
+                retrieval_lists=[prefix_chunks],
+                top_k=context_prefix_k,
+            )
+
+        prefixes.append({
+            "context_prefix_k": context_prefix_k,
+            "evidence_lines_covered": evidence_lines_covered,
+            "ground_truth_line_count": len(ground_truth),
+            **metrics,
+            "line_provenance_available": prefix_has_line_provenance,
+        })
+
+    return prefixes

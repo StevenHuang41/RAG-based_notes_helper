@@ -30,7 +30,10 @@ from rag_notes_helper.eval.ragas_runner import (
     METRIC_NAMES,
     RETRIEVAL_METRIC_NAMES,
 )
-from rag_notes_helper.eval.retrieval_metrics import calculate_retrieval_metrics
+from rag_notes_helper.eval.retrieval_metrics import (
+    calculate_context_prefix_metrics,
+    calculate_retrieval_metrics,
+)
 from rag_notes_helper.eval.report import write_readme
 from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE
 from rag_notes_helper.rag.agentic import MAX_SEARCHES
@@ -867,6 +870,10 @@ def _record_case(
         retrieval_lists=raw_search_results,
         top_k=get_settings().top_k,
     )
+    context_prefix_metrics = calculate_context_prefix_metrics(
+        expected_evidence=case["expected_evidence"],
+        context_chunks=generation_context_records,
+    )
     record = {
         "case_id": case["id"],
         "category": case["category"],
@@ -879,6 +886,7 @@ def _record_case(
         "search_results": search_result_records,
         "search_queries": search_queries,
         "generation_context": generation_context_records,
+        "context_prefix_metrics": context_prefix_metrics,
         "contexts": [item["text"] for item in evidence_records],
         "answer_contexts": answer_contexts,
         "reference_answer": case["reference_answer"],

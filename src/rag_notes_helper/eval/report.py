@@ -217,7 +217,7 @@ def _readme_report(results: dict[str, Any]) -> str:
         ("Embedding model", "embedding_model"),
         ("Chunk size", "chunk_size"),
         ("Chunk overlap", "chunk_overlap"),
-        ("Top-k", "top_k"),
+        ("Retrieval top-k", "top_k"),
         ("Minimum retrieval score", "min_retrieval_score"),
         ("Maximum answer chunks", "max_answer_chunks"),
         ("Agentic maximum searches", "agentic_max_searches"),
@@ -434,13 +434,14 @@ def _readme_report(results: dict[str, Any]) -> str:
         "## Evaluation process and metric guide",
         "",
         "1. The fixture supplies the reference answer, expected answerability, expected source paths, and reviewed evidence spans.",
-        "2. The selected Classic or Agentic workflow runs retrieval. Each search returns ranked candidate chunks; Agentic RAG can search repeatedly and select a subset for final generation.",
-        "3. The answer generator receives the ordered context chunks shown in each query's context section. Each chunk is formatted as `file:<source>\\n<chunk text>` and blocks are separated by a blank line. If the workflow abstains, no final-answer context is sent.",
-        "4. Deterministic retrieval scores compare retrieved source lines with the reviewed evidence: Recall measures evidence coverage, Precision measures the share of retrieved lines that are relevant, and NDCG measures whether relevant evidence ranks early. For Agentic RAG, Recall and Precision use the union of search results, while NDCG is averaged across applicable searches.",
-        "5. Answerability outcomes are counts grouped by the fixture's expected answerability. Errors and unavailable answers do not count as correct behavior; an empty group is shown as N/A.",
-        "6. Ragas scores apply only to expected-answerable cases that produced an answer. The eligible-case count is shown beside each score; N/A means no selected case was eligible. Faithfulness checks whether answer claims are supported by the answer context; Answer Relevancy checks whether the response addresses the question; Answer Correctness compares the response with the reference answer. Answer Relevancy and Answer Correctness also use the configured local evaluation embeddings. These judge scores are diagnostics, not pass/fail guarantees.",
-        "7. Context Utilization is a context/retrieval diagnostic, not an answer-quality metric. It is computed only when the case has retrieved context; its judge-call latency and provider-reported token usage remain visible in the query execution audit.",
-        "8. Per-call latency is shown in milliseconds. RAG query latency runs from query processing through the terminal answer or abstention. Evaluation latency adds all Ragas judge latency to RAG query latency. Token fields are provider-reported. A calculated input+output total appears only when every included call has both counts and provider totals are missing. Partial or unavailable status stays visible. Recorded character counts are shown separately and never converted to tokens; retrieval and local embedding work are not provider token usage.",
+        "2. Retrieval (1) uses the initial question; Retrieval (2) identifies a controller-requested search, and later IDs identify subsequent controller-requested searches. Every search applies the configured Retrieval top-k as its maximum candidate count, though it may return fewer results. The Search registry records each query and its available stage/method metadata once; ranked result rows refer to that Retrieval (n) ID.",
+        "3. Retrieved chunks are candidates, not necessarily model input. The Answer generation context table shows the ordered chunks passed to the final answer call; Agentic RAG may select, reorder, or transform those candidates. Each context block is formatted as `file:<source>\\n<chunk text>` and blocks are separated by a blank line. If the workflow abstains, no final-answer context is sent.",
+        "4. Retrieval top-k Recall, Precision, and NDCG score retrieved candidate lists, not the Answer generation context. Recall measures evidence coverage: the share of reviewed evidence lines retrieved. Precision measures the share of retrieved lines that are relevant to the reviewed evidence. NDCG measures whether relevant evidence ranks early. For Agentic RAG, Recall and Precision use the union of that query's search results, while NDCG is averaged over applicable ranked search lists.",
+        "5. Context prefix k counts the first k chunks in the exact Answer generation context order. Each row shows cumulative unique evidence-line coverage and Recall, Precision, and context-order NDCG. For interpretation, prefix rows assess evidence available at each context length while one answer is generated from the complete final context; they are not separate generated answers. Affected metrics show N/A when exact source-line provenance is unavailable, including transformed context without a line mapping.",
+        "6. Answerability outcomes are counts grouped by the fixture's expected answerability. Errors and unavailable answers do not count as correct behavior; an empty group is shown as N/A.",
+        "7. Ragas scores apply only to expected-answerable cases that produced an answer. The eligible-case count is shown beside each score; N/A means no selected case was eligible. Faithfulness checks whether answer claims are supported by the answer context; Answer Relevancy checks whether the response addresses the question; Answer Correctness compares the response with the reference answer. Answer Relevancy and Answer Correctness also use the configured local evaluation embeddings. These judge scores are diagnostics, not pass/fail guarantees.",
+        "8. Context Utilization is a context/retrieval diagnostic, not an answer-quality metric. It is computed only when the case has retrieved context; its judge-call latency and provider-reported token usage remain visible in the query execution audit.",
+        "9. Per-call latency is shown in milliseconds. RAG query latency runs from query processing through the terminal answer or abstention. Evaluation latency adds all Ragas judge latency to RAG query latency. Token fields are provider-reported. A calculated input+output total appears only when every included call has both counts and provider totals are missing. Partial or unavailable status stays visible. Recorded character counts are shown separately and never converted to tokens; retrieval and local embedding work are not provider token usage.",
         "",
         "Retrieved similarity scores are ranking signals, not calibrated probabilities. A search rank is local to that search; the answer-context table shows the final order provided to answer generation.",
         "",
@@ -465,7 +466,10 @@ def _readme_report(results: dict[str, Any]) -> str:
             "",
         ])
         expected_sources = case.get("expected_sources", [])
-        lines.append(f"- **Expected sources:** {_markdown_cell(expected_sources)}")
+        lines.extend([
+            f"- **Expected sources:** {_markdown_cell(expected_sources)}",
+            "",
+        ])
         evidence_rows = [
             [
                 item.get("source"),
@@ -479,33 +483,57 @@ def _readme_report(results: dict[str, Any]) -> str:
             evidence_rows,
         ))
         lines.extend(["", "#### Retrieval", ""])
+        retrieval_metrics = case.get("retrieval_metrics", {})
         lines.extend(_markdown_table(
-            ["Line-grounded retrieval metric", "Score"],
-            _metric_rows({
-                name: score
-                for name, score in case.get("retrieval_metrics", {}).items()
-                if name in {"recall", "precision", "ndcg"}
-            }),
+            ["Retrieval top-k", "Recall", "Precision", "NDCG"],
+            [[
+                metadata.get("top_k"),
+                retrieval_metrics.get("recall"),
+                retrieval_metrics.get("precision"),
+                retrieval_metrics.get("ndcg"),
+            ]],
         ))
-        lines.extend([
-            "",
-            "Search ranks are independent. Current scores are FAISS similarity scores, not calibrated probabilities.",
-            "",
-        ])
-        chunk_rows = []
-        for search_number, search_hits in enumerate(case.get("search_results", []), start=1):
-            search_query = case.get("search_queries", [])
+        lines.extend(["", "#### Search registry", ""])
+        search_results = case.get("search_results", [])
+        if not isinstance(search_results, list):
+            search_results = []
+        search_queries = case.get("search_queries", [])
+        if not isinstance(search_queries, list):
+            search_queries = []
+        search_registry_rows = []
+        ranked_result_rows = []
+        for search_number, search_hits in enumerate(search_results, start=1):
+            if not isinstance(search_hits, list):
+                search_hits = []
+            search_id = f"Retrieval ({search_number})"
             search_query = (
-                search_query[search_number - 1]
-                if search_number <= len(search_query)
+                search_queries[search_number - 1]
+                if search_number <= len(search_queries)
                 else case.get("question")
             )
+            stage_values = []
+            method_values = []
+            for hit in search_hits:
+                stage_value = hit.get("stage", hit.get("retrieval_stage"))
+                if stage_value is not None and stage_value not in stage_values:
+                    stage_values.append(stage_value)
+                method_value = hit.get("method", hit.get("retrieval_method"))
+                if method_value is not None and method_value not in method_values:
+                    method_values.append(method_value)
+            stage = (
+                stage_values[0]
+                if len(stage_values) == 1
+                else stage_values or None
+            )
+            method = (
+                method_values[0]
+                if len(method_values) == 1
+                else method_values or None
+            )
+            search_registry_rows.append([search_id, search_query, stage, method])
             if not search_hits:
-                chunk_rows.append([
-                    search_number,
-                    search_query,
-                    "retrieval",
-                    "FAISS vector search",
+                ranked_result_rows.append([
+                    search_id,
                     "—",
                     "—",
                     "—",
@@ -513,14 +541,10 @@ def _readme_report(results: dict[str, Any]) -> str:
                     "—",
                     "No chunk returned",
                 ])
+                continue
             for rank, hit in enumerate(search_hits, start=1):
-                stage = hit.get("stage", hit.get("retrieval_stage", "retrieval"))
-                method = hit.get("method", hit.get("retrieval_method", "FAISS vector search"))
-                chunk_rows.append([
-                    search_number,
-                    search_query,
-                    stage,
-                    method,
+                ranked_result_rows.append([
+                    search_id,
                     rank,
                     hit.get("chunk_id"),
                     hit.get("source"),
@@ -529,9 +553,19 @@ def _readme_report(results: dict[str, Any]) -> str:
                     hit.get("text"),
                 ])
         lines.extend(_markdown_table(
-            ["Search", "Search query", "Stage", "Method", "Rank", "Chunk ID", "Source path", "Lines", "Score", "Retrieved chunk text"],
-            chunk_rows,
+            ["Search ID", "Search query", "Stage", "Method"],
+            search_registry_rows,
         ))
+        lines.extend(["", "#### Ranked retrieval results", ""])
+        lines.extend(_markdown_table(
+            ["Search ID", "Rank", "Chunk ID", "Source path", "Lines", "Score", "Retrieved chunk text"],
+            ranked_result_rows,
+        ))
+        lines.extend([
+            "",
+            "Rank is local to its Retrieval search. Similarity scores rank candidates; they are not calibrated probabilities.",
+            "",
+        ])
         lines.extend(["", "#### Context passed to answer generation", ""])
         generation_context = case.get("generation_context", [])
         search_rank_by_reference = {}
@@ -541,30 +575,63 @@ def _readme_report(results: dict[str, Any]) -> str:
                     (hit.get("source"), hit.get("chunk_id")),
                     (search_number, rank, hit),
                 )
+        context_rows = []
+        for order, item in enumerate(generation_context, start=1):
+            search_rank = search_rank_by_reference.get(
+                (item.get("source"), item.get("chunk_id"))
+            )
+            if search_rank:
+                is_unchanged = (
+                    item.get("content_changed") is False
+                    if "content_changed" in item
+                    else (
+                        item.get("text") is None
+                        or item.get("text") == search_rank[2].get("text")
+                    )
+                )
+                content = (
+                    f"Same as Retrieval ({search_rank[0]}), rank {search_rank[1]}"
+                    if is_unchanged
+                    else item.get("prompt_block", item.get("text"))
+                )
+            else:
+                content = item.get("prompt_block", item.get("text"))
+            context_rows.append([
+                order,
+                item.get("chunk_id"),
+                item.get("source"),
+                f"{item.get('start_line', 'N/A')}–{item.get('end_line', 'N/A')}",
+                content,
+            ])
         lines.extend(_markdown_table(
             ["Final context order", "Chunk ID", "Source path", "Lines", "Context content"],
-            [
-                [
-                    order,
-                    item.get("chunk_id"),
-                    item.get("source"),
-                    f"{item.get('start_line', 'N/A')}–{item.get('end_line', 'N/A')}",
-                    (
-                        f"Same as Retrieval search {search_rank[0]}, rank {search_rank[1]}"
-                        if (search_rank := search_rank_by_reference.get(
-                            (item.get("source"), item.get("chunk_id"))
-                        )) and (
-                            item.get("text") is None
-                            or item.get("text") == search_rank[2].get("text")
-                        )
-                        else item.get("prompt_block", item.get("text"))
-                    ),
-                ]
-                for order, item in enumerate(generation_context, start=1)
-            ],
+            context_rows,
         ))
         if not generation_context:
             lines.append("No final-answer context was sent.")
+        context_prefix_rows = []
+        for prefix in case.get("context_prefix_metrics", []):
+            covered = prefix.get("evidence_lines_covered")
+            total_evidence_lines = prefix.get("ground_truth_line_count")
+            recall = prefix.get("recall")
+            if covered is None or total_evidence_lines is None:
+                evidence_coverage = "N/A"
+            else:
+                recall_label = "N/A" if recall is None else f"{recall:.4f}"
+                evidence_coverage = (
+                    f"{covered}/{total_evidence_lines} ({recall_label})"
+                )
+            context_prefix_rows.append([
+                prefix.get("context_prefix_k"),
+                evidence_coverage,
+                prefix.get("precision"),
+                prefix.get("ndcg"),
+            ])
+        lines.extend(["", "#### Context-prefix metrics", ""])
+        lines.extend(_markdown_table(
+            ["Context prefix k", "Unique evidence lines / Recall", "Precision", "Context-order NDCG"],
+            context_prefix_rows,
+        ))
         lines.extend(["", "#### Ragas judge diagnostics", ""])
         judge_metrics = case.get("judge_metrics", {})
         visible_judge_metrics = (
