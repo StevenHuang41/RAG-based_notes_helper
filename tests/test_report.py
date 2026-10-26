@@ -173,18 +173,87 @@ def _report_results(workflow):
             "judge_model": "judge-v1",
         },
         "summary": {
+            "case_count": 2,
             "workflows": {
                 workflow: {
                     "retrieval_metrics": metric_summary,
                     "generation_metrics": answerable_case["generation_metrics"],
-                    "answerability_accuracy": 1.0,
-                    "abstention_rate": 0.5,
-                    "correct_abstention_rate": 1.0,
+                    "ragas_metric_eligible_case_counts": {
+                        "faithfulness": 1,
+                        "answer_relevancy": 1,
+                        "answer_correctness": 1,
+                        "context_utilization": 1,
+                    },
+                    "answerability_outcomes": {
+                        "expected_answerable": {
+                            "case_count": 1,
+                            "answered_count": 1,
+                            "abstained_count": 0,
+                            "unavailable_count": 0,
+                            "error_count": 0,
+                            "unavailable_or_error_count": 0,
+                            "correct_behavior_count": 1,
+                        },
+                        "expected_unanswerable": {
+                            "case_count": 1,
+                            "answered_count": 0,
+                            "abstained_count": 1,
+                            "unavailable_count": 0,
+                            "error_count": 0,
+                            "unavailable_or_error_count": 0,
+                            "correct_behavior_count": 1,
+                        },
+                    },
+                    "judge_usage_by_metric": {
+                        "context_utilization": {
+                            "call_count": 1,
+                            "token_usage": partial_usage,
+                        },
+                    },
                     "generation_usage": {
                         "call_count": 1,
                         "token_usage": available_usage,
                     },
-                    "by_category": {},
+                    "by_category": {
+                        "direct": {
+                            "case_count": 1,
+                            "generation_metrics": answerable_case[
+                                "generation_metrics"
+                            ],
+                            "retrieval_metrics": metric_summary,
+                            "ragas_metric_eligible_case_counts": {
+                                "faithfulness": 1,
+                                "answer_relevancy": 1,
+                                "answer_correctness": 1,
+                                "context_utilization": 1,
+                            },
+                            "latency_ms": {},
+                            "generation_usage": {"token_usage": available_usage},
+                            "judge_usage": {"token_usage": available_usage},
+                        },
+                        "unanswerable": {
+                            "case_count": 1,
+                            "generation_metrics": {
+                                "faithfulness": None,
+                                "answer_relevancy": None,
+                                "answer_correctness": None,
+                            },
+                            "retrieval_metrics": {"context_utilization": None},
+                            "ragas_metric_eligible_case_counts": {
+                                "faithfulness": 0,
+                                "answer_relevancy": 0,
+                                "answer_correctness": 0,
+                                "context_utilization": 0,
+                            },
+                            "latency_ms": {},
+                            "generation_usage": {
+                                "token_usage": {"status": "unavailable"}
+                            },
+                            "judge_usage": {
+                                "token_usage": {"status": "unavailable"}
+                            },
+                        },
+                    },
                 },
             },
             "judge_usage": {
@@ -220,8 +289,21 @@ def test_report_distinguishes_evidence_context_diagnostics_and_execution_cost(
     assert "Reference answer:" in report and "Generated answer:" in report
     assert "expected_source_coverage" not in report
     assert "expected_evidence_coverage" not in report
-    assert "| context_utilization |" not in report
-    assert "0.6123" not in report and "0.7345" not in report
+    assert "| context_utilization |" in report
+    assert "0.6123" in report and "0.7345" in report
+    assert "| Faithfulness | 0.9100 | 1/2 |" in report
+    assert (
+        "| Context Utilization (context/retrieval diagnostic) | 0.6123 | 1/2 |"
+        in report
+    )
+    assert "0.9100 (1/1 eligible)" in report
+    assert "0.8200 (1/1 eligible)" in report
+    assert "0.8700 (1/1 eligible)" in report
+    assert "0.6123 (1/1 eligible)" in report
+    assert "| Expected answerable | 1 | 1 | 0 | 0 | 1/1 |" in report
+    assert "| Expected unanswerable | 1 | 0 | 1 | 0 | 1/1 |" in report
+    assert "Answerability accuracy" not in report
+    assert "N/A (0/1 eligible)" in report
     assert "Reviewed evidence text" in report
     assert "notes/launch.md" in report and "12–13" in report
     assert "Retrieved chunk text" in report and "Search query" in report
@@ -269,10 +351,72 @@ def test_report_distinguishes_evidence_context_diagnostics_and_execution_cost(
     judge = report.split("#### Ragas judge diagnostics", 1)[1].split(
         "#### Execution audit: latency and token usage", 1
     )[0]
-    for metric in ("Faithfulness", "Answer Relevancy", "Answer Correctness"):
+    for metric in (
+        "Faithfulness",
+        "Answer Relevancy",
+        "Answer Correctness",
+        "Context Utilization",
+    ):
         assert judge.count(metric) == 1
-    assert "Context Utilization" not in judge
-    assert "scored" in judge
+    assert "Diagnostic" in judge
+    assert "Skipped because expected answerability is unanswerable." in report
+
+
+@pytest.mark.parametrize("workflow", ["classic", "agentic"])
+def test_report_marks_an_empty_expected_answerability_group_as_na(
+    tmp_path,
+    workflow,
+):
+    results = _report_results(workflow)
+    results["summary"]["workflows"][workflow]["answerability_outcomes"][
+        "expected_unanswerable"
+    ] = {
+        "case_count": 0,
+        "answered_count": None,
+        "abstained_count": None,
+        "unavailable_count": None,
+        "error_count": None,
+        "unavailable_or_error_count": None,
+        "correct_behavior_count": None,
+    }
+    report_path = tmp_path / "empty-answerability-report.md"
+
+    write_readme(report_path, results)
+
+    report = report_path.read_text(encoding="utf-8")
+    assert "| Expected unanswerable | 0 | N/A | N/A | N/A | N/A |" in report
+
+
+def test_report_explains_when_ragas_evaluation_fails(tmp_path):
+    results = _report_results("classic")
+    case = results["cases"][0]
+    case["ragas_error"] = "RuntimeError"
+    case["generation_metrics"] = {
+        "faithfulness": None,
+        "answer_relevancy": None,
+        "answer_correctness": None,
+    }
+    case["retrieval_metrics"]["context_utilization"] = None
+    case["metric_reasons"] = {}
+    case["judge_metrics"] = {}
+    report_path = tmp_path / "ragas-error-report.md"
+
+    write_readme(report_path, results)
+
+    report = report_path.read_text(encoding="utf-8")
+    query_details = report.split("#### Ragas judge diagnostics", 1)[1].split(
+        "#### Execution audit: latency and token usage", 1
+    )[0]
+    for metric in (
+        "Faithfulness",
+        "Answer Relevancy",
+        "Answer Correctness",
+        "Context Utilization (context/retrieval diagnostic)",
+    ):
+        assert (
+            f"| {metric} | N/A | Ragas evaluation failed (RuntimeError). |"
+            in query_details
+        )
 
 
 @pytest.mark.parametrize(

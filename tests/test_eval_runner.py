@@ -185,7 +185,7 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert (run_dir / "README.md").is_file()
     assert not (run_dir / "summary.json").exists()
     results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
-    assert results["schema_version"] == 3
+    assert results["schema_version"] == 4
     for case in results["cases"]:
         assert len(case["search_queries"]) == len(case["search_results"])
         assert case["search_queries"][0] == case["question"]
@@ -224,6 +224,12 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
 
     summary = results["summary"]
     readme = (run_dir / "README.md").read_text(encoding="utf-8")
+    fixture_cases = eval_runner.load_qa_fixture()
+    answerable_count = sum(case["answerable"] for case in fixture_cases)
+    unanswerable_count = len(fixture_cases) - answerable_count
+    unanswerable_category_count = sum(
+        case["category"] == "unanswerable" for case in fixture_cases
+    )
     assert results["judge_usage"] == summary["judge_usage"]
     assert results["run_metadata"]["judge_provider"] == "ollama"
     assert results["run_metadata"]["judge_model"] == "llama3.1"
@@ -250,7 +256,23 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert "similarity_score (FAISS)" not in readme
     assert "expected_source_coverage" not in readme
     assert "expected_evidence_coverage" not in readme
-    assert "| context_utilization |" not in readme
+    assert "Context Utilization (context/retrieval diagnostic)" in readme
+    assert (
+        "| Context Utilization (context/retrieval diagnostic) | 1.0000 | "
+        f"{answerable_count}/{len(fixture_cases)} |"
+    ) in readme
+    assert "Eligible cases / selected cases" in readme
+    assert "### Answerability outcomes" in readme
+    assert (
+        f"| Expected answerable | {answerable_count} | {answerable_count} | "
+        f"0 | 0 | {answerable_count}/{answerable_count} |"
+    ) in readme
+    assert (
+        f"| Expected unanswerable | {unanswerable_count} | "
+        f"{unanswerable_count} | 0 | 0 | 0/{unanswerable_count} |"
+    ) in readme
+    assert f"N/A (0/{unanswerable_category_count} eligible)" in readme
+    assert "Skipped because expected answerability is unanswerable." in readme
     assert "Judge: context_utilization" in readme
     assert "#### Citations" not in readme
     assert readme.count("#### Execution audit: latency and token usage") == len(
@@ -270,7 +292,6 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     run_log = (run_dir / "run.log").read_text(encoding="utf-8")
     assert "Evaluation artifacts written successfully." in run_log
     assert "Who is the product owner for Aurora Planner?" not in run_log
-    fixture_cases = eval_runner.load_qa_fixture()
     assert len(results["cases"]) == len(fixture_cases)
     assert [case["case_id"] for case in results["cases"]] == [
         case["id"] for case in fixture_cases
@@ -340,7 +361,37 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
         if not case["expected_answerable"]
     )
     assert set(summary["workflows"]) == {workflow}
-    assert summary["workflows"][workflow]["case_count"] == len(fixture_cases)
+    workflow_summary = summary["workflows"][workflow]
+    assert workflow_summary["case_count"] == len(fixture_cases)
+    assert workflow_summary["ragas_metric_eligible_case_counts"] == {
+        metric: answerable_count
+        for metric in (
+            "faithfulness",
+            "answer_relevancy",
+            "answer_correctness",
+            "context_utilization",
+        )
+    }
+    assert workflow_summary["answerability_outcomes"] == {
+        "expected_answerable": {
+            "case_count": answerable_count,
+            "answered_count": answerable_count,
+            "abstained_count": 0,
+            "unavailable_count": 0,
+            "error_count": 0,
+            "unavailable_or_error_count": 0,
+            "correct_behavior_count": answerable_count,
+        },
+        "expected_unanswerable": {
+            "case_count": unanswerable_count,
+            "answered_count": unanswerable_count,
+            "abstained_count": 0,
+            "unavailable_count": 0,
+            "error_count": 0,
+            "unavailable_or_error_count": 0,
+            "correct_behavior_count": 0,
+        },
+    }
     direct_summary = summary["workflows"][workflow]["by_category"]["direct"]
     assert direct_summary["generation_usage"]["token_usage"]["total_tokens"] == (
         sum(case["category"] == "direct" for case in fixture_cases)
@@ -553,6 +604,8 @@ def test_sampled_run_records_reproducible_case_selection(
     assert results["run_metadata"]["sample_count"] == 5
     assert results["run_metadata"]["seed"] == seed
     assert results["run_metadata"]["workflow"] == workflow
+    assert results["summary"]["case_count"] == 5
+    assert "**Cases:** 5" in readme
     assert "Sample size | 5" in readme
     assert f"Sampling seed | {'Not set' if seed is None else seed}" in readme
     assert ", ".join(sampled_ids) in readme
@@ -611,6 +664,144 @@ def test_seed_without_sample_runs_full_fixture(monkeypatch, tmp_path):
     assert results["run_metadata"]["seed"] == 19
     assert "Sample size | Full fixture" in readme
     assert "Sampling seed | 19" in readme
+
+
+def test_run_summary_counts_errors_and_unavailable_answers_separately(
+    monkeypatch,
+    tmp_path,
+):
+    cases = [
+        {
+            "id": "answerable-error",
+            "category": "direct",
+            "question": "Who owns the review?",
+            "reference_answer": "Mina owns the review.",
+            "answerable": True,
+            "expected_sources": [],
+            "expected_evidence": [],
+        },
+        {
+            "id": "unanswerable-unavailable",
+            "category": "unanswerable",
+            "question": "What is the private code?",
+            "reference_answer": "No private code is documented.",
+            "answerable": False,
+            "expected_sources": [],
+            "expected_evidence": [],
+        },
+    ]
+    settings = SimpleNamespace(
+        llm=SimpleNamespace(
+            provider="fixture",
+            model="fixture-answer",
+            effective_eval_provider="fixture",
+            effective_eval_model="fixture-judge",
+            max_chunks=2,
+        ),
+        embed_model_name="fixture-embedding",
+        chunk_size=200,
+        chunk_overlap=50,
+        top_k=3,
+        min_retrieval_score=0.0,
+    )
+
+    @contextmanager
+    def isolated_index():
+        yield settings, object(), object()
+
+    def record_case(case, *, workflow, rag, meta_store):
+        record = {
+            "case_id": case["id"],
+            "category": case["category"],
+            "question": case["question"],
+            "reference_answer": case["reference_answer"],
+            "answer": None,
+            "expected_answerable": case["answerable"],
+            "predicted_answerable": None,
+            "answerability_correct": None,
+            "abstained": None,
+            "correct_abstention": None,
+            "expected_sources": [],
+            "expected_evidence": [],
+            "retrieval_metrics": {
+                "recall": None,
+                "precision": None,
+                "ndcg": None,
+                "context_utilization": None,
+            },
+            "generation_metrics": {
+                "faithfulness": None,
+                "answer_relevancy": None,
+                "answer_correctness": None,
+            },
+            "expected_source_coverage": None,
+            "expected_evidence_coverage": None,
+            "latency": {
+                "retrieval_ms": 0.0,
+                "controller_ms": 0.0,
+                "answer_generation_ms": 0.0,
+                "generation_ms": 0.0,
+                "judge_ms": 0.0,
+                "rag_query_ms": 0.0,
+                "end_to_end_ms": 0.0,
+            },
+            "generation_usage": {"calls": [], "call_count": 0},
+            "judge_usage": {"calls": [], "call_count": 0},
+            "judge_usage_by_metric": {},
+            "judge_metrics": {},
+            "search_queries": [case["question"]],
+            "search_results": [[]],
+            "generation_context": [],
+            "workflow": workflow,
+        }
+        if case["id"] == "answerable-error":
+            record["workflow_error"] = "RuntimeError"
+        return record
+
+    monkeypatch.setattr(eval_runner, "load_qa_fixture", lambda: cases)
+    monkeypatch.setattr(eval_runner, "_isolated_fixture_index", isolated_index)
+    monkeypatch.setattr(eval_runner, "_record_case", record_case)
+    monkeypatch.setattr(
+        eval_runner,
+        "_attach_ragas_scores",
+        lambda *args, **kwargs: None,
+    )
+
+    run_dir = eval_runner.run_evaluation(output_root=tmp_path)
+
+    results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
+    workflow_summary = results["summary"]["workflows"]["classic"]
+    assert workflow_summary["answerability_outcomes"] == {
+        "expected_answerable": {
+            "case_count": 1,
+            "answered_count": 0,
+            "abstained_count": 0,
+            "unavailable_count": 0,
+            "error_count": 1,
+            "unavailable_or_error_count": 1,
+            "correct_behavior_count": 0,
+        },
+        "expected_unanswerable": {
+            "case_count": 1,
+            "answered_count": 0,
+            "abstained_count": 0,
+            "unavailable_count": 1,
+            "error_count": 0,
+            "unavailable_or_error_count": 1,
+            "correct_behavior_count": 0,
+        },
+    }
+    assert workflow_summary["by_category"]["direct"][
+        "answerability_outcomes"
+    ]["expected_unanswerable"] == {
+        "case_count": 0,
+        "answered_count": None,
+        "abstained_count": None,
+        "unavailable_count": None,
+        "error_count": None,
+        "unavailable_or_error_count": None,
+        "correct_behavior_count": None,
+    }
 
 
 @pytest.mark.parametrize(
