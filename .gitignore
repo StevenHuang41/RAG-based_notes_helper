@@ -28,3 +28,5 @@ logs/
 .DS_Store
 
 /evals/results/
+# Historical local evaluation artifacts are retained but remain untracked.
+/eval/*/
