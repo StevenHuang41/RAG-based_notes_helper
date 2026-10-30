@@ -185,14 +185,6 @@ The fixture is a regression set, not a statistically representative benchmark. A
 
 The fixture covers direct lookup, multi-hop integration, unanswerable questions, and ambiguous questions. It can grow with additional reviewed cases while retaining the original seed cases. Evaluation always uses this reviewed fixture and its isolated synthetic index; it never evaluates a user's `data/` directory or persistent `storage/` snapshot.
 
-To author additional QA candidates once from the fictional notes, run the development-only Ragas test-set generator:
-
-```bash
-uv run python -m rag_notes_helper.eval.candidate_generator --size 8
-```
-
-Generation makes live Ragas model calls and may consume tokens. It reads only `tests/fixtures/notes`, uses the effective Ragas judge provider/model (falling back to the configured generation provider/model) and the existing local evaluation embedding model, and does not build or read the Notes Helper FAISS index. Drafts go to the ignored `eval/candidate-drafts/` directory by default; use `--output PATH` to choose another destination. Ragas `reference_contexts` are candidate-generation context, not trusted source annotations. Before promoting a case into `tests/fixtures/notes_qa.json`, a maintainer must verify the question and reference answer against the source notes, assign a fixture ID/category/answerability value, and add the expected source paths and evidence snippets. `--eval` always reads only the reviewed fixed fixture and never generates candidates.
-
 `--eval` is a repository development command. The evaluation code, fixtures, and RAGAS development dependencies are not included in the runtime wheel. In a source checkout, use an editable development install to run this command.
 
 ---
@@ -236,7 +228,7 @@ RAG-based_notes_helper/
 ├── src/rag_notes_helper/
 │   ├── cli.py                      # rag-app entry point
 │   ├── core/config.py              # runtime settings and validation
-│   ├── eval/                       # RAGAS evaluation and candidate authoring
+│   ├── eval/                       # RAGAS evaluation
 │   ├── rag/
 │   │   ├── answer.py
 │   │   ├── chunking.py
