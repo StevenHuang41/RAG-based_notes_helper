@@ -23,6 +23,13 @@ def test_default_evaluation_assets_require_the_checked_out_corpus(monkeypatch, t
         eval_runner.load_qa_fixture()
 
 
+def test_default_evaluation_assets_require_the_reviewed_qa_set(monkeypatch, tmp_path):
+    monkeypatch.setattr(eval_runner, "QA_FIXTURE", tmp_path / "missing-qa.json")
+
+    with pytest.raises(FileNotFoundError, match="Evaluation ground truth QA set is missing"):
+        eval_runner.load_qa_fixture()
+
+
 def test_fixture_loader_accepts_reviewed_cases_beyond_the_seed_set(tmp_path):
     records = _fixture_records()
     existing_count = len(records)

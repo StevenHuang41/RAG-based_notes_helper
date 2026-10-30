@@ -240,11 +240,12 @@ def _run_ragas_isolated(
     ]
 
 
-def load_qa_fixture(path: Path = QA_FIXTURE) -> list[dict[str, Any]]:
+def load_qa_fixture(path: Path | None = None) -> list[dict[str, Any]]:
     """Load reviewed QA cases while preserving the original seed coverage."""
-    if Path(path) == QA_FIXTURE:
+    path = QA_FIXTURE if path is None else Path(path)
+    if path == QA_FIXTURE:
         _require_evaluation_assets()
-    records = json.loads(Path(path).read_text(encoding="utf-8"))
+    records = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(records, list) or any(
         not isinstance(record, dict) for record in records
     ):

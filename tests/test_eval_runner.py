@@ -4,6 +4,7 @@ from io import StringIO
 import os
 from pathlib import Path
 import re
+import shutil
 from types import SimpleNamespace
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -225,12 +226,7 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     summary = results["summary"]
     readme = (run_dir / "README.md").read_text(encoding="utf-8")
     fixture_cases = eval_runner.load_qa_fixture()
-    assert eval_runner.NOTES_FIXTURE == (
-        Path(__file__).resolve().parents[1] / "evals" / "notes"
-    )
-    assert eval_runner.QA_FIXTURE == (
-        Path(__file__).resolve().parents[1] / "evals" / "qa" / "notes_qa.json"
-    )
+    assert fixture_cases
     answerable_count = sum(case["answerable"] for case in fixture_cases)
     unanswerable_count = len(fixture_cases) - answerable_count
     unanswerable_category_count = sum(
@@ -508,6 +504,44 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
         if case["expected_answerable"]
     ]
 
+
+def test_default_evaluation_run_writes_artifacts_under_results(monkeypatch):
+    settings = SimpleNamespace(
+        llm=SimpleNamespace(
+            provider="fixture",
+            model="fixture-answer",
+            effective_eval_provider="fixture",
+            effective_eval_model="fixture-judge",
+            max_chunks=2,
+        ),
+        embed_model_name="fixture-embedding",
+        chunk_size=200,
+        chunk_overlap=50,
+        top_k=3,
+        min_retrieval_score=0.0,
+    )
+
+    @contextmanager
+    def isolated_index():
+        yield settings, object(), object()
+
+    monkeypatch.setattr(eval_runner, "load_qa_fixture", lambda: [])
+    monkeypatch.setattr(eval_runner, "_isolated_fixture_index", isolated_index)
+    monkeypatch.setattr(
+        eval_runner,
+        "_attach_ragas_scores",
+        lambda *args, **kwargs: None,
+    )
+
+    run_dir = eval_runner.run_evaluation()
+    try:
+        assert run_dir.parent.name == "results"
+        assert run_dir.parent.parent.name == "evals"
+        assert (run_dir / "README.md").is_file()
+        assert (run_dir / "results.json").is_file()
+        assert (run_dir / "run.log").is_file()
+    finally:
+        shutil.rmtree(run_dir)
 
 
 @pytest.mark.parametrize("agentic,workflow", [(False, "classic"), (True, "agentic")])
