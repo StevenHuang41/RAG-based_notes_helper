@@ -68,8 +68,22 @@ SEED_CASE_IDS = frozenset(
         "ambiguous-04",
     }
 )
-NOTES_FIXTURE = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "notes"
-QA_FIXTURE = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "notes_qa.json"
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+EVALUATION_ROOT = PROJECT_ROOT / "evals"
+NOTES_FIXTURE = EVALUATION_ROOT / "notes"
+QA_FIXTURE = EVALUATION_ROOT / "qa" / "notes_qa.json"
+
+
+def _require_evaluation_assets() -> None:
+    """Fail clearly when the checked-out evaluation benchmark is incomplete."""
+    if not NOTES_FIXTURE.is_dir():
+        raise FileNotFoundError(
+            f"Evaluation corpus directory is missing: {NOTES_FIXTURE}"
+        )
+    if not QA_FIXTURE.is_file():
+        raise FileNotFoundError(
+            f"Evaluation ground truth QA set is missing: {QA_FIXTURE}"
+        )
 
 
 def _run_ragas_batches_isolated(
@@ -228,6 +242,8 @@ def _run_ragas_isolated(
 
 def load_qa_fixture(path: Path = QA_FIXTURE) -> list[dict[str, Any]]:
     """Load reviewed QA cases while preserving the original seed coverage."""
+    if Path(path) == QA_FIXTURE:
+        _require_evaluation_assets()
     records = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(records, list) or any(
         not isinstance(record, dict) for record in records
@@ -1176,8 +1192,7 @@ def run_evaluation(
         sampled_ids = {case["id"] for case in sampled_cases}
         cases = [case for case in cases if case["id"] in sampled_ids]
 
-    project_root = Path(__file__).resolve().parents[3]
-    output_root = output_root or project_root / "eval"
+    output_root = output_root or EVALUATION_ROOT / "results"
     timestamp, run_dir = _new_run_directory(Path(output_root))
     run_log = run_dir / "run.log"
     run_log.touch()

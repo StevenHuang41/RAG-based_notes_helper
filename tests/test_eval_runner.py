@@ -225,6 +225,12 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     summary = results["summary"]
     readme = (run_dir / "README.md").read_text(encoding="utf-8")
     fixture_cases = eval_runner.load_qa_fixture()
+    assert eval_runner.NOTES_FIXTURE == (
+        Path(__file__).resolve().parents[1] / "evals" / "notes"
+    )
+    assert eval_runner.QA_FIXTURE == (
+        Path(__file__).resolve().parents[1] / "evals" / "qa" / "notes_qa.json"
+    )
     answerable_count = sum(case["answerable"] for case in fixture_cases)
     unanswerable_count = len(fixture_cases) - answerable_count
     unanswerable_category_count = sum(

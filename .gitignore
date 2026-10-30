@@ -27,6 +27,4 @@ logs/
 
 .DS_Store
 
-**/eval/reports/*
-!**/eval/reports/.gitkeep
-/eval/*/
+/evals/results/
