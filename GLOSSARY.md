@@ -50,6 +50,15 @@ A line-grounded Recall, Precision, or NDCG score computed from the complete answ
 **Evaluation run**:
 An assessment of a RAG query mode against the version-controlled synthetic fixture, with reviewed questions, reference answers, and expected evidence available for review. It does not evaluate a user's persistent index snapshot.
 
+**Evaluation corpus**:
+The version-controlled synthetic notes used to build the isolated index for an evaluation run. It is stored under `evals/notes/` and is distinct from a user's notes under `data/`.
+
+**Evaluation ground truth QA set**:
+The version-controlled benchmark definition that pairs reviewed questions, reference answers, answerability labels, and expected evidence with the evaluation corpus. It is stored under `evals/qa/`.
+
+**Evaluation result**:
+The generated, Git-ignored report artifacts for one evaluation run, including its human-readable report, machine-readable results, and process log. It is stored beneath `evals/results/` and is not benchmark ground truth.
+
 **Persistent index snapshot**:
 The persisted FAISS index and its matching chunk metadata under `storage/`, representing the note corpus at indexing time. It is queryable without rereading source files, but does not establish that current source files remain synchronized with the snapshot.
 
