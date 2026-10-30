@@ -171,7 +171,7 @@ one retrieval        bounded Python loop
 
 ## Evaluation
 
-From a source checkout with development dependencies installed, `--eval` evaluates Classic RAG and `--agentic --eval` evaluates Agentic RAG against the reviewed QA fixture and fictional notes corpus under `tests/fixtures/`. Each run builds a temporary index and does not read or modify the user's `data/` or `storage/` directories:
+From a source checkout with development dependencies installed, `--eval` evaluates Classic RAG and `--agentic --eval` evaluates Agentic RAG against the fixed evaluation corpus under `evals/notes/` and the reviewed QA set at `evals/qa/notes_qa.json`. Each run builds a temporary index and does not read or modify the user's `data/` or `storage/` directories:
 
 ```bash
 rag-app --eval
@@ -179,13 +179,13 @@ rag-app --eval --sample 5 --seed 42
 rag-app --agentic --eval --sample 5 --seed 42
 ```
 
-Each run writes `README.md`, `results.json`, and `run.log` under a local-time, Taipei timestamped directory in `eval/`. These generated reports are ignored by Git. When stderr is a terminal, evaluation shows a progress bar for case execution and RAGAS metric stages. Run metadata records the selected workflow, sampling settings, and selected case IDs. Sample selection is uniform without replacement; cases run in fixture order. The same fixture, sample count, and seed select the same cases. Without a seed, a sampled run may select a different subset each time. A seed without `--sample` still runs the full fixture. `--sample` must be a positive integer no larger than the fixture size.
+Each run writes `README.md`, `results.json`, and `run.log` under a local-time, Taipei timestamped directory in `evals/results/`. These generated reports are ignored by Git. When stderr is a terminal, evaluation shows a progress bar for case execution and RAGAS metric stages. Run metadata records the selected workflow, sampling settings, and selected case IDs. Sample selection is uniform without replacement; cases run in evaluation-corpus order. The same corpus, QA set, sample count, and seed select the same cases. Without a seed, a sampled run may select a different subset each time. A seed without `--sample` still runs the full QA set. `--sample` must be a positive integer no larger than the QA set size.
 
-The fixture is a regression set, not a statistically representative benchmark. A small sample can omit fixture categories; inspect the selected case IDs and category counts in the report. Evaluation logs use case IDs and do not include query or note text. Results include reference-free faithfulness, answer relevancy, and context utilization diagnostics, plus expected source/evidence coverage, answerability behavior, generation token usage, and separate RAGAS judge usage. RAGAS metrics use the generated answer and retrieved contexts, not the fixture reference answer; the reference answer remains in each case result for human inspection. RAGAS metrics are not applicable to unanswerable and ambiguous cases; those cases are evaluated through answerability, abstention, and evidence coverage. Token counts are provider-reported; unavailable values remain marked unavailable, while character counts are recorded separately.
+The evaluation corpus and QA set are a fixed regression set, not a statistically representative benchmark. A small sample can omit categories; inspect the selected case IDs and category counts in the report. Evaluation logs use case IDs and do not include query or note text. Results include reference-free faithfulness, answer relevancy, and context utilization diagnostics, plus expected source/evidence coverage, answerability behavior, generation token usage, and separate RAGAS judge usage. RAGAS metrics use the generated answer and retrieved contexts, not the QA reference answer; the reference answer remains in each case result for human inspection. RAGAS metrics are not applicable to unanswerable and ambiguous cases; those cases are evaluated through answerability, abstention, and evidence coverage. Token counts are provider-reported; unavailable values remain marked unavailable, while character counts are recorded separately.
 
-The fixture covers direct lookup, multi-hop integration, unanswerable questions, and ambiguous questions. It can grow with additional reviewed cases while retaining the original seed cases. Evaluation always uses this reviewed fixture and its isolated synthetic index; it never evaluates a user's `data/` directory or persistent `storage/` snapshot.
+The QA set covers direct lookup, multi-hop integration, unanswerable questions, and ambiguous questions. Evaluation always uses this reviewed evaluation corpus and isolated synthetic index; it never evaluates a user's `data/` directory or persistent `storage/` snapshot. If the corpus changes, review and update any affected line-anchored QA evidence in the same change; validation rejects stale evidence rather than rewriting it automatically.
 
-`--eval` is a repository development command. The evaluation code, fixtures, and RAGAS development dependencies are not included in the runtime wheel. In a source checkout, use an editable development install to run this command.
+`--eval` is a repository development command. The evaluation code, evaluation assets, and RAGAS development dependencies are not included in the runtime wheel. In a source checkout, use an editable development install to run this command.
 
 ---
 
@@ -225,6 +225,11 @@ RAG-based_notes_helper/
 │   ├── demo.gif
 │   ├── demo.mp4
 │   └── test.png
+├── evals/
+│   ├── notes/                       # version-controlled evaluation corpus
+│   ├── qa/
+│   │   └── notes_qa.json            # reviewed QA ground truth
+│   └── results/                     # generated evaluation reports; ignored by Git
 ├── src/rag_notes_helper/
 │   ├── cli.py                      # rag-app entry point
 │   ├── core/config.py              # runtime settings and validation
@@ -239,13 +244,10 @@ RAG-based_notes_helper/
 │   │   ├── retrieval.py
 │   │   └── llm/                    # provider implementations
 │   └── utils/
-└── tests/                          # pytest tests and development fixtures
-    └── fixtures/
-        ├── notes/                  # fictional notes used by --eval
-        └── notes_qa.json           # reviewed QA fixture, seeded with initial 16 cases
+└── tests/                           # pytest tests
 ```
 
-Runtime directories such as `storage/`, `logs/`, and `hf_cache/` are created locally and ignored by Git. Evaluation run artifacts are stored under the repository-root `eval/` directory and ignored by Git.
+Runtime directories such as `storage/`, `logs/`, and `hf_cache/` are created locally and ignored by Git. Evaluation run artifacts are stored under `evals/results/` and ignored by Git. Historical root-level `eval/` artifacts remain local and ignored; evaluation no longer writes there.
 
 ---
 
