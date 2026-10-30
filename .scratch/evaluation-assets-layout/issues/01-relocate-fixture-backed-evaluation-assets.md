@@ -20,4 +20,3 @@ assets, uses the relocated corpus for its isolated index, and defaults report
 artifacts to the new results root. Historical root-level `eval/` artifacts
 remain ignored and untouched. The full offline suite passed: 148 tests (with
 two dependency warnings).
-

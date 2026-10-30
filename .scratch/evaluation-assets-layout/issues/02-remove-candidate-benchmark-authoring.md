@@ -14,4 +14,3 @@
 ## Answer
 
 Resolved by `281b238` (`refactor: remove candidate benchmark authoring`). The candidate-generator module and its dedicated tests were removed, and the README no longer documents candidate generation or a draft lifecycle. The implementation verified the remaining evaluation path with `tests/test_eval_runner.py`, `tests/test_ragas_runner.py`, and `tests/test_ragas_worker.py` using the existing Python 3.13 virtual environment: 27 passed. The commit was fast-forwarded into `integration/evaluation-assets-layout`.
-
