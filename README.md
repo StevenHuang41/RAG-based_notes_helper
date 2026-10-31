@@ -129,7 +129,7 @@ User query -> workflow selection
           |                |
           v                v
 Classic RAG          Agentic RAG
-one retrieval        bounded Python loop
+one retrieval        bounded LangGraph StateGraph
           |          search / answer / abstain
           +-------+--------+
                   |
@@ -166,7 +166,7 @@ one retrieval        bounded Python loop
 
 6. **Workflow selection and answer generation**
    - Classic RAG sends one retrieval result to answer generation.
-   - Agentic RAG asks the configured LLM for a Pydantic-validated JSON action after inspecting the retrieved chunks. It can request another focused search, select evidence for an answer, or abstain. The initial search uses the original question and each query is limited to three searches.
+   - Agentic RAG uses a LangGraph StateGraph to ask the configured LLM for a Pydantic-validated JSON action after inspecting retrieved chunks. It can request another focused search, select evidence for an answer, or abstain. The initial search uses the original question and each query is limited to three searches, including that initial search.
    - Both workflows abstain without answer generation when retrieval returns no chunks.
    - Retrieved chunks are inserted into the LLM prompt as context.
    - The answer can include source citations.
