@@ -93,6 +93,12 @@ def _iter_supported_note_files(
                 yield path
 
 
+def _load_note_file(file_path: Path, doc_id: str, source: str) -> Iterator[Chunk]:
+    """Load one supported note file while leaving corpus boundaries to callers."""
+    loader = load_pdf_file if file_path.suffix.lower() == ".pdf" else load_text_file
+    yield from loader(file_path, doc_id, source)
+
+
 @deco_time_block
 def load_notes(
     notes_dir: Path | None = None,
@@ -102,12 +108,7 @@ def load_notes(
     for file_path in _iter_supported_note_files(notes_dir):
         doc_id = get_stable_doc_id(file_path)
         source = str(file_path.relative_to(notes_dir))
-
-        if file_path.suffix.lower() == ".pdf":
-            yield from load_pdf_file(file_path, doc_id, source)
-
-        else :
-            yield from load_text_file(file_path, doc_id, source)
+        yield from _load_note_file(file_path, doc_id, source)
 
 
 @deco_time_block
@@ -120,11 +121,7 @@ def load_notes_from_isolated_corpus(corpus_root: Path) -> Iterator[Chunk]:
     for file_path in _iter_supported_note_files(corpus_root):
         doc_id = get_stable_doc_id(file_path)
         source = str(file_path.relative_to(corpus_root))
-
-        if file_path.suffix.lower() == ".pdf":
-            yield from load_pdf_file(file_path, doc_id, source)
-        else:
-            yield from load_text_file(file_path, doc_id, source)
+        yield from _load_note_file(file_path, doc_id, source)
 
 
 @deco_time_block
