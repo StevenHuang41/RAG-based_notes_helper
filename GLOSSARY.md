@@ -19,13 +19,37 @@ _Avoid_: Hallucination-free answer
 ## Retrieval
 
 **Note Search Tool**:
-A read-only interface that searches indexed notes and returns candidate chunks with source metadata and relevance scores for an agent to examine.
+A read-only interface that searches the Allowed note corpus and returns ranked candidate chunks with source metadata for an agent or connected client to examine.
+
+**MCP search tool**:
+A read-only external interface that runs Hybrid retrieval over the Allowed note corpus and returns the final selected chunks with provenance to a connected model client. It does not generate an answer.
 
 **Retrieval search**:
-One invocation of the Note Search Tool that produces an independently ranked candidate list. Searches within one query are identified by their invocation order.
+One invocation of the Note Search Tool for a query. A retrieval search can contain separate Search method results and downstream ranking stages.
+
+**Allowed note corpus**:
+The set of note files approved as evidence sources for runtime retrieval. It is distinct from the Evaluation corpus used by benchmark runs.
+
+**Search method result**:
+An independently ranked list of candidate chunks produced by one retrieval method within a Retrieval search. Its ranks apply only to that method's list.
+
+**Hybrid retrieval**:
+A Retrieval search that combines semantic and lexical Search method results into a shared candidate ranking, then reorders candidates using query and chunk relevance.
+
+**Reciprocal Rank Fusion (RRF)**:
+A method for combining independently ranked candidate lists by their ranks, without comparing the lists' raw relevance scores.
+
+**Cross-encoder reranking**:
+A second-stage ranking that evaluates each query and candidate chunk together and reorders retrieved candidates. It cannot introduce chunks that were absent from its input candidate set.
+
+**Retrieval stage**:
+A named ranked result within Hybrid retrieval, such as a Search method result, a fused result, or a reranked result. Each stage has its own candidate list and result limit.
 
 **Retrieval top-k**:
-The maximum number of candidate chunks returned by each retrieval search.
+The maximum number of candidate chunks returned at a specified Retrieval stage. The value may differ between Search method results and later stages.
+
+**Generation top-k**:
+The maximum number of chunks selected from the final ranked results for the Answer generation context.
 
 ## Evaluation
 
@@ -37,6 +61,9 @@ The fixture's label for whether its reviewed evidence is sufficient for the work
 
 **Retrieved chunk**:
 A note chunk returned by a retrieval search, identified by its source metadata and rank within that search. A retrieved chunk is a candidate for the answer and is not necessarily passed to the answer generator.
+
+**Retrieval stage metrics**:
+Recall, Precision, and NDCG calculated from the ranked candidate list produced at one Retrieval stage, against the reviewed expected evidence for that query.
 
 **Answer generation context**:
 The ordered evidence blocks actually provided to the final answer-generation call. It may contain all retrieved chunks or a selected, reordered, or transformed subset.
