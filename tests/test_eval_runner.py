@@ -254,8 +254,14 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     ) < readme.index("## Query details")
     assert "## Query details" in readme
     assert "Search query" in readme
-    assert "Retrieved chunk text" in readme
-    assert "Context passed to answer generation" in readme
+    if agentic:
+        assert "Stage rank" in readme
+        assert "Full context" in readme
+        assert "Retrieved chunk text" not in readme
+        assert "Final generation context" in readme
+    else:
+        assert "Retrieved chunk text" in readme
+        assert "Context passed to answer generation" in readme
     assert "Ragas diagnostics" in readme
     assert "Execution audit: latency and token usage" in readme
     assert "question" in readme

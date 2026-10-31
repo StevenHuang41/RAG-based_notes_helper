@@ -537,6 +537,13 @@ def _mean(values: list[Any]) -> float | None:
     return sum(clean_values) / len(clean_values)
 
 
+def _measured_latency_total(values: list[Any]) -> float | None:
+    measured = [_safe_score(value) for value in values]
+    if not measured or any(value is None for value in measured):
+        return None
+    return round(sum(value for value in measured if value is not None), 3)
+
+
 def _aggregate_usage_fields(
     calls: list[dict[str, Any]],
     section: str,
@@ -718,14 +725,14 @@ def _retrieval_coverage(
     }
 
 
-_CLASSIC_STAGE_NAMES = ("vector", "bm25", "rrf", "reranked")
-_CLASSIC_STAGE_RANK_FIELDS = {
+_RETRIEVAL_STAGE_NAMES = ("vector", "bm25", "rrf", "reranked")
+_STAGE_RANK_FIELDS = {
     "vector": "vector_rank",
     "bm25": "bm25_rank",
     "rrf": "rank",
     "reranked": "rerank_rank",
 }
-_CLASSIC_STAGE_SCORE_FIELDS = {
+_STAGE_SCORE_FIELDS = {
     "vector": "vector_score",
     "bm25": "bm25_score",
     "rrf": "fusion_score",
@@ -745,14 +752,14 @@ def _stage_candidate_id(hit: dict[str, Any]) -> tuple[Any, Any] | None:
     return source, chunk_id
 
 
-def _classic_stage_result_record(
+def _stage_result_record(
     hit: dict[str, Any],
     *,
     stage: str,
     rank: int,
 ) -> dict[str, Any]:
     """Keep stage rank and score explicit while retaining candidate provenance."""
-    score_field = _CLASSIC_STAGE_SCORE_FIELDS[stage]
+    score_field = _STAGE_SCORE_FIELDS[stage]
     score_value = hit.get(score_field)
     if score_field not in hit and stage != "reranked":
         score_value = hit.get("score")
@@ -812,13 +819,13 @@ def _mean_stage_metrics(
     }
 
 
-def _record_classic_retrieval_stages(
+def _record_retrieval_stages(
     raw_records: Any,
     *,
     expected_evidence: list[dict[str, Any]],
     settings: Any,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
-    """Normalize measured Classic stages and score each at its configured cutoff."""
+    """Normalize measured retrieval stages and score each at its cutoff."""
     if not isinstance(raw_records, list):
         raw_records = []
     configured_cutoffs = {
@@ -829,7 +836,7 @@ def _record_classic_retrieval_stages(
     }
     normalized_records: list[dict[str, Any]] = []
     metrics_by_stage: dict[str, list[dict[str, Any]]] = {
-        name: [] for name in _CLASSIC_STAGE_NAMES
+        name: [] for name in _RETRIEVAL_STAGE_NAMES
     }
     comparisons: list[dict[str, Any]] = []
 
@@ -838,10 +845,10 @@ def _record_classic_retrieval_stages(
             continue
         raw_stages = raw_record.get("stages")
         if not isinstance(raw_stages, dict):
-            continue
+            raw_stages = {}
         record_stages: dict[str, Any] = {}
         summaries: list[dict[str, Any]] = []
-        for stage_name in _CLASSIC_STAGE_NAMES:
+        for stage_name in _RETRIEVAL_STAGE_NAMES:
             raw_stage = raw_stages.get(stage_name)
             if not isinstance(raw_stage, dict):
                 continue
@@ -860,12 +867,12 @@ def _record_classic_retrieval_stages(
             for index, hit in enumerate(raw_candidates, start=1):
                 if not isinstance(hit, dict):
                     continue
-                rank = hit.get(_CLASSIC_STAGE_RANK_FIELDS[stage_name])
+                rank = hit.get(_STAGE_RANK_FIELDS[stage_name])
                 if type(rank) is not int:
                     rank = index if stage_name == "reranked" else hit.get("rank")
                 if type(rank) is not int:
                     rank = index
-                normalized_candidates.append(_classic_stage_result_record(
+                normalized_candidates.append(_stage_result_record(
                     hit,
                     stage=stage_name,
                     rank=rank,
@@ -969,7 +976,7 @@ def _record_classic_retrieval_stages(
 
     stage_metrics = {
         stage_name: _mean_stage_metrics(metrics_by_stage[stage_name])
-        for stage_name in _CLASSIC_STAGE_NAMES
+        for stage_name in _RETRIEVAL_STAGE_NAMES
         if metrics_by_stage[stage_name]
     }
     if not comparisons:
@@ -1001,13 +1008,63 @@ def _record_classic_retrieval_stages(
     return normalized_records, stage_metrics, rerank_comparison
 
 
+def _record_agentic_retrieval_stages(
+    raw_records: Any,
+    *,
+    expected_evidence: list[dict[str, Any]],
+    settings: Any,
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    """Record each search and score stage unions plus per-search NDCG."""
+    normalized_records, _, rerank_comparison = _record_retrieval_stages(
+        raw_records,
+        expected_evidence=expected_evidence,
+        settings=settings,
+    )
+    stage_metrics: dict[str, Any] = {}
+    for stage_name in _RETRIEVAL_STAGE_NAMES:
+        candidates_by_search: list[list[dict[str, Any]]] = []
+        actual_cutoffs: list[dict[str, Any]] = []
+        for search in normalized_records:
+            stage = search["stages"].get(stage_name)
+            if not isinstance(stage, dict):
+                continue
+            top_k = stage.get("top_k")
+            if type(top_k) is not int or top_k < 0:
+                continue
+            candidates_by_search.append(stage["results"][:top_k])
+            actual_cutoffs.append({
+                "search_id": search.get("search_id"),
+                "top_k": top_k,
+            })
+
+        if candidates_by_search:
+            # The result lists have already been sliced to their own configured
+            # cutoff. Using the largest cutoff lets the metrics function compute
+            # the union over all searches and mean NDCG over each local ranking.
+            metrics = calculate_retrieval_metrics(
+                expected_evidence=expected_evidence,
+                retrieval_lists=candidates_by_search,
+                top_k=max(cutoff["top_k"] for cutoff in actual_cutoffs),
+            )
+        else:
+            metrics = {"recall": None, "precision": None, "ndcg": None}
+        stage_metrics[stage_name] = {
+            **metrics,
+            "search_count": len(candidates_by_search),
+            "candidate_count": sum(map(len, candidates_by_search)),
+            "actual_cutoffs": actual_cutoffs,
+        }
+
+    return normalized_records, stage_metrics, rerank_comparison
+
+
 def _classic_stage_latency_totals(
     retrieval_stages: list[dict[str, Any]],
 ) -> dict[str, float | None]:
     if not retrieval_stages:
-        return {stage: None for stage in _CLASSIC_STAGE_NAMES}
+        return {stage: None for stage in _RETRIEVAL_STAGE_NAMES}
     totals: dict[str, float | None] = {}
-    for stage_name in _CLASSIC_STAGE_NAMES:
+    for stage_name in _RETRIEVAL_STAGE_NAMES:
         observed = [
             _safe_score(
                 (record.get("stages", {}).get(stage_name, {}) or {}).get(
@@ -1200,16 +1257,27 @@ def _record_case(
             retrieval_stages,
             retrieval_stage_metrics,
             rerank_comparison,
-        ) = _record_classic_retrieval_stages(
+        ) = _record_retrieval_stages(
             result.get("retrieval_stages", []),
             expected_evidence=case["expected_evidence"],
             settings=get_settings(),
         )
-    controller_latency_ms = round(sum(
-        call.get("latency_ms") or 0
+    elif workflow == "agentic":
+        (
+            retrieval_stages,
+            retrieval_stage_metrics,
+            rerank_comparison,
+        ) = _record_agentic_retrieval_stages(
+            result.get("retrieval_stages", []) if workflow_error is None else [],
+            expected_evidence=case["expected_evidence"],
+            settings=get_settings(),
+        )
+    controller_latencies = [
+        call.get("latency_ms")
         for call in generation_calls
         if call.get("call_type") == "controller"
-    ), 3)
+    ]
+    controller_latency_ms = _measured_latency_total(controller_latencies)
     answer_calls = [
         call
         for call in generation_calls
@@ -1225,9 +1293,9 @@ def _record_case(
         )
         else None
     )
-    retrieval_latency_ms = round(sum(
-        call.get("latency_ms") or 0 for call in retrieval_calls
-    ), 3)
+    retrieval_latency_ms = _measured_latency_total([
+        call.get("latency_ms") for call in retrieval_calls
+    ])
     retrieval_metrics = calculate_retrieval_metrics(
         expected_evidence=case["expected_evidence"],
         retrieval_lists=raw_search_results,
@@ -1270,7 +1338,7 @@ def _record_case(
             "retrieval_stages": retrieval_stages,
             "retrieval_stage_metrics": retrieval_stage_metrics,
             "rerank_comparison": rerank_comparison,
-        } if workflow == "classic" else {}),
+        } if workflow in {"classic", "agentic"} else {}),
         "generation_context": generation_context_records,
         "context_prefix_metrics": context_prefix_metrics,
         "final_context_metrics": final_context_metrics,
@@ -1304,8 +1372,11 @@ def _record_case(
             "controller_ms": controller_latency_ms,
             "answer_generation_ms": answer_latency_ms,
             "generation_ms": (
-                round(controller_latency_ms + answer_latency_ms, 3)
-                if answer_latency_ms is not None
+                answer_latency_ms
+                if workflow == "classic"
+                else round(controller_latency_ms + answer_latency_ms, 3)
+                if controller_latency_ms is not None
+                and answer_latency_ms is not None
                 else None
             ),
             "judge_metrics_ms": {},
@@ -1409,15 +1480,32 @@ def _attach_ragas_scores(
             metric: _safe_score(metric_latencies.get(metric))
             for metric in METRIC_NAMES
         }
-        judge_latency_ms = round(sum(
-            latency or 0 for latency in judge_metric_latencies.values()
-        ), 3)
+        eligible_judge_metrics = [
+            metric
+            for metric in METRIC_NAMES
+            if _ragas_metric_is_eligible(case, metric)
+        ]
+        measured_judge_latencies = [
+            judge_metric_latencies[metric]
+            for metric in eligible_judge_metrics
+        ]
+        judge_latency_ms = (
+            round(sum(measured_judge_latencies), 3)
+            if measured_judge_latencies
+            and all(latency is not None for latency in measured_judge_latencies)
+            else None
+        )
         case["latency"]["judge_metrics_ms"] = judge_metric_latencies
         case["latency"]["judge_ms"] = judge_latency_ms
-        case["latency"]["end_to_end_ms"] = round(
-            case["latency"]["rag_query_ms"] + judge_latency_ms,
-            3,
-        )
+        if not eligible_judge_metrics:
+            case["latency"]["end_to_end_ms"] = case["latency"]["rag_query_ms"]
+        elif judge_latency_ms is not None:
+            case["latency"]["end_to_end_ms"] = round(
+                case["latency"]["rag_query_ms"] + judge_latency_ms,
+                3,
+            )
+        else:
+            case["latency"]["end_to_end_ms"] = None
 
 
 def _workflow_summary(cases: list[dict[str, Any]]) -> dict[str, Any]:

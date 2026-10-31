@@ -20,7 +20,9 @@ def test_report_keeps_candidates_separate_from_final_answer_context(tmp_path, wo
             }},
         }}},
         "cases": [{
-            "case_id": "context", "category": "direct", "question": "When?",
+            "case_id": "context",
+            **({"workflow": "agentic"} if workflow == "agentic" else {}),
+            "category": "direct", "question": "When?",
             "expected_sources": ["notes/launch.md"],
             "expected_evidence": [{"source": "notes/launch.md", "start_line": 2, "end_line": 2, "text": "date"}],
             "search_queries": ["When?", "follow up"],
@@ -42,8 +44,12 @@ def test_report_keeps_candidates_separate_from_final_answer_context(tmp_path, wo
 
     assert "| Search ID | Search query |" in report
     assert "| 2 | follow up |" in report
-    assert "noise" in report
-    assert "| 1 | 2 | notes/launch.md | 2–2 | Same as Search 2, rank 1 | 1/1 | 1.0000 | 0.5000 | 0.8000 |" in report
+    if workflow == "agentic":
+        assert "noise" not in report
+        assert "| 1 | 2 | notes/launch.md | 2–2 | — | date | 1/1 | 1.0000 | 0.5000 | 0.8000 |" in report
+    else:
+        assert "noise" in report
+        assert "Same as Search 2, rank 1" in report
     assert "Retrieval top-k | Recall" not in report
     assert "Context-prefix metrics" not in report
     assert "Answerability outcomes" not in report
