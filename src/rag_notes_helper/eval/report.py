@@ -82,10 +82,263 @@ def _execution_rows(case: dict[str, Any]) -> list[list[Any]]:
     return rows
 
 
+def _classic_candidate_index(
+    case: dict[str, Any],
+) -> dict[tuple[Any, Any], dict[str, Any]]:
+    candidates: dict[tuple[Any, Any], dict[str, Any]] = {}
+    search_results = case.get("search_results", [])
+    for search_hits in search_results if isinstance(search_results, list) else []:
+        if not isinstance(search_hits, list):
+            continue
+        for hit in search_hits:
+            if (
+                isinstance(hit, dict)
+                and hit.get("source") is not None
+                and hit.get("chunk_id") is not None
+            ):
+                candidates[(hit["source"], hit["chunk_id"])] = hit
+    retrieval_stages = case.get("retrieval_stages", [])
+    for search in retrieval_stages if isinstance(retrieval_stages, list) else []:
+        if not isinstance(search, dict):
+            continue
+        for stage in (search.get("stages", {}) or {}).values():
+            if not isinstance(stage, dict):
+                continue
+            for hit in (stage.get("results", []) or []):
+                if (
+                    isinstance(hit, dict)
+                    and hit.get("source") is not None
+                    and hit.get("chunk_id") is not None
+                ):
+                    candidates[(hit["source"], hit["chunk_id"])] = hit
+    return candidates
+
+
+def _render_classic_stage(
+    case: dict[str, Any],
+    *,
+    stage_name: str,
+    heading: str,
+) -> list[str]:
+    lines = ["", f"#### {heading}", ""]
+    searches = case.get("retrieval_stages", [])
+    if not isinstance(searches, list):
+        searches = []
+    if not searches:
+        lines.extend(["No stage records are available.", ""])
+        return lines
+    for search in searches:
+        stage = (search.get("stages", {}) or {}).get(stage_name)
+        if not isinstance(stage, dict):
+            continue
+        search_id = search.get("search_id", "—")
+        lines.append(
+            f"_Search {search_id}: configured top-k {_markdown_cell(stage.get('top_k'))}; "
+            f"returned {_markdown_cell(stage.get('returned_count'))}._"
+        )
+        query = search.get("search_query")
+        if query is not None:
+            lines.append(f"_Search query: {_markdown_cell(query)}_")
+        lines.append("")
+        rows = [
+            [
+                hit.get("rank"),
+                hit.get("score"),
+                hit.get("chunk_id"),
+                hit.get("source"),
+                f"{hit.get('start_line', '—')}–{hit.get('end_line', '—')}",
+            ]
+            for hit in stage.get("results", [])
+            if isinstance(hit, dict)
+        ]
+        if rows:
+            lines.extend(_table(
+                ["Rank", "Stage score", "Chunk ID", "Source path", "Lines"],
+                rows,
+            ))
+        else:
+            lines.append("No candidates were returned.")
+        metrics = stage.get("metrics", {}) or {}
+        lines.extend(["", "Evidence metrics at this stage cutoff:", ""])
+        lines.extend(_table(
+            ["Recall", "Precision", "NDCG"],
+            [[metrics.get("recall"), metrics.get("precision"), metrics.get("ndcg")]],
+        ))
+        lines.append("")
+    return lines
+
+
+def _render_classic_query_details(case: dict[str, Any]) -> list[str]:
+    lines = [
+        f"### {case.get('case_id', 'unknown')}",
+        "",
+        f"- **Category:** `{case.get('category', 'unknown')}`",
+        "",
+        "#### Question",
+        "",
+        _markdown_cell(case.get("question")),
+        "",
+        "#### Reference answer",
+        "",
+        _markdown_cell(case.get("reference_answer")),
+        "",
+        "#### Generated answer",
+        "",
+        _markdown_cell(case.get("answer")),
+        "",
+        "#### Quality metrics",
+        "",
+        "**Final generation-context evidence**",
+        "",
+    ]
+    final_metrics = case.get("final_context_metrics", {}) or {}
+    lines.extend(_table(
+        ["Metric", "Score"],
+        [[name, final_metrics.get(key)] for key, name in (
+            ("recall", "Recall"),
+            ("precision", "Precision"),
+            ("ndcg", "Context-order NDCG"),
+        )],
+    ))
+    lines.extend(["", "**Ragas diagnostics**", ""])
+    lines.extend(_table(
+        ["Metric", "Score"],
+        [[label, (case.get(source, {}) or {}).get(metric)] for label, metric, source in RAGAS_METRICS],
+    ))
+    lines.extend(["", "#### Latency", ""])
+    latency = case.get("latency", {}) or {}
+    stage_latency = latency.get("retrieval_stages_ms", {}) or {}
+    latency_rows = [
+        [label, stage_latency.get(key)]
+        for key, label in (
+            ("vector", "Vector search"),
+            ("bm25", "BM25 search"),
+            ("rrf", "RRF fusion"),
+            ("reranked", "Reranking"),
+        )
+    ]
+    latency_rows.extend([
+        ["Answer generation", latency.get("answer_generation_ms")],
+        ["Complete query", latency.get("rag_query_ms")],
+    ])
+    lines.extend(_table(
+        ["Stage", "Measured latency (ms)"],
+        latency_rows,
+    ))
+    for stage_name, heading in (
+        ("vector", "Vector results"),
+        ("bm25", "BM25 results"),
+        ("rrf", "RRF results"),
+        ("reranked", "Reranked results"),
+    ):
+        lines.extend(_render_classic_stage(
+            case,
+            stage_name=stage_name,
+            heading=heading,
+        ))
+    comparisons = (case.get("rerank_comparison", {}) or {}).get("searches", [])
+    if comparisons:
+        lines.extend(["Pre-rerank and post-rerank comparison:", ""])
+        comparison_rows = [
+            [
+                comparison.get("search_id"),
+                comparison.get("candidate_pool_matches"),
+                comparison.get("generation_top_k"),
+                comparison.get("common_top_k"),
+                (comparison.get("fused_metrics", {}) or {}).get("recall"),
+                (comparison.get("fused_metrics", {}) or {}).get("precision"),
+                (comparison.get("fused_metrics", {}) or {}).get("ndcg"),
+                (comparison.get("reranked_metrics", {}) or {}).get("recall"),
+                (comparison.get("reranked_metrics", {}) or {}).get("precision"),
+                (comparison.get("reranked_metrics", {}) or {}).get("ndcg"),
+            ]
+            for comparison in comparisons
+        ]
+        lines.extend(_table(
+            [
+                "Search ID", "Same candidate pool", "Generation top-k",
+                "Common cutoff", "RRF recall", "RRF precision", "RRF NDCG",
+                "Reranked recall", "Reranked precision", "Reranked NDCG",
+            ],
+            comparison_rows,
+        ))
+        lines.append("")
+
+    lines.extend(["#### Final generation context", "", "Context passed to answer generation.", ""])
+    candidates = _classic_candidate_index(case)
+    prefixes = {
+        item.get("context_prefix_k"): item
+        for item in case.get("context_prefix_metrics", [])
+    }
+    context_rows = []
+    for order, item in enumerate(case.get("generation_context", []), start=1):
+        prefix = prefixes.get(order, {})
+        covered = prefix.get("evidence_lines_covered")
+        total = prefix.get("ground_truth_line_count")
+        candidate = candidates.get((item.get("source"), item.get("chunk_id")), {})
+        if item.get("content_changed") is True:
+            context_content = item.get("prompt_block", item.get("text"))
+        else:
+            context_content = item.get("text") or candidate.get("text")
+            if context_content is None:
+                context_content = item.get("prompt_block")
+        context_rows.append([
+            order,
+            item.get("chunk_id"),
+            item.get("source"),
+            f"{item.get('start_line', '—')}–{item.get('end_line', '—')}",
+            item.get("reranker_score", candidate.get("reranker_score")),
+            context_content,
+            f"{covered}/{total}" if covered is not None and total is not None else None,
+            prefix.get("recall"),
+            prefix.get("precision"),
+            prefix.get("ndcg"),
+        ])
+    if context_rows:
+        lines.extend(_table(
+            [
+                "Context order", "Chunk ID", "Source path", "Lines",
+                "Reranker score", "Full context", "Evidence lines",
+                "Recall", "Precision", "Context-order NDCG",
+            ],
+            context_rows,
+        ))
+    else:
+        lines.extend(["No final-answer context was sent.", ""])
+    lines.extend([
+        "",
+        "Retrieved chunk text appears only in the final generation-context table.",
+        "",
+        "#### Expected evidence",
+        "",
+        f"- **Expected sources:** {_markdown_cell(case.get('expected_sources', []))}",
+        "",
+    ])
+    evidence_rows = [
+        [
+            item.get("source"),
+            f"{item.get('start_line', '—')}–{item.get('end_line', '—')}",
+            item.get("text"),
+        ]
+        for item in case.get("expected_evidence", [])
+    ]
+    lines.extend(_table(["Source path", "Lines", "Reviewed evidence text"], evidence_rows))
+    lines.extend(["", "#### Execution audit: latency and token usage", ""])
+    lines.extend(_table(
+        ["Process/call", "Latency (ms)", "Provider / model", "Provider input tokens", "Provider output tokens", "Total tokens"],
+        _execution_rows(case),
+    ))
+    lines.append("")
+    return lines
+
+
 def _render_query_details(cases: list[dict[str, Any]]) -> list[str]:
     """Render the per-query audit without mixing it into aggregate sections."""
     lines: list[str] = []
     for case in cases:
+        if case.get("workflow") == "classic":
+            lines.extend(_render_classic_query_details(case))
+            continue
         lines.extend([f"### {case.get('case_id', 'unknown')}", "", f"- **Category:** `{case.get('category', 'unknown')}`", f"- **Question:** {_markdown_cell(case.get('question'))}", "", "#### Expected evidence", "", f"- **Expected sources:** {_markdown_cell(case.get('expected_sources', []))}", ""])
         lines.extend(_table(["Source path", "Lines", "Reviewed evidence text"], [[item.get("source"), f"{item.get('start_line', '—')}–{item.get('end_line', '—')}", item.get("text")] for item in case.get("expected_evidence", [])]))
         searches = case.get("search_results", []) if isinstance(case.get("search_results", []), list) else []
