@@ -718,6 +718,312 @@ def _retrieval_coverage(
     }
 
 
+_CLASSIC_STAGE_NAMES = ("vector", "bm25", "rrf", "reranked")
+_CLASSIC_STAGE_RANK_FIELDS = {
+    "vector": "vector_rank",
+    "bm25": "bm25_rank",
+    "rrf": "rank",
+    "reranked": "rerank_rank",
+}
+_CLASSIC_STAGE_SCORE_FIELDS = {
+    "vector": "vector_score",
+    "bm25": "bm25_score",
+    "rrf": "fusion_score",
+    "reranked": "reranker_score",
+}
+
+
+def _stage_candidate_id(hit: dict[str, Any]) -> tuple[Any, Any] | None:
+    source = hit.get("source")
+    chunk_id = hit.get("chunk_id")
+    if source is None or chunk_id is None:
+        return None
+    try:
+        hash((source, chunk_id))
+    except TypeError:
+        return None
+    return source, chunk_id
+
+
+def _classic_stage_result_record(
+    hit: dict[str, Any],
+    *,
+    stage: str,
+    rank: int,
+) -> dict[str, Any]:
+    """Keep stage rank and score explicit while retaining candidate provenance."""
+    score_field = _CLASSIC_STAGE_SCORE_FIELDS[stage]
+    score_value = hit.get(score_field)
+    if score_field not in hit and stage != "reranked":
+        score_value = hit.get("score")
+    score = _safe_score(score_value)
+    record = {
+        "source": hit.get("source"),
+        "chunk_id": hit.get("chunk_id"),
+        "start_line": hit.get("start_line"),
+        "end_line": hit.get("end_line"),
+        "rank": rank,
+        "score": score,
+        "stage_score": score,
+        "text": hit.get("text"),
+    }
+    if stage == "reranked":
+        record["fusion_rank"] = hit.get("rank")
+    for key in (
+        "vector_rank",
+        "bm25_rank",
+        "rerank_rank",
+    ):
+        value = hit.get(key)
+        if type(value) is int:
+            record[key] = value
+    for key in (
+        "vector_score",
+        "bm25_score",
+        "fusion_score",
+        "reranker_score",
+    ):
+        if key in hit:
+            record[key] = _safe_score(hit.get(key))
+    return record
+
+
+def _stage_metrics(
+    *,
+    expected_evidence: list[dict[str, Any]],
+    candidates: list[dict[str, Any]],
+    top_k: int | None,
+) -> dict[str, float | None]:
+    if top_k is None or top_k < 0:
+        return {"recall": None, "precision": None, "ndcg": None}
+    return calculate_retrieval_metrics(
+        expected_evidence=expected_evidence,
+        retrieval_lists=[candidates],
+        top_k=top_k,
+    )
+
+
+def _mean_stage_metrics(
+    rows: list[dict[str, Any]],
+) -> dict[str, float | None]:
+    return {
+        metric: _mean([row.get(metric) for row in rows])
+        for metric in ("recall", "precision", "ndcg")
+    }
+
+
+def _record_classic_retrieval_stages(
+    raw_records: Any,
+    *,
+    expected_evidence: list[dict[str, Any]],
+    settings: Any,
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    """Normalize measured Classic stages and score each at its configured cutoff."""
+    if not isinstance(raw_records, list):
+        raw_records = []
+    configured_cutoffs = {
+        "vector": getattr(settings, "vector_top_k", None),
+        "bm25": getattr(settings, "bm25_top_k", None),
+        "rrf": getattr(settings, "fusion_top_k", getattr(settings, "top_k", None)),
+        "reranked": getattr(settings, "fusion_top_k", getattr(settings, "top_k", None)),
+    }
+    normalized_records: list[dict[str, Any]] = []
+    metrics_by_stage: dict[str, list[dict[str, Any]]] = {
+        name: [] for name in _CLASSIC_STAGE_NAMES
+    }
+    comparisons: list[dict[str, Any]] = []
+
+    for raw_record in raw_records:
+        if not isinstance(raw_record, dict):
+            continue
+        raw_stages = raw_record.get("stages")
+        if not isinstance(raw_stages, dict):
+            continue
+        record_stages: dict[str, Any] = {}
+        summaries: list[dict[str, Any]] = []
+        for stage_name in _CLASSIC_STAGE_NAMES:
+            raw_stage = raw_stages.get(stage_name)
+            if not isinstance(raw_stage, dict):
+                continue
+            raw_candidates = raw_stage.get("results", [])
+            if not isinstance(raw_candidates, list):
+                raw_candidates = []
+            top_k_value = raw_stage.get("top_k")
+            if type(top_k_value) is not int or top_k_value < 0:
+                top_k_value = configured_cutoffs[stage_name]
+            top_k = (
+                top_k_value
+                if type(top_k_value) is int and top_k_value >= 0
+                else None
+            )
+            normalized_candidates = []
+            for index, hit in enumerate(raw_candidates, start=1):
+                if not isinstance(hit, dict):
+                    continue
+                rank = hit.get(_CLASSIC_STAGE_RANK_FIELDS[stage_name])
+                if type(rank) is not int:
+                    rank = index if stage_name == "reranked" else hit.get("rank")
+                if type(rank) is not int:
+                    rank = index
+                normalized_candidates.append(_classic_stage_result_record(
+                    hit,
+                    stage=stage_name,
+                    rank=rank,
+                ))
+            metrics = _stage_metrics(
+                expected_evidence=expected_evidence,
+                candidates=normalized_candidates,
+                top_k=top_k,
+            )
+            raw_returned_count = raw_stage.get("returned_count")
+            returned_count = (
+                raw_returned_count
+                if type(raw_returned_count) is int and raw_returned_count >= 0
+                else len(normalized_candidates)
+            )
+            stage_record = {
+                "top_k": top_k,
+                "returned_count": returned_count,
+                "latency_ms": _safe_score(raw_stage.get("latency_ms")),
+                "results": normalized_candidates,
+                "metrics": metrics,
+            }
+            record_stages[stage_name] = stage_record
+            summary = {
+                "stage": stage_name,
+                "top_k": top_k,
+                "returned_count": returned_count,
+                **metrics,
+            }
+            summaries.append(summary)
+            metrics_by_stage[stage_name].append(metrics)
+
+        normalized_record = {
+            "search_id": raw_record.get("search_id"),
+            "search_query": raw_record.get("search_query"),
+            "generation_top_k": raw_record.get("generation_top_k"),
+            "stage_summaries": summaries,
+            "stages": record_stages,
+        }
+        normalized_records.append(normalized_record)
+
+        fused = record_stages.get("rrf")
+        reranked = record_stages.get("reranked")
+        generation_top_k = raw_record.get("generation_top_k")
+        if type(generation_top_k) is not int or generation_top_k < 0:
+            generation_top_k = getattr(
+                getattr(settings, "llm", None), "max_chunks", None
+            )
+        comparison_top_k = None
+        if (
+            fused is not None
+            and reranked is not None
+            and type(generation_top_k) is int
+            and generation_top_k >= 0
+            and type(fused["top_k"]) is int
+            and type(reranked["top_k"]) is int
+        ):
+            comparison_top_k = min(
+                generation_top_k,
+                fused["top_k"],
+                reranked["top_k"],
+            )
+        fused_ids = [
+            _stage_candidate_id(hit) for hit in fused["results"]
+        ] if fused is not None else []
+        reranked_ids = [
+            _stage_candidate_id(hit) for hit in reranked["results"]
+        ] if reranked is not None else []
+        candidate_pool_matches = (
+            bool(fused_ids)
+            and all(candidate_id is not None for candidate_id in fused_ids)
+            and all(candidate_id is not None for candidate_id in reranked_ids)
+            and Counter(fused_ids) == Counter(reranked_ids)
+        )
+        comparison = {
+            "search_id": raw_record.get("search_id"),
+            "candidate_pool_matches": candidate_pool_matches,
+            "generation_top_k": generation_top_k,
+            "common_top_k": comparison_top_k,
+            "fused_metrics": (
+                _stage_metrics(
+                    expected_evidence=expected_evidence,
+                    candidates=fused["results"],
+                    top_k=comparison_top_k,
+                )
+                if candidate_pool_matches and comparison_top_k is not None
+                else {"recall": None, "precision": None, "ndcg": None}
+            ),
+            "reranked_metrics": (
+                _stage_metrics(
+                    expected_evidence=expected_evidence,
+                    candidates=reranked["results"],
+                    top_k=comparison_top_k,
+                )
+                if candidate_pool_matches and comparison_top_k is not None
+                else {"recall": None, "precision": None, "ndcg": None}
+            ),
+        }
+        if fused is not None or reranked is not None:
+            comparisons.append(comparison)
+
+    stage_metrics = {
+        stage_name: _mean_stage_metrics(metrics_by_stage[stage_name])
+        for stage_name in _CLASSIC_STAGE_NAMES
+        if metrics_by_stage[stage_name]
+    }
+    if not comparisons:
+        rerank_comparison: dict[str, Any] = {}
+    else:
+        common_cutoffs = {item["common_top_k"] for item in comparisons}
+        rerank_comparison = {
+            "candidate_pool_matches": all(
+                item["candidate_pool_matches"] for item in comparisons
+            ),
+            "generation_top_k": (
+                comparisons[0]["generation_top_k"]
+                if len({item["generation_top_k"] for item in comparisons}) == 1
+                else None
+            ),
+            "common_top_k": (
+                next(iter(common_cutoffs)) if len(common_cutoffs) == 1 else None
+            ),
+            "fused_metrics": _mean_stage_metrics([
+                item["fused_metrics"] for item in comparisons
+                if item["candidate_pool_matches"]
+            ]),
+            "reranked_metrics": _mean_stage_metrics([
+                item["reranked_metrics"] for item in comparisons
+                if item["candidate_pool_matches"]
+            ]),
+            "searches": comparisons,
+        }
+    return normalized_records, stage_metrics, rerank_comparison
+
+
+def _classic_stage_latency_totals(
+    retrieval_stages: list[dict[str, Any]],
+) -> dict[str, float | None]:
+    if not retrieval_stages:
+        return {stage: None for stage in _CLASSIC_STAGE_NAMES}
+    totals: dict[str, float | None] = {}
+    for stage_name in _CLASSIC_STAGE_NAMES:
+        observed = [
+            _safe_score(
+                (record.get("stages", {}).get(stage_name, {}) or {}).get(
+                    "latency_ms"
+                )
+            )
+            for record in retrieval_stages
+        ]
+        totals[stage_name] = (
+            round(sum(value for value in observed if value is not None), 3)
+            if all(value is not None for value in observed)
+            else None
+        )
+    return totals
+
+
 def _record_case(
     case: dict[str, Any],
     *,
@@ -765,9 +1071,21 @@ def _record_case(
             "retrieval_stage",
             "method",
             "retrieval_method",
+            "rank",
+            "vector_rank",
+            "bm25_rank",
+            "rerank_rank",
         ):
             if key in hit:
                 record[key] = hit[key]
+        for key in (
+            "vector_score",
+            "bm25_score",
+            "fusion_score",
+            "reranker_score",
+        ):
+            if key in hit:
+                record[key] = _safe_score(hit.get(key))
         return record
 
     evidence_records = [evidence_record(hit) for hit in evidence]
@@ -821,6 +1139,22 @@ def _record_case(
             "prompt_block": (
                 context_item.get("prompt_block") if content_changed else None
             ),
+            **{
+                key: context_item.get(key, retrieved_item.get(key))
+                for key in (
+                    "rank",
+                    "vector_rank",
+                    "bm25_rank",
+                    "fusion_rank",
+                    "rerank_rank",
+                    "score",
+                    "vector_score",
+                    "bm25_score",
+                    "fusion_score",
+                    "reranker_score",
+                )
+                if context_item.get(key, retrieved_item.get(key)) is not None
+            },
         })
     if not generation_context_records:
         for citation in citation_records:
@@ -858,16 +1192,39 @@ def _record_case(
         search_queries = []
     if not search_queries and search_result_records:
         search_queries = [case["question"]] * len(search_result_records)
+    retrieval_stages: list[dict[str, Any]] = []
+    retrieval_stage_metrics: dict[str, Any] = {}
+    rerank_comparison: dict[str, Any] = {}
+    if workflow == "classic" and workflow_error is None:
+        (
+            retrieval_stages,
+            retrieval_stage_metrics,
+            rerank_comparison,
+        ) = _record_classic_retrieval_stages(
+            result.get("retrieval_stages", []),
+            expected_evidence=case["expected_evidence"],
+            settings=get_settings(),
+        )
     controller_latency_ms = round(sum(
         call.get("latency_ms") or 0
         for call in generation_calls
         if call.get("call_type") == "controller"
     ), 3)
-    answer_latency_ms = round(sum(
-        call.get("latency_ms") or 0
+    answer_calls = [
+        call
         for call in generation_calls
         if call.get("call_type") in {"answer", "final_answer"}
-    ), 3)
+    ]
+    answer_call_latencies = [
+        _safe_score(call.get("latency_ms")) for call in answer_calls
+    ]
+    answer_latency_ms = (
+        round(sum(value for value in answer_call_latencies if value is not None), 3)
+        if answer_call_latencies and all(
+            value is not None for value in answer_call_latencies
+        )
+        else None
+    )
     retrieval_latency_ms = round(sum(
         call.get("latency_ms") or 0 for call in retrieval_calls
     ), 3)
@@ -909,6 +1266,11 @@ def _record_case(
         "retrieved_evidence": evidence_records,
         "search_results": search_result_records,
         "search_queries": search_queries,
+        **({
+            "retrieval_stages": retrieval_stages,
+            "retrieval_stage_metrics": retrieval_stage_metrics,
+            "rerank_comparison": rerank_comparison,
+        } if workflow == "classic" else {}),
         "generation_context": generation_context_records,
         "context_prefix_metrics": context_prefix_metrics,
         "final_context_metrics": final_context_metrics,
@@ -936,11 +1298,15 @@ def _record_case(
         "latency": {
             "retrieval_calls": retrieval_calls,
             "retrieval_ms": retrieval_latency_ms,
+            "retrieval_stages_ms": _classic_stage_latency_totals(
+                retrieval_stages
+            ) if workflow == "classic" else {},
             "controller_ms": controller_latency_ms,
             "answer_generation_ms": answer_latency_ms,
-            "generation_ms": round(
-                controller_latency_ms + answer_latency_ms,
-                3,
+            "generation_ms": (
+                round(controller_latency_ms + answer_latency_ms, 3)
+                if answer_latency_ms is not None
+                else None
             ),
             "judge_metrics_ms": {},
             "judge_ms": 0.0,

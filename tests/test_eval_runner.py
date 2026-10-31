@@ -1138,6 +1138,264 @@ def test_run_directory_uses_taipei_seconds_and_refuses_collision(
     assert list(output_root.iterdir()) == [run_dir]
 
 
+def test_classic_evaluation_records_stage_metrics_and_fair_rerank_comparison(
+    monkeypatch,
+    tmp_path,
+):
+    case = {
+        "id": "classic-stages",
+        "category": "direct",
+        "challenge_tags": [],
+        "question": "Which lines contain the launch notes?",
+        "reference_answer": "The launch notes are on lines ten and eleven.",
+        "answerable": True,
+        "expected_sources": ["notes/evidence.md"],
+        "expected_evidence": [{
+            "source": "notes/evidence.md",
+            "start_line": 10,
+            "end_line": 11,
+            "text": "Reviewed launch evidence.",
+        }],
+    }
+    settings = SimpleNamespace(
+        llm=SimpleNamespace(
+            provider="fixture",
+            model="fixture-answer",
+            effective_eval_provider="fixture",
+            effective_eval_model="fixture-judge",
+            max_chunks=1,
+        ),
+        embed_model_name="fixture-embedding",
+        chunk_size=200,
+        chunk_overlap=50,
+        top_k=3,
+        vector_top_k=3,
+        bm25_top_k=2,
+        fusion_top_k=3,
+        min_retrieval_score=0.0,
+    )
+
+    @contextmanager
+    def isolated_index():
+        yield settings, object(), object()
+
+    noise = {
+        "source": "notes/noise.md", "chunk_id": 1,
+        "start_line": 1, "end_line": 2, "text": "Noise stage text",
+        "rank": 1, "score": 0.9, "vector_rank": 1, "vector_score": 0.9,
+        "bm25_rank": None, "bm25_score": None,
+        "fusion_score": 1 / 61, "reranker_score": 0.1, "rerank_rank": 3,
+    }
+    line_ten = {
+        "source": "notes/evidence.md", "chunk_id": 2,
+        "start_line": 10, "end_line": 10, "text": "Line ten citation",
+        "rank": 2, "score": 0.8, "vector_rank": 2, "vector_score": 0.8,
+        "bm25_rank": 1, "bm25_score": 4.0,
+        "fusion_score": 1 / 62 + 1 / 61,
+        "reranker_score": 0.9, "rerank_rank": 1,
+    }
+    line_eleven = {
+        "source": "notes/evidence.md", "chunk_id": 3,
+        "start_line": 11, "end_line": 11, "text": "Line eleven citation",
+        "rank": 3, "score": 0.7, "vector_rank": 3, "vector_score": 0.7,
+        "bm25_rank": 2, "bm25_score": 3.0,
+        "fusion_score": 1 / 63 + 1 / 62,
+        "reranker_score": 0.8, "rerank_rank": 2,
+    }
+    stage_record = {
+        "search_id": 1,
+        "search_query": case["question"],
+        "generation_top_k": 1,
+        "stages": {
+            "vector": {
+                "top_k": 2, "returned_count": 3, "latency_ms": 1.2,
+                "results": [noise, line_ten, line_eleven],
+            },
+            "bm25": {
+                "top_k": 2, "returned_count": 2, "latency_ms": 2.3,
+                "results": [line_ten, line_eleven],
+            },
+            "rrf": {
+                "top_k": 3, "returned_count": 3, "latency_ms": 3.4,
+                "results": [noise, line_ten, line_eleven],
+            },
+            "reranked": {
+                "top_k": 3, "returned_count": 3, "latency_ms": 4.5,
+                "results": [line_ten, line_eleven, noise],
+            },
+        },
+    }
+
+    def fake_run_query(
+        _rag,
+        _meta_store,
+        *,
+        query,
+        agentic,
+        stream,
+        on_generation,
+        on_retrieval,
+    ):
+        assert agentic is False
+        on_generation({
+            "call_type": "answer",
+            "provider": "fixture",
+            "model": "fixture-answer",
+            "latency_ms": 6.7,
+            "token_usage": {
+                "status": "available",
+                "input_tokens": 4,
+                "output_tokens": 2,
+                "total_tokens": 6,
+            },
+        })
+        on_retrieval({"search_index": 1, "latency_ms": 12.4, "result_count": 3})
+        context_item = {
+            "source": line_ten["source"],
+            "chunk_id": line_ten["chunk_id"],
+            "start_line": line_ten["start_line"],
+            "end_line": line_ten["end_line"],
+            "text": line_ten["text"],
+            "prompt_block": f"file:{line_ten['source']}\n{line_ten['text']}",
+            "reranker_score": line_ten["reranker_score"],
+        }
+        return {
+            "answer": "The launch notes appear on both lines.",
+            "citations": [line_ten],
+            "retrieved_evidence": [line_ten, line_eleven, noise],
+            "search_results": [[line_ten, line_eleven, noise]],
+            "search_queries": [query],
+            "retrieval_stages": [stage_record],
+            "generation_context": [context_item],
+        }
+
+    monkeypatch.setattr(eval_runner, "load_qa_fixture", lambda: [case])
+    monkeypatch.setattr(eval_runner, "get_settings", lambda: settings)
+    monkeypatch.setattr(eval_runner, "_isolated_fixture_index", isolated_index)
+    monkeypatch.setattr("rag_notes_helper.cli.run_query", fake_run_query)
+    monkeypatch.setattr(eval_runner, "_attach_ragas_scores", lambda *args, **kwargs: None)
+
+    run_dir = eval_runner.run_evaluation(output_root=tmp_path / "evaluation")
+    results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
+    case_result = results["cases"][0]
+
+    assert [
+        (stage["stage"], stage["top_k"], stage["returned_count"])
+        for stage in case_result["retrieval_stages"][0]["stage_summaries"]
+    ] == [
+        ("vector", 2, 3),
+        ("bm25", 2, 2),
+        ("rrf", 3, 3),
+        ("reranked", 3, 3),
+    ]
+    assert case_result["retrieval_stage_metrics"]["vector"]["recall"] == 0.5
+    assert case_result["retrieval_stage_metrics"]["vector"]["precision"] == pytest.approx(1 / 3)
+    assert case_result["retrieval_stage_metrics"]["bm25"] == {
+        "recall": 1.0, "precision": 1.0, "ndcg": 1.0,
+    }
+    reranked_results = case_result["retrieval_stages"][0]["stages"]["reranked"]["results"]
+    assert reranked_results[0]["rank"] == 1
+    assert reranked_results[0]["fusion_rank"] == 2
+    assert reranked_results[0]["score"] == 0.9
+    comparison = case_result["rerank_comparison"]
+    assert comparison["candidate_pool_matches"] is True
+    assert comparison["common_top_k"] == 1
+    assert comparison["fused_metrics"]["recall"] == 0.0
+    assert comparison["reranked_metrics"]["recall"] == 0.5
+    assert case_result["final_context_metrics"]["recall"] == 0.5
+    assert case_result["final_context_metrics"]["precision"] == 1.0
+    assert case_result["generation_context"][0]["reranker_score"] == 0.9
+    assert case_result["latency"]["answer_generation_ms"] == 6.7
+    assert case_result["latency"]["retrieval_stages_ms"] == {
+        "vector": 1.2, "bm25": 2.3, "rrf": 3.4, "reranked": 4.5,
+    }
+    assert case_result["latency"]["rag_query_ms"] is not None
+
+    report = (run_dir / "README.md").read_text(encoding="utf-8")
+    ordered_sections = [
+        "#### Question",
+        "#### Reference answer",
+        "#### Generated answer",
+        "#### Quality metrics",
+        "#### Latency",
+        "#### Vector results",
+        "#### BM25 results",
+        "#### RRF results",
+        "#### Reranked results",
+        "#### Final generation context",
+    ]
+    assert [report.index(section) for section in ordered_sections] == sorted(
+        report.index(section) for section in ordered_sections
+    )
+    assert "Noise stage text" not in report
+    assert "Line eleven citation" not in report
+    assert report.count("Line ten citation") == 1
+    assert "Evidence metrics at this stage cutoff" in report
+    assert "Pre-rerank and post-rerank comparison" in report
+    assert "| Search ID | Same candidate pool | Generation top-k | Common cutoff | RRF recall |" in report
+
+
+def test_classic_report_keeps_unmeasured_latencies_unavailable(monkeypatch):
+    settings = SimpleNamespace(
+        llm=SimpleNamespace(max_chunks=1),
+        top_k=1,
+    )
+    case = {
+        "id": "unmeasured-latency",
+        "category": "direct",
+        "challenge_tags": [],
+        "question": "Which note is available?",
+        "reference_answer": "A note is available.",
+        "answerable": True,
+        "expected_sources": ["notes/evidence.md"],
+        "expected_evidence": [{
+            "source": "notes/evidence.md",
+            "start_line": 1,
+            "end_line": 1,
+            "text": "Available note.",
+        }],
+    }
+
+    def fake_run_query(
+        _rag,
+        _meta_store,
+        *,
+        query,
+        agentic,
+        stream,
+        on_generation,
+        on_retrieval,
+    ):
+        on_generation({"call_type": "answer", "latency_ms": None})
+        return {
+            "answer": "A note is available.",
+            "citations": [],
+            "retrieved_evidence": [],
+            "search_results": [],
+            "generation_context": [],
+        }
+
+    monkeypatch.setattr(eval_runner, "get_settings", lambda: settings)
+    monkeypatch.setattr("rag_notes_helper.cli.run_query", fake_run_query)
+
+    result = eval_runner._record_case(
+        case,
+        workflow="classic",
+        rag=object(),
+        meta_store=object(),
+    )
+
+    assert result["latency"]["answer_generation_ms"] is None
+    assert result["latency"]["generation_ms"] is None
+    assert result["latency"]["retrieval_stages_ms"] == {
+        "vector": None,
+        "bm25": None,
+        "rrf": None,
+        "reranked": None,
+    }
+    assert result["latency"]["rag_query_ms"] is not None
+
+
 def test_artifact_failure_does_not_log_successful_write(
     monkeypatch,
     tmp_path,
