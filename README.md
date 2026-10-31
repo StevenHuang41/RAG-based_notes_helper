@@ -237,6 +237,7 @@ RAG-based_notes_helper/
 │   └── results/                     # generated evaluation reports; ignored by Git
 ├── src/rag_notes_helper/
 │   ├── cli.py                      # rag-app entry point
+│   ├── mcp_server.py               # authenticated read-only MCP search server
 │   ├── core/config.py              # runtime settings and validation
 │   ├── eval/                       # RAGAS evaluation
 │   ├── rag/
@@ -321,6 +322,35 @@ uv run rag-app --repl --agentic "What changed before launch?"
 ```
 
 Each query starts with fresh Agentic state; conversation memory is not enabled.
+
+### Remote MCP search
+
+The optional `rag-mcp-server` command exposes one read-only `search_notes` tool over Streamable HTTP. It uses the local Vector, BM25, RRF, and CrossEncoder retrieval pipeline, returns the selected chunk text with a relative source path, chunk ID, line range, and ranking provenance, and does not call an answer-generation model. It accepts only a query and an optional `top_k`; the server caps the result count at `LLM_MAX_CHUNKS`. The runtime index is refreshed from the allowed `data/` corpus when the server starts.
+
+The note files and FAISS index stay on the machine running this application. When a hosted model client calls the tool, the returned evidence is sent to that provider so its model can compose an answer.
+
+The server is an OAuth resource server; it does not issue tokens or provide an identity provider. Configure an authorization server that publishes OIDC discovery metadata and signs JWT access tokens with asymmetric keys in its JWKS. Tokens must have an `iss` matching the configured issuer, a valid signature and expiry, an `aud` matching the public MCP endpoint, and the configured read scope. The SDK enforces the scope at the Streamable HTTP boundary. An issuer URL by itself is not token validation; there is no static-token fallback.
+
+Set the following in `.env` after configuring the same issuer, audience, and scope at your OAuth provider:
+
+```text
+MCP_ISSUER_URL=https://identity.example.com/
+MCP_RESOURCE_SERVER_URL=https://notes.example.com/mcp
+MCP_READ_SCOPE=notes:read
+MCP_HOST=127.0.0.1
+MCP_PORT=8000
+MCP_ALLOWED_HOSTS=notes.example.com
+```
+
+Start the server with:
+
+```bash
+uv run rag-mcp-server
+```
+
+`MCP_ISSUER_URL` and `MCP_RESOURCE_SERVER_URL` are required. They may use HTTP only on loopback for local development; remote URLs must use HTTPS. The resource URL must be the exact `/mcp` endpoint and its value must match the token audience. The server binds to loopback by default. For a remote client, use a stable public HTTPS reverse proxy or named tunnel that forwards to this local endpoint, and set `MCP_ALLOWED_HOSTS` to the public hostname accepted in the HTTP `Host` header. A tunnel exposes transport only; it does not replace OAuth authentication or TLS. If binding directly to a non-loopback interface, configure the allowed host list and terminate HTTPS at a trusted proxy.
+
+As of 2026-10-31, Anthropic lists custom remote MCP connectors for Free, Pro, Max, Ultra, Team, and Enterprise; Free is limited to one connector. OpenAI lists full MCP access for Business and Enterprise/Edu, and read/fetch MCP access for Pro; Plus is not listed. Plan availability can change, so check the providers' current [Anthropic connector plan details](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp) and [ChatGPT MCP plan details](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt). A hosted-client smoke test is optional and is not part of offline acceptance. See the official MCP SDK's [resource-server authorization guide](https://github.com/modelcontextprotocol/python-sdk/blob/main/docs/run/authorization.md) for the protocol's discovery and bearer-token behavior.
 
 REPL commands:
 
