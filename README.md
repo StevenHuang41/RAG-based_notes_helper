@@ -7,7 +7,7 @@
 ![Docker](https://img.shields.io/badge/Docker-GHCR-2496ED?logo=docker&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
 
-A local-first Retrieval-Augmented Generation (RAG) application for querying personal notes and documents. The system indexes notes with SentenceTransformer embeddings and FAISS, retrieves relevant chunks for each query, and sends grounded context to a configurable LLM backend.
+A local-first Retrieval-Augmented Generation (RAG) application for querying personal notes and documents. The system indexes notes with SentenceTransformer embeddings and FAISS, combines Vector and BM25 search results with Reciprocal Rank Fusion, and sends grounded context to a configurable LLM backend.
 
 The application can run from source or as a containerized CLI. It supports Classic RAG by default and an opt-in Agentic RAG workflow, one-time queries, an interactive REPL, source citations, smart re-indexing, multiple LLM providers, PDF ingestion, and a fixture-backed RAGAS benchmark.
 
@@ -64,6 +64,7 @@ This project keeps knowledge external and inspectable. Notes are chunked, embedd
 - Splits documents into overlapping chunks with configurable chunk size and overlap.
 - Generates local embeddings with SentenceTransformer.
 - Stores vectors in FAISS for similarity search.
+- Combines Vector and BM25 candidate rankings with Reciprocal Rank Fusion (RRF).
 - Stores chunk metadata separately in JSONL with an offset index for efficient lookup.
 - Supports smart indexing so unchanged files do not need to be reprocessed.
 
@@ -114,9 +115,12 @@ SentenceTransformer embeddings
         +--------------------+
         |                    |
         v                    v
-FAISS vector index      Metadata store
+      FAISS vector index     Metadata store and BM25 search
         |                    |
         +---------+----------+
+                  |
+                  v
+          Reciprocal Rank Fusion
                   |
                   v
 User query -> workflow selection
@@ -155,9 +159,10 @@ one retrieval        bounded Python loop
    - Chunk text and source metadata are stored outside the vector index.
 
 5. **Retrieval**
-   - The user query is embedded with the same embedding model.
-   - FAISS retrieves the top-k nearest chunks.
-   - Low-scoring matches are filtered with `MIN_RETRIEVAL_SCORE`.
+   - The user query is embedded with the same embedding model for Vector search.
+   - BM25 searches the indexed chunk text independently of the embedding model.
+   - Vector matches below `MIN_RETRIEVAL_SCORE` are filtered; BM25 scores are not passed through that Vector-only threshold.
+   - Reciprocal Rank Fusion combines both ranked lists into the configured fusion candidate list.
 
 6. **Workflow selection and answer generation**
    - Classic RAG sends one retrieval result to answer generation.
@@ -194,7 +199,7 @@ The QA set covers direct lookup, multi-hop integration, unanswerable questions, 
 | Layer | Tools |
 |---|---|
 | CLI / runtime | Python, argparse, Pydantic Settings |
-| Retrieval | FAISS, SentenceTransformer, NumPy |
+| Retrieval | FAISS, BM25, Reciprocal Rank Fusion, SentenceTransformer, NumPy |
 | LLM backends | Hugging Face, Gemini, OpenAI, OpenRouter, Ollama |
 | Evaluation | Ragas 0.4 collections metrics and provider adapters |
 | Document parsing | PyMuPDF for PDF support, text/markdown/python loaders |
@@ -445,9 +450,13 @@ Common settings:
 | `LLM_TEMPERATURE` | Generation temperature | `0.1` |
 | `CHUNK_SIZE` | Chunk size for ingestion | `800` |
 | `CHUNK_OVERLAP` | Chunk overlap | `200` |
-| `TOP_K` | Number of retrieved chunks | `5` |
+| `VECTOR_TOP_K` | Maximum candidates returned by Vector search | `30` |
+| `BM25_TOP_K` | Maximum candidates returned by BM25 search | `20` |
+| `FUSION_TOP_K` | Maximum candidates returned after RRF fusion | `15` |
 | `MIN_RETRIEVAL_SCORE` | Retrieval score threshold | `0.3` |
 | `STREAM` | Stream model output where supported | `true` |
+
+`TOP_K` remains accepted as a legacy alias for `FUSION_TOP_K` so existing local configuration continues to set the final candidate limit.
 
 ---
 
