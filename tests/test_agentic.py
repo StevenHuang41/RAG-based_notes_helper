@@ -129,6 +129,48 @@ def test_agentic_answer_uses_original_query_and_selected_evidence():
     assert result["citations"] == ["budget.md"]
 
 
+def test_agentic_reranks_selected_evidence_for_the_original_question():
+    lower_ranked = make_hit("summary.md", 0, "A general project summary.")
+    higher_ranked = make_hit("ownership.md", 1, "Mina Chen owns the project.")
+    controller = FakeController([
+        action_json({
+            "action": "answer",
+            "evidence": [
+                {"source": lower_ranked["source"], "chunk_id": lower_ranked["chunk_id"]},
+                {"source": higher_ranked["source"], "chunk_id": higher_ranked["chunk_id"]},
+            ],
+        })
+    ])
+    answer_calls = []
+
+    class FakeCrossEncoder:
+        def predict(self, pairs):
+            assert pairs == [
+                ("Who owns the project?", lower_ranked["text"]),
+                ("Who owns the project?", higher_ranked["text"]),
+            ]
+            return [0.1, 0.95]
+
+    def answer(query, *, hits, stream):
+        answer_calls.append((query, hits, stream))
+        return {"answer": "Mina Chen owns the project.", "citations": []}
+
+    result = agentic_answer(
+        "Who owns the project?",
+        rag=None,
+        meta_store=None,
+        search_fn=lambda _query: [lower_ranked, higher_ranked],
+        controller=controller,
+        answer_fn=answer,
+        cross_encoder=FakeCrossEncoder(),
+    )
+
+    assert answer_calls == [
+        ("Who owns the project?", [higher_ranked | {"reranker_score": 0.95, "rerank_rank": 1}, lower_ranked | {"reranker_score": 0.1, "rerank_rank": 2}], False),
+    ]
+    assert result["answer"] == "Mina Chen owns the project."
+
+
 def test_agentic_answer_ignores_extra_text_on_evidence_references():
     hit = make_hit("product_overview.md", 1, "Product owner: Lena Ortiz.")
     controller = FakeController([

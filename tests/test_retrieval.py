@@ -78,6 +78,7 @@ def test_hybrid_retrieval_keeps_method_ranks_and_fuses_shared_candidates(monkeyp
             bm25_top_k=2,
             fusion_top_k=2,
             min_retrieval_score=0.5,
+            llm=SimpleNamespace(max_chunks=5),
         ),
     )
 
@@ -91,7 +92,115 @@ def test_hybrid_retrieval_keeps_method_ranks_and_fuses_shared_candidates(monkeyp
     assert result.fused_results[0]["bm25_rank"] == 2
     assert result.fused_results[0]["vector_score"] == pytest.approx(0.8)
     assert result.fused_results[0]["bm25_score"] > 0
-    assert result[0] is result.fused_results[0]
+    assert result[0] is result.reranked_results[0]
+
+
+def test_hybrid_retrieval_reranks_fused_candidates_without_score_thresholding(
+    monkeypatch,
+):
+    records = [
+        {
+            "doc_id": "first",
+            "chunk_id": 0,
+            "source": "notes/first.md",
+            "text": "first candidate text",
+            "start_line": 1,
+            "end_line": 1,
+        },
+        {
+            "doc_id": "second",
+            "chunk_id": 0,
+            "source": "notes/second.md",
+            "text": "second candidate text",
+            "start_line": 2,
+            "end_line": 2,
+        },
+        {
+            "doc_id": "third",
+            "chunk_id": 0,
+            "source": "notes/third.md",
+            "text": "third candidate text",
+            "start_line": 3,
+            "end_line": 3,
+        },
+    ]
+
+    class MetaStore:
+        def get(self, index):
+            return dict(records[index])
+
+    index = faiss.IndexFlatIP(2)
+    index.add(
+        np.array(
+            [[0.95, 0.0], [0.8, 0.0], [0.7, 0.0]],
+            dtype="float32",
+        )
+    )
+    model = MagicMock()
+    model.encode.return_value = np.array([[1.0, 0.0]], dtype="float32")
+    monkeypatch.setattr(RagIndex, "embed_model", PropertyMock(return_value=model))
+    monkeypatch.setattr(
+        "rag_notes_helper.rag.retrieval.get_settings",
+        lambda: SimpleNamespace(
+            vector_top_k=3,
+            bm25_top_k=3,
+            fusion_top_k=3,
+            min_retrieval_score=0.5,
+            llm=SimpleNamespace(max_chunks=2),
+        ),
+    )
+
+    class FakeCrossEncoder:
+        def predict(self, pairs):
+            assert pairs == [
+                ("Which candidate?", "first candidate text"),
+                ("Which candidate?", "second candidate text"),
+                ("Which candidate?", "third candidate text"),
+            ]
+            return [-0.25, 0.9, 0.4]
+
+    result = retrieve(
+        RagIndex(index),
+        MetaStore(),
+        query="Which candidate?",
+        cross_encoder=FakeCrossEncoder(),
+    )
+
+    assert [item["doc_id"] for item in result.fused_results] == [
+        "first",
+        "second",
+        "third",
+    ]
+    assert [item["doc_id"] for item in result.reranked_results] == [
+        "second",
+        "third",
+        "first",
+    ]
+    assert [item["reranker_score"] for item in result.reranked_results] == [
+        0.9,
+        0.4,
+        -0.25,
+    ]
+    assert result.reranked_results[-1]["vector_score"] == pytest.approx(0.95)
+
+    stage_record = result.to_stage_record(
+        search_id=1,
+        search_query="Which candidate?",
+    )
+
+    assert list(stage_record["stages"]) == ["vector", "bm25", "rrf", "reranked"]
+    assert stage_record["search_id"] == 1
+    assert stage_record["search_query"] == "Which candidate?"
+    assert stage_record["generation_top_k"] == 2
+    assert {
+        name: stage["top_k"]
+        for name, stage in stage_record["stages"].items()
+    } == {"vector": 3, "bm25": 3, "rrf": 3, "reranked": 3}
+    assert {
+        name: stage["returned_count"]
+        for name, stage in stage_record["stages"].items()
+    } == {"vector": 3, "bm25": 3, "rrf": 3, "reranked": 3}
+    assert all(stage["latency_ms"] >= 0 for stage in stage_record["stages"].values())
 
 
 def test_hybrid_retrieval_returns_no_candidates_when_both_methods_miss(monkeypatch):
@@ -107,6 +216,7 @@ def test_hybrid_retrieval_returns_no_candidates_when_both_methods_miss(monkeypat
             bm25_top_k=3,
             fusion_top_k=4,
             min_retrieval_score=0.5,
+            llm=SimpleNamespace(max_chunks=5),
         ),
     )
 
@@ -197,12 +307,18 @@ def test_classic_and_agentic_workflows_use_the_shared_hybrid_search(monkeypatch)
     def answer(query, *, hits, stream=False, **_kwargs):
         return {"answer": f"answer to {query}", "citations": []}
 
+    class StableCrossEncoder:
+        def predict(self, pairs):
+            return list(reversed(range(len(pairs))))
+
     monkeypatch.setattr(cli, "rag_answer", answer)
+    cross_encoder = StableCrossEncoder()
     classic = cli.run_query(
         rag,
         MetaStore(),
         query="rareterm",
         agentic=False,
+        cross_encoder=cross_encoder,
     )
 
     class Controller:
@@ -232,6 +348,7 @@ def test_classic_and_agentic_workflows_use_the_shared_hybrid_search(monkeypatch)
         MetaStore(),
         query="rareterm",
         agentic=True,
+        cross_encoder=cross_encoder,
     )
 
     expected_sources = {"notes/vector.md", "notes/lexical.md"}
@@ -246,5 +363,15 @@ def test_classic_and_agentic_workflows_use_the_shared_hybrid_search(monkeypatch)
         hit["vector_rank"] is not None or hit["bm25_rank"] is not None
         for search_result in agentic_result["search_results"]
         for hit in search_result
+    )
+    assert len(classic["retrieval_stages"]) == 1
+    assert len(agentic_result["retrieval_stages"]) == 2
+    assert [
+        stage["search_query"]
+        for stage in agentic_result["retrieval_stages"]
+    ] == ["rareterm", "ownership"]
+    assert all(
+        set(stage["stages"]) == {"vector", "bm25", "rrf", "reranked"}
+        for stage in agentic_result["retrieval_stages"]
     )
 

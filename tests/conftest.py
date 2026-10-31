@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from rag_notes_helper.core.config import get_settings
+from rag_notes_helper.rag import retrieval as retrieval_module
 
 
 class _AllOnesEmbeddingModel:
@@ -30,6 +31,13 @@ def _fake_ragas_worker(_command, *, input, capture_output, text, check):
         stdout=json.dumps({"scores": score_sets, "judge_calls": []}),
         returncode=0,
     )
+
+
+class _FixtureCrossEncoder:
+    """Offline model boundary preserving the input order for fixture tests."""
+
+    def predict(self, sentences):
+        return np.zeros(len(sentences), dtype=np.float32)
 
 
 @pytest.fixture
@@ -57,6 +65,11 @@ def test_settings(monkeypatch, tmp_path):
     monkeypatch.setenv("LLM_PROVIDER", "ollama")
     monkeypatch.setenv("LLM_MODEL", "llama3.1")
     monkeypatch.setenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    monkeypatch.setattr(
+        retrieval_module,
+        "get_cross_encoder",
+        lambda: _FixtureCrossEncoder(),
+    )
 
     get_settings.cache_clear()
 

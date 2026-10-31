@@ -15,7 +15,11 @@ from rag_notes_helper.rag.index import (
     rebuild_index,
 )
 from rag_notes_helper.rag.meta_store import MetaStore
-from rag_notes_helper.rag.retrieval import retrieve
+from rag_notes_helper.rag.retrieval import (
+    CrossEncoderModel,
+    HybridSearchResults,
+    retrieve,
+)
 from rag_notes_helper.rag.answer import rag_answer
 from rag_notes_helper.rag.agentic import (
     MAX_SEARCHES,
@@ -199,6 +203,7 @@ def run_query(
     on_generation: Callable[[dict[str, Any]], None] | None = None,
     on_progress: Callable[[ProgressStage, int], None] | None = None,
     on_retrieval: Callable[[dict[str, Any]], None] | None = None,
+    cross_encoder: CrossEncoderModel | None = None,
 ) -> dict[str, Any]:
     if agentic:
         kwargs = {
@@ -212,10 +217,15 @@ def run_query(
             kwargs["on_progress"] = on_progress
         if on_retrieval is not None:
             kwargs["on_retrieval"] = on_retrieval
+        if cross_encoder is not None:
+            kwargs["cross_encoder"] = cross_encoder
         return agentic_answer(query, **kwargs)
 
     retrieval_started = perf_counter()
-    hits = retrieve(rag, meta_store, query=query)
+    retrieval_kwargs = {}
+    if cross_encoder is not None:
+        retrieval_kwargs["cross_encoder"] = cross_encoder
+    hits = retrieve(rag, meta_store, query=query, **retrieval_kwargs)
     if on_retrieval is not None:
         on_retrieval({
             "search_index": 1,
@@ -228,6 +238,9 @@ def run_query(
     result = rag_answer(query, **kwargs)
     result["retrieved_evidence"] = hits
     result["search_queries"] = [query]
+    result["retrieval_stages"] = [
+        hits.to_stage_record(search_id=1, search_query=query)
+    ] if isinstance(hits, HybridSearchResults) else []
     return result
 
 

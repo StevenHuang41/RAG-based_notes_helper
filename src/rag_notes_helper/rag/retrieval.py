@@ -3,9 +3,11 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
+from functools import lru_cache
 import math
 import re
-from typing import Any, overload
+from time import perf_counter
+from typing import Any, Protocol, overload
 
 from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.rag.index import RagIndex
@@ -15,25 +17,36 @@ from rag_notes_helper.utils.timer import deco_time_block
 
 _TOKEN_PATTERN = re.compile(r"\w+", re.UNICODE)
 _RRF_CONSTANT = 60
+_CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L6-v2"
+
+
+class CrossEncoderModel(Protocol):
+    def predict(self, sentences: list[tuple[str, str]]) -> Sequence[float]: ...
 
 
 @dataclass(frozen=True)
 class HybridSearchResults(Sequence[dict[str, Any]]):
     """Ranked method results and their RRF fusion for one retrieval search.
 
-    Iteration and indexing expose the fused candidates, preserving the sequence
+    Iteration and indexing expose reranked candidates, preserving the sequence
     behavior expected by answer generation and the Agentic controller.
     """
 
     vector_results: list[dict[str, Any]]
     bm25_results: list[dict[str, Any]]
     fused_results: list[dict[str, Any]]
+    reranked_results: list[dict[str, Any]]
+    generation_top_k: int
+    stage_latencies_ms: dict[str, float]
+    vector_top_k: int
+    bm25_top_k: int
+    fusion_top_k: int
 
     def __len__(self) -> int:
-        return len(self.fused_results)
+        return len(self.reranked_results)
 
     def __iter__(self) -> Iterator[dict[str, Any]]:
-        return iter(self.fused_results)
+        return iter(self.reranked_results)
 
     @overload
     def __getitem__(self, index: int) -> dict[str, Any]: ...
@@ -42,7 +55,42 @@ class HybridSearchResults(Sequence[dict[str, Any]]):
     def __getitem__(self, index: slice) -> list[dict[str, Any]]: ...
 
     def __getitem__(self, index: int | slice) -> dict[str, Any] | list[dict[str, Any]]:
-        return self.fused_results[index]
+        return self.reranked_results[index]
+
+    def to_stage_record(
+        self,
+        *,
+        search_id: int,
+        search_query: str,
+    ) -> dict[str, Any]:
+        stage_results = {
+            "vector": (self.vector_results, self.vector_top_k),
+            "bm25": (self.bm25_results, self.bm25_top_k),
+            "rrf": (self.fused_results, self.fusion_top_k),
+            "reranked": (self.reranked_results, self.fusion_top_k),
+        }
+        stages = {
+            name: {
+                "top_k": top_k,
+                "returned_count": len(results),
+                "results": results,
+                "latency_ms": self.stage_latencies_ms[name],
+            }
+            for name, (results, top_k) in stage_results.items()
+        }
+        return {
+            "search_id": search_id,
+            "search_query": search_query,
+            "generation_top_k": self.generation_top_k,
+            "stages": stages,
+        }
+
+
+@lru_cache(maxsize=1)
+def get_cross_encoder(model_name: str = _CROSS_ENCODER_MODEL) -> CrossEncoderModel:
+    from sentence_transformers import CrossEncoder
+
+    return CrossEncoder(model_name)
 
 
 def _tokens(text: str) -> list[str]:
@@ -164,6 +212,33 @@ def _fuse_results(
     return ranked
 
 
+def rerank_candidates(
+    query: str,
+    candidates: list[dict[str, Any]],
+    *,
+    cross_encoder: CrossEncoderModel | None = None,
+) -> list[dict[str, Any]]:
+    if not candidates:
+        return []
+
+    model = cross_encoder if cross_encoder is not None else get_cross_encoder()
+    pairs = [(query, candidate["text"]) for candidate in candidates]
+    scores = list(model.predict(pairs))
+    if len(scores) != len(candidates):
+        raise ValueError(
+            "CrossEncoder must return one ranking score for each candidate."
+        )
+
+    ranked = [
+        {**candidate, "reranker_score": float(score)}
+        for candidate, score in zip(candidates, scores)
+    ]
+    ranked.sort(key=lambda candidate: candidate["reranker_score"], reverse=True)
+    for rank, candidate in enumerate(ranked, start=1):
+        candidate["rerank_rank"] = rank
+    return ranked
+
+
 @deco_time_block
 def retrieve(
     rag: RagIndex,
@@ -171,6 +246,7 @@ def retrieve(
     *,
     query: str,
     top_k: int | None = None,
+    cross_encoder: CrossEncoderModel | None = None,
 ) -> HybridSearchResults:
     """Run Vector and BM25 searches, then fuse their ranked candidates with RRF.
 
@@ -183,6 +259,7 @@ def retrieve(
     bm25_top_k = settings.bm25_top_k
     fusion_top_k = settings.fusion_top_k if top_k is None else top_k
 
+    vector_started = perf_counter()
     model = rag.embed_model
     query_embedding = model.encode(
         [query],
@@ -190,7 +267,9 @@ def retrieve(
         convert_to_numpy=True,
     ).astype("float32")
     vector_scores, vector_indexes_raw = rag.index.search(query_embedding, vector_top_k)  # type: ignore
+    vector_latency_ms = round((perf_counter() - vector_started) * 1000, 3)
 
+    bm25_started = perf_counter()
     records = [meta_store.get(index) for index in range(rag.index.ntotal)]  # type: ignore
 
     vector_indexes: list[int] = []
@@ -223,7 +302,9 @@ def retrieve(
         records=records,
         method="bm25",
     )
+    bm25_latency_ms = round((perf_counter() - bm25_started) * 1000, 3)
 
+    fusion_started = perf_counter()
     fused_results = _fuse_results(
         vector_results,
         bm25_results,
@@ -232,8 +313,29 @@ def retrieve(
         records,
         fusion_top_k,
     )
+    fusion_latency_ms = round((perf_counter() - fusion_started) * 1000, 3)
+
+    rerank_started = perf_counter()
+    reranked_results = rerank_candidates(
+        query,
+        fused_results,
+        cross_encoder=cross_encoder,
+    )
+    rerank_latency_ms = round((perf_counter() - rerank_started) * 1000, 3)
+
     return HybridSearchResults(
         vector_results=vector_results,
         bm25_results=bm25_results,
         fused_results=fused_results,
+        reranked_results=reranked_results,
+        generation_top_k=settings.llm.max_chunks,
+        stage_latencies_ms={
+            "vector": vector_latency_ms,
+            "bm25": bm25_latency_ms,
+            "rrf": fusion_latency_ms,
+            "reranked": rerank_latency_ms,
+        },
+        vector_top_k=vector_top_k,
+        bm25_top_k=bm25_top_k,
+        fusion_top_k=fusion_top_k,
     )

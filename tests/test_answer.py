@@ -5,6 +5,7 @@ import pytest
 from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.rag import answer as answer_module
 from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE, rag_answer
+from rag_notes_helper.rag.retrieval import HybridSearchResults
 
 
 @pytest.fixture
@@ -123,6 +124,100 @@ def test_rag_answer_returns_the_ordered_context_used_by_the_prompt(monkeypatch):
         "file:notes/second.md\nLaunch date: 2026-07-14."
     ) in prompt_content
     assert "This candidate is outside the answer limit." not in prompt_content
+
+
+def test_rag_answer_sends_only_top_reranked_evidence_and_preserves_scores(
+    monkeypatch,
+):
+    reranked_hits = [
+        {
+            "source": "notes/launch.md",
+            "chunk_id": 4,
+            "start_line": 8,
+            "end_line": 9,
+            "score": 0.03,
+            "reranker_score": 0.91,
+            "text": "Owner: Mina Chen.",
+        },
+        {
+            "source": "notes/launch.md",
+            "chunk_id": 5,
+            "start_line": 10,
+            "end_line": 11,
+            "score": 0.02,
+            "reranker_score": 0.77,
+            "text": "Launch date: 2026-07-14.",
+        },
+        {
+            "source": "notes/chatter.md",
+            "chunk_id": 1,
+            "start_line": 1,
+            "end_line": 1,
+            "score": 0.01,
+            "reranker_score": -0.25,
+            "text": "Unrelated chatter that must not reach generation.",
+        },
+    ]
+    hits = HybridSearchResults(
+        vector_results=reranked_hits,
+        bm25_results=reranked_hits,
+        fused_results=reranked_hits,
+        reranked_results=reranked_hits,
+        generation_top_k=2,
+        stage_latencies_ms={
+            "vector": 0.1,
+            "bm25": 0.2,
+            "rrf": 0.0,
+            "reranked": 0.3,
+        },
+        vector_top_k=3,
+        bm25_top_k=3,
+        fusion_top_k=3,
+    )
+    prompts = []
+
+    class PromptLLM:
+        def generate(self, prompt, line_width):
+            prompts.append(prompt)
+            context = prompt[1]["content"]
+            assert "Owner: Mina Chen." in context
+            assert "Launch date: 2026-07-14." in context
+            assert "Unrelated chatter" not in context
+            return "Mina Chen's project launches on 2026-07-14."
+
+    monkeypatch.setenv("LLM_MAX_CHUNKS", "2")
+    get_settings.cache_clear()
+    monkeypatch.setattr(
+        "rag_notes_helper.rag.answer.get_llm",
+        lambda: PromptLLM(),
+    )
+    try:
+        result = rag_answer("Who owns the project and when does it launch?", hits=hits)
+    finally:
+        get_settings.cache_clear()
+
+    assert result["answer"] == "Mina Chen's project launches on 2026-07-14."
+    assert result["generation_context"] == [
+        {
+            "source": "notes/launch.md",
+            "chunk_id": 4,
+            "start_line": 8,
+            "end_line": 9,
+            "reranker_score": 0.91,
+            "text": "Owner: Mina Chen.",
+            "prompt_block": "file:notes/launch.md\nOwner: Mina Chen.",
+        },
+        {
+            "source": "notes/launch.md",
+            "chunk_id": 5,
+            "start_line": 10,
+            "end_line": 11,
+            "reranker_score": 0.77,
+            "text": "Launch date: 2026-07-14.",
+            "prompt_block": "file:notes/launch.md\nLaunch date: 2026-07-14.",
+        },
+    ]
+    assert len(prompts) == 1
 
 
 def test_rag_answer_does_not_assume_the_user_owns_the_notes(
