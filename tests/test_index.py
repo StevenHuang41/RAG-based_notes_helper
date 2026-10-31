@@ -141,4 +141,4 @@ def test_smart_rebuild_of_empty_corpus_makes_search_return_no_results(
             top_k=10,
         )
 
-    assert results == []
+    assert len(results) == 0
