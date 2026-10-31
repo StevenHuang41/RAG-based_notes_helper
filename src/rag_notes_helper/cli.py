@@ -108,7 +108,9 @@ def show_config():
     print(f"    Overlap    : {settings.chunk_overlap}")
 
     print("\nRetrieval:")
-    print(f"    TOP_K      : {settings.top_k}")
+    print(f"    VECTOR_TOP_K : {settings.vector_top_k}")
+    print(f"    BM25_TOP_K   : {settings.bm25_top_k}")
+    print(f"    FUSION_TOP_K : {settings.fusion_top_k}")
     print(f"    Min Score  : {settings.min_retrieval_score}")
 
     print("\nFormat:")

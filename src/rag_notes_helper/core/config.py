@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Literal
 
 from pydantic import (
+    AliasChoices,
     Field,
     SecretStr,
     model_validator,
@@ -112,7 +113,14 @@ class Settings(BaseSettings):
     chunk_overlap: int = Field(200, gt=0)
 
     # retrieval
-    top_k: int = Field(5, gt=0, le=50)
+    vector_top_k: int = Field(30, gt=0, le=50)
+    bm25_top_k: int = Field(20, gt=0, le=50)
+    fusion_top_k: int = Field(
+        15,
+        gt=0,
+        le=50,
+        validation_alias=AliasChoices("FUSION_TOP_K", "TOP_K", "fusion_top_k"),
+    )
     min_retrieval_score: float = Field(0.2, ge=0, le=1)
 
     # format
@@ -133,13 +141,6 @@ class Settings(BaseSettings):
         if self.chunk_overlap >= self.chunk_size:
             raise ValueError("CHUNK_OVERLAP should be < CHUNK_SIZE")
 
-        # top k & llm max_chunks
-        if self.top_k > self.llm.max_chunks:
-            raise ValueError(
-                f"TOP_K ({self.top_k}) should not "
-                f"exceed LLM_MAX_CHUNKS ({self.llm.max_chunks})"
-            )
-
         # path logic
         if not self.notes_dir.exists():
             raise ValueError("data/ is missing")
@@ -148,6 +149,11 @@ class Settings(BaseSettings):
         self.logs_dir.mkdir(parents=True, exist_ok=True)
 
         return self
+
+    @property
+    def top_k(self) -> int:
+        """Compatibility alias for the final fused retrieval result limit."""
+        return self.fusion_top_k
 
 
 @lru_cache
