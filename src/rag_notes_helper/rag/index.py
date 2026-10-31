@@ -10,7 +10,11 @@ from tqdm import tqdm
 
 from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.rag.chunking import Chunk
-from rag_notes_helper.rag.ingest import get_changed_doc_ids, load_notes
+from rag_notes_helper.rag.ingest import (
+    get_changed_doc_ids,
+    load_notes,
+    load_notes_from_isolated_corpus,
+)
 from rag_notes_helper.rag.loaders import load_pdf_file, load_text_file
 from rag_notes_helper.rag.meta_store import MetaStore
 from rag_notes_helper.utils.logger import get_logger
@@ -151,7 +155,7 @@ def smart_rebuild(
 
     settings = get_settings()
     storage = settings.storage_dir
-    notes_dir = settings.notes_dir
+    notes_dir = settings.notes_dir.resolve()
 
     tmp_meta_path = storage / "meta.json.tmp"
     tmp_idx_path = storage / "meta.idx.tmp"
@@ -252,7 +256,7 @@ def smart_rebuild(
                 )
 
     if new_index is None:
-        raise ValueError("No notes left after smart rebuild")
+        new_index = faiss.IndexFlatIP(old_rag.index.d)  # type: ignore[union-attr]
 
     # 3. swap temp with original file meta and idx
     tmp_meta_path.replace(storage / "meta.jsonl")
@@ -338,6 +342,19 @@ def build_and_save_rag(
     return rag
 
 
+def build_and_save_rag_from_isolated_corpus(
+    corpus_root: Path,
+    *,
+    success_message: str = "Index built and saved",
+) -> RagIndex:
+    """Build an index from an explicitly isolated corpus, such as eval fixtures."""
+    rag = build_index(load_notes_from_isolated_corpus(corpus_root))
+    save_index(rag)
+    print(success_message)
+
+    return rag
+
+
 def load_or_build_index():
     """ run when system start """
     try:
@@ -368,7 +385,7 @@ def rebuild_index(force: bool = False):
         # 2. get the changed and unchanged file
         changed_ids, unchanged_ids = get_changed_doc_ids(old_doc_ids)
 
-        if not changed_ids:
+        if not changed_ids and old_doc_ids == unchanged_ids:
             print("Index is already up to date")
             return load_index()
 
