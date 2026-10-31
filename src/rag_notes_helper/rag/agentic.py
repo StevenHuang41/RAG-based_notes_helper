@@ -1,5 +1,5 @@
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from functools import partial
 from time import perf_counter
 from typing import Annotated, Any, Literal, TypeAlias
@@ -18,7 +18,12 @@ from rag_notes_helper.rag.index import RagIndex
 from rag_notes_helper.rag.llm import get_llm
 from rag_notes_helper.rag.llm.base import make_generation_usage_record
 from rag_notes_helper.rag.meta_store import MetaStore
-from rag_notes_helper.rag.retrieval import retrieve
+from rag_notes_helper.rag.retrieval import (
+    CrossEncoderModel,
+    HybridSearchResults,
+    rerank_candidates,
+    retrieve,
+)
 
 
 MAX_SEARCHES = 3
@@ -95,7 +100,7 @@ class AgenticWorkflowError(RuntimeError):
     """Raised when the Agentic controller cannot produce a valid action."""
 
 
-SearchFunction = Callable[[str], list[dict]]
+SearchFunction = Callable[[str], Sequence[dict]]
 AnswerFunction = Callable[..., dict[str, Any]]
 UsageFunction = Callable[[dict[str, Any]], None]
 ProgressStage = Literal["searching", "reviewing", "generating", "abstaining"]
@@ -108,12 +113,18 @@ def search_notes(
     *,
     rag: RagIndex,
     meta_store: MetaStore,
-) -> list[dict]:
+    cross_encoder: CrossEncoderModel | None = None,
+) -> HybridSearchResults:
     """Search indexed local notes without modifying them."""
-    return retrieve(rag, meta_store, query=query)
+    return retrieve(
+        rag,
+        meta_store,
+        query=query,
+        cross_encoder=cross_encoder,
+    )
 
 
-def _deduplicate_hits(hits: list[dict]) -> list[dict]:
+def _deduplicate_hits(hits: Sequence[dict]) -> list[dict]:
     unique: dict[tuple[str, int], dict] = {}
     for hit in hits:
         key = (hit["source"], hit["chunk_id"])
@@ -124,7 +135,7 @@ def _deduplicate_hits(hits: list[dict]) -> list[dict]:
 def _build_controller_prompt(
     *,
     query: str,
-    hits: list[dict],
+    hits: Sequence[dict],
     searches_used: int,
     validation_feedback: str | None = None,
 ) -> list[dict[str, str]]:
@@ -273,18 +284,26 @@ def agentic_answer(
     on_generation: UsageFunction | None = None,
     on_progress: ProgressFunction | None = None,
     on_retrieval: RetrievalFunction | None = None,
+    cross_encoder: CrossEncoderModel | None = None,
 ) -> dict[str, Any]:
     """Iteratively search local notes, then answer from selected evidence."""
     search = (
         search_fn
         if search_fn is not None
-        else partial(search_notes, rag=rag, meta_store=meta_store)
+        else partial(
+            search_notes,
+            rag=rag,
+            meta_store=meta_store,
+            cross_encoder=cross_encoder,
+        )
     )
     search_index = 0
     search_queries: list[str] = []
+    retrieval_stages: list[dict[str, Any]] = []
+    used_hybrid_search = False
 
-    def timed_search(search_query: str) -> list[dict]:
-        nonlocal search_index
+    def timed_search(search_query: str) -> Sequence[dict]:
+        nonlocal search_index, used_hybrid_search
         search_index += 1
         search_queries.append(search_query)
         search_started = perf_counter()
@@ -310,6 +329,14 @@ def agentic_answer(
                 ),
                 "result_count": len(hits),
             })
+        if isinstance(hits, HybridSearchResults):
+            used_hybrid_search = True
+            retrieval_stages.append(
+                hits.to_stage_record(
+                    search_id=search_index,
+                    search_query=search_query,
+                )
+            )
         return hits
 
     answer = answer_fn if answer_fn is not None else rag_answer
@@ -322,13 +349,16 @@ def agentic_answer(
     if not hits:
         if on_progress is not None:
             on_progress("abstaining", 1)
-        return {
+        result = {
             "answer": ABSTENTION_MESSAGE,
             "citations": [],
             "retrieved_evidence": [],
             "search_results": search_results,
             "search_queries": search_queries,
         }
+        if retrieval_stages:
+            result["retrieval_stages"] = retrieval_stages
+        return result
 
     controller = controller if controller is not None else get_llm()
     searches_used = 1
@@ -347,13 +377,16 @@ def agentic_answer(
         if isinstance(action, AbstainAction):
             if on_progress is not None:
                 on_progress("abstaining", searches_used)
-            return {
+            result = {
                 "answer": ABSTENTION_MESSAGE,
                 "citations": [],
                 "retrieved_evidence": hits,
                 "search_results": search_results,
                 "search_queries": search_queries,
             }
+            if retrieval_stages:
+                result["retrieval_stages"] = retrieval_stages
+            return result
 
         if isinstance(action, SearchAction):
             next_search_count = searches_used + 1
@@ -377,6 +410,13 @@ def agentic_answer(
                 selected_hits.append(hits_by_reference[key])
                 selected_references.add(key)
 
+        if used_hybrid_search or cross_encoder is not None:
+            selected_hits = rerank_candidates(
+                query,
+                selected_hits,
+                cross_encoder=cross_encoder,
+            )
+
         if on_progress is not None:
             on_progress("generating", searches_used)
         if on_generation is not None and answer_fn is None:
@@ -395,4 +435,6 @@ def agentic_answer(
         result["retrieved_evidence"] = hits
         result["search_results"] = search_results
         result["search_queries"] = search_queries
+        if retrieval_stages:
+            result["retrieval_stages"] = retrieval_stages
         return result
