@@ -35,7 +35,10 @@ from rag_notes_helper.eval.retrieval_metrics import (
 from rag_notes_helper.eval.report import write_readme
 from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE
 from rag_notes_helper.rag.agentic import MAX_SEARCHES
-from rag_notes_helper.rag.index import RagIndex, build_and_save_rag
+from rag_notes_helper.rag.index import (
+    RagIndex,
+    build_and_save_rag_from_isolated_corpus,
+)
 from rag_notes_helper.rag.meta_store import MetaStore
 from rag_notes_helper.utils.logger import get_logger
 
@@ -479,7 +482,8 @@ def _isolated_fixture_index() -> Iterator[tuple[Any, Any, Any]]:
 
             settings = get_settings()
             _terminal_progress("Building isolated synthetic fixture index")
-            rag = build_and_save_rag(
+            rag = build_and_save_rag_from_isolated_corpus(
+                notes_dir,
                 success_message="Fixture index built and saved."
             )
             meta_store = MetaStore(storage_dir=storage_dir)

@@ -52,6 +52,7 @@ def test_settings(monkeypatch, tmp_path):
 
     monkeypatch.setenv("NOTES_DIR", str(notes_dir))
     monkeypatch.setenv("STORAGE_DIR", str(storage_dir))
+    monkeypatch.setenv("PROJECT_ROOT", str(tmp_path))
 
     monkeypatch.setenv("LLM_PROVIDER", "ollama")
     monkeypatch.setenv("LLM_MODEL", "llama3.1")
