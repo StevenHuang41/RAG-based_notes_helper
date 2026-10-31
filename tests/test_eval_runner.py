@@ -103,15 +103,22 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     )
 
     fixture_index_observations = []
-    real_build_and_save_rag = eval_runner.build_and_save_rag
+    real_build_and_save_rag = eval_runner.build_and_save_rag_from_isolated_corpus
 
-    def observe_fixture_index_build(*, success_message="Index built and saved"):
+    def observe_fixture_index_build(
+        corpus_root,
+        *,
+        success_message="Index built and saved",
+    ):
         fixture_index_observations.append(RagIndex._model is None)
-        return real_build_and_save_rag(success_message=success_message)
+        return real_build_and_save_rag(
+            corpus_root,
+            success_message=success_message,
+        )
 
     monkeypatch.setattr(
         eval_runner,
-        "build_and_save_rag",
+        "build_and_save_rag_from_isolated_corpus",
         observe_fixture_index_build,
     )
 
@@ -1095,10 +1102,14 @@ def test_evaluation_rejects_cases_without_auditable_rationale(
         lambda: real_loader(qa_fixture),
     )
 
-    def should_not_build_index(*, success_message="Index built and saved"):
+    def should_not_build_index(*_args, **_kwargs):
         pytest.fail("invalid fixture should be rejected before indexing")
 
-    monkeypatch.setattr(eval_runner, "build_and_save_rag", should_not_build_index)
+    monkeypatch.setattr(
+        eval_runner,
+        "build_and_save_rag_from_isolated_corpus",
+        should_not_build_index,
+    )
 
     with pytest.raises(ValueError, match=f"{case_id}.*{error_fragment}"):
         eval_runner.run_evaluation(output_root=tmp_path / "evaluation")
