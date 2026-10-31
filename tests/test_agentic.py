@@ -129,6 +129,60 @@ def test_agentic_answer_uses_original_query_and_selected_evidence():
     assert result["citations"] == ["budget.md"]
 
 
+def test_agentic_calls_keep_search_and_evidence_state_isolated_per_query():
+    def run_query(query: str, hit: dict) -> tuple[dict, FakeController, list]:
+        controller = FakeController([
+            action_json({
+                "action": "answer",
+                "evidence": [{"source": hit["source"], "chunk_id": hit["chunk_id"]}],
+            })
+        ])
+        progress = []
+        result = agentic_answer(
+            query,
+            rag=None,
+            meta_store=None,
+            search_fn=lambda _query: [hit],
+            controller=controller,
+            answer_fn=lambda _query, *, hits, stream: {
+                "answer": hits[0]["text"],
+                "citations": [],
+            },
+            on_progress=lambda stage, count: progress.append((stage, count)),
+        )
+        return result, controller, progress
+
+    first_hit = make_hit("first.md", 0, "First query evidence.")
+    second_hit = make_hit("second.md", 0, "Second query evidence.")
+
+    first_result, _, first_progress = run_query("first question", first_hit)
+    second_result, second_controller, second_progress = run_query(
+        "second question",
+        second_hit,
+    )
+
+    second_prompt = json.loads(second_controller.prompts[0][1]["content"])
+    assert second_prompt["question"] == "second question"
+    assert second_prompt["searches_used"] == 1
+    assert second_prompt["evidence"] == [
+        {
+            "source": "second.md",
+            "chunk_id": 0,
+            "score": 0.9,
+            "text": "Second query evidence.",
+        }
+    ]
+    assert first_result["search_results"] == [[first_hit]]
+    assert second_result["search_results"] == [[second_hit]]
+    assert second_result["search_queries"] == ["second question"]
+    assert first_progress == [
+        ("searching", 1),
+        ("reviewing", 1),
+        ("generating", 1),
+    ]
+    assert second_progress == first_progress
+
+
 def test_agentic_reranks_selected_evidence_for_the_original_question():
     lower_ranked = make_hit("summary.md", 0, "A general project summary.")
     higher_ranked = make_hit("ownership.md", 1, "Mina Chen owns the project.")
@@ -448,6 +502,33 @@ def test_agentic_fails_after_second_invalid_action_without_fallback():
         )
 
     assert len(controller.prompts) == 2
+
+
+def test_agentic_controller_failure_keeps_wrapped_failure_behavior():
+    hit = make_hit("note.md", 0, "Relevant evidence.")
+
+    class FailedController:
+        calls = 0
+
+        def generate_raw(self, _prompt):
+            self.calls += 1
+            raise RuntimeError("provider unavailable")
+
+    controller = FailedController()
+
+    with pytest.raises(
+        AgenticWorkflowError,
+        match=r"controller call failed \(RuntimeError\)",
+    ):
+        agentic_answer(
+            "Question",
+            rag=None,
+            meta_store=None,
+            search_fn=lambda _query: [hit],
+            controller=controller,
+        )
+
+    assert controller.calls == 1
 
 
 def test_agentic_retries_unknown_evidence_reference():
