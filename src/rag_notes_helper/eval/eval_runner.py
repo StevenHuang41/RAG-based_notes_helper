@@ -869,17 +869,6 @@ def _record_retrieval_stages(
                 else None
             )
             metric_top_k = top_k
-            if (
-                stage_name == "reranked"
-                and type(generation_top_k) is int
-                and generation_top_k >= 0
-            ):
-                # Score and report the reranked prefix that can reach generation.
-                metric_top_k = (
-                    min(top_k, generation_top_k)
-                    if top_k is not None
-                    else generation_top_k
-                )
             normalized_candidates = []
             for index, hit in enumerate(raw_candidates, start=1):
                 if not isinstance(hit, dict):

@@ -264,7 +264,7 @@ def test_agentic_evaluation_preserves_search_stages_union_metrics_context_and_la
         ("reranked", 3, 3),
     ]
     assert first_reranked["top_k"] == 3
-    assert first_reranked["metric_top_k"] == 1
+    assert first_reranked["metric_top_k"] == 3
     assert first_reranked["returned_count"] == 3
     assert first_reranked["results"][0]["rank"] == 1
     assert first_reranked["results"][0]["fusion_rank"] == 2
@@ -287,7 +287,7 @@ def test_agentic_evaluation_preserves_search_stages_union_metrics_context_and_la
         2 / 3
     )
     assert answer_result["retrieval_stage_metrics"]["reranked"]["ndcg"] == pytest.approx(
-        1.0
+        0.9197207891481876
     )
     assert answer_result["retrieval_stages"][1]["stages"]["reranked"][
         "results"
@@ -336,7 +336,7 @@ def test_agentic_evaluation_preserves_search_stages_union_metrics_context_and_la
     assert "#### BM25 results" in report
     assert "#### RRF results" in report
     assert "#### Reranked results" in report
-    assert "Rerank@1" in report
+    assert "Rerank@3" in report
     assert "Union recall" not in report
     assert "Mean per-search NDCG" not in report
     assert "Pre-rerank and post-rerank comparison" not in report

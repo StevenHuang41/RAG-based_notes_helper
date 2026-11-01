@@ -1301,6 +1301,8 @@ def test_classic_evaluation_records_stage_metrics_and_fair_rerank_comparison(
         "recall": 1.0, "precision": 1.0, "ndcg": 1.0,
     }
     reranked_results = case_result["retrieval_stages"][0]["stages"]["reranked"]["results"]
+    assert case_result["retrieval_stages"][0]["stages"]["reranked"]["metric_top_k"] == 3
+    assert case_result["retrieval_stage_metrics"]["reranked"]["recall"] == 1.0
     assert reranked_results[0]["rank"] == 1
     assert reranked_results[0]["fusion_rank"] == 2
     assert reranked_results[0]["score"] == 0.9
@@ -1337,7 +1339,7 @@ def test_classic_evaluation_records_stage_metrics_and_fair_rerank_comparison(
     assert "Noise stage text" not in report
     assert "Line eleven citation" not in report
     assert report.count("Line ten citation") == 1
-    assert "| Rerank@1 |" in report
+    assert "| Rerank@3 |" in report
     assert "Evidence lines" in report
     assert "Pre-rerank and post-rerank comparison" not in report
     assert "| Search | Query |" in report

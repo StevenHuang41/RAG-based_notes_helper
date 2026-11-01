@@ -238,10 +238,6 @@ def _render_retrieval_stage(
         stage = (search.get("stages", {}) or {}).get(stage_name)
         if isinstance(stage, dict):
             hits = stage.get("results", []) or []
-            if stage_name == "reranked":
-                limit = stage.get("metric_top_k", stage.get("top_k"))
-                if isinstance(limit, int) and not isinstance(limit, bool):
-                    hits = hits[:limit]
         elif stage_name == "vector" and case.get("workflow") != "agentic":
             raw_search_results = case.get("search_results", [])
             search_id = search.get("search_id")

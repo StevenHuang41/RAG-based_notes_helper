@@ -102,13 +102,13 @@ def test_classic_query_detail_shows_stage_cutoffs_and_per_chunk_evidence(tmp_pat
         "vector": {"top_k": 2, "metric_top_k": 2, "results": [evidence, noise]},
         "bm25": {"top_k": 2, "metric_top_k": 2, "results": [noise, evidence]},
         "rrf": {"top_k": 2, "metric_top_k": 2, "results": [noise, evidence]},
-        "reranked": {"top_k": 2, "metric_top_k": 1, "results": [evidence, noise]},
+        "reranked": {"top_k": 2, "metric_top_k": 2, "results": [evidence, noise]},
     }
     stage_metrics = {
         "vector": {"recall": 0.5, "precision": 0.3333, "ndcg": 0.63},
         "bm25": {"recall": 0.5, "precision": 0.3333, "ndcg": 0.5},
         "rrf": {"recall": 0.5, "precision": 0.3333, "ndcg": 0.5},
-        "reranked": {"recall": 0.5, "precision": 1.0, "ndcg": 1.0},
+        "reranked": {"recall": 0.5, "precision": 0.3333, "ndcg": 1.0},
     }
     results = {
         "run_metadata": {
@@ -172,7 +172,7 @@ def test_classic_query_detail_shows_stage_cutoffs_and_per_chunk_evidence(tmp_pat
     assert "| Cross-encoder model | fixture/custom-cross-encoder |" in report
     assert "| Vector@2 | 0.5000 | 0.3333 | 0.6300 |" in report
     assert "| Fusion@2 | 0.5000 | 0.3333 | 0.5000 |" in report
-    assert "| Rerank@1 | 0.5000 | 1.0000 | 1.0000 |" in report
+    assert "| Rerank@2 | 0.5000 | 0.3333 | 1.0000 |" in report
     assert "| Rank | Stage score | Chunk ID | Source path | Lines | Search | Evidence lines |" in report
     assert "| 2 | 0.8000 | 10 | notes/evidence.md | 10–10 | 1 | 1/2 |" in report
     assert "| 1 | 0.9000 | 1 | notes/noise.md | 1–2 | 1 | 0/2 |" in report
@@ -187,3 +187,7 @@ def test_classic_query_detail_shows_stage_cutoffs_and_per_chunk_evidence(tmp_pat
     assert report.index("**Retrieval stages metrics**") < report.index("#### Latency")
     assert report.index("#### Expected evidence") < report.index("#### Search query")
     assert report.index("#### Search query") < report.index("#### Vector results")
+    reranked_section = report.split("#### Reranked results", 1)[1].split(
+        "#### Final generation context", 1
+    )[0]
+    assert "| 1 | 0.9000 | 1 | notes/noise.md | 1–2 | 1 | 0/2 |" in reranked_section
