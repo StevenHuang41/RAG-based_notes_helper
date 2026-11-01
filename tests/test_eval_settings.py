@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from rag_notes_helper.core.config import LLMSettings
+from rag_notes_helper.core.config import LLMSettings, Settings
 
 
 def make_settings(**overrides):
@@ -89,6 +89,26 @@ def test_ollama_judge_does_not_require_an_api_key():
     )
 
     assert settings.effective_eval_api_key_str is None
+
+
+def test_cross_encoder_model_loads_from_env_file(tmp_path):
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir()
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "CROSS_ENCODER_MODEL=fixture/custom-cross-encoder\n",
+        encoding="utf-8",
+    )
+
+    settings = Settings(
+        _env_file=env_file,
+        llm=make_settings(),
+        notes_dir=notes_dir,
+        storage_dir=tmp_path / "storage",
+        logs_dir=tmp_path / "logs",
+    )
+
+    assert settings.cross_encoder_model == "fixture/custom-cross-encoder"
 
 
 @pytest.mark.parametrize("provider", ["hf", "openai", "ollama", "gemini", "openrouter"])

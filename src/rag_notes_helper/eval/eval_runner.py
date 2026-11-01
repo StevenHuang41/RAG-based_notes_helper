@@ -843,6 +843,11 @@ def _record_retrieval_stages(
     for raw_record in raw_records:
         if not isinstance(raw_record, dict):
             continue
+        generation_top_k = raw_record.get("generation_top_k")
+        if type(generation_top_k) is not int or generation_top_k < 0:
+            generation_top_k = getattr(
+                getattr(settings, "llm", None), "max_chunks", None
+            )
         raw_stages = raw_record.get("stages")
         if not isinstance(raw_stages, dict):
             raw_stages = {}
@@ -863,6 +868,18 @@ def _record_retrieval_stages(
                 if type(top_k_value) is int and top_k_value >= 0
                 else None
             )
+            metric_top_k = top_k
+            if (
+                stage_name == "reranked"
+                and type(generation_top_k) is int
+                and generation_top_k >= 0
+            ):
+                # Score and report the reranked prefix that can reach generation.
+                metric_top_k = (
+                    min(top_k, generation_top_k)
+                    if top_k is not None
+                    else generation_top_k
+                )
             normalized_candidates = []
             for index, hit in enumerate(raw_candidates, start=1):
                 if not isinstance(hit, dict):
@@ -880,7 +897,7 @@ def _record_retrieval_stages(
             metrics = _stage_metrics(
                 expected_evidence=expected_evidence,
                 candidates=normalized_candidates,
-                top_k=top_k,
+                top_k=metric_top_k,
             )
             raw_returned_count = raw_stage.get("returned_count")
             returned_count = (
@@ -890,6 +907,7 @@ def _record_retrieval_stages(
             )
             stage_record = {
                 "top_k": top_k,
+                "metric_top_k": metric_top_k,
                 "returned_count": returned_count,
                 "latency_ms": _safe_score(raw_stage.get("latency_ms")),
                 "results": normalized_candidates,
@@ -899,6 +917,7 @@ def _record_retrieval_stages(
             summary = {
                 "stage": stage_name,
                 "top_k": top_k,
+                "metric_top_k": metric_top_k,
                 "returned_count": returned_count,
                 **metrics,
             }
@@ -908,7 +927,7 @@ def _record_retrieval_stages(
         normalized_record = {
             "search_id": raw_record.get("search_id"),
             "search_query": raw_record.get("search_query"),
-            "generation_top_k": raw_record.get("generation_top_k"),
+            "generation_top_k": generation_top_k,
             "stage_summaries": summaries,
             "stages": record_stages,
         }
@@ -916,11 +935,6 @@ def _record_retrieval_stages(
 
         fused = record_stages.get("rrf")
         reranked = record_stages.get("reranked")
-        generation_top_k = raw_record.get("generation_top_k")
-        if type(generation_top_k) is not int or generation_top_k < 0:
-            generation_top_k = getattr(
-                getattr(settings, "llm", None), "max_chunks", None
-            )
         comparison_top_k = None
         if (
             fused is not None
@@ -1028,7 +1042,7 @@ def _record_agentic_retrieval_stages(
             stage = search["stages"].get(stage_name)
             if not isinstance(stage, dict):
                 continue
-            top_k = stage.get("top_k")
+            top_k = stage.get("metric_top_k", stage.get("top_k"))
             if type(top_k) is not int or top_k < 0:
                 continue
             candidates_by_search.append(stage["results"][:top_k])
@@ -1660,7 +1674,7 @@ def run_evaluation(
     _log(run_log, f"Starting {workflow} synthetic-notes RAG evaluation.")
 
     results: dict[str, Any] = {
-        "schema_version": 5,
+        "schema_version": 6,
         "run_metadata": {
             "timestamp_local": timestamp,
             "timezone": "Asia/Taipei",
@@ -1690,6 +1704,7 @@ def run_evaluation(
                 "judge_provider": settings.llm.effective_eval_provider,
                 "judge_model": settings.llm.effective_eval_model,
                 "embedding_model": settings.embed_model_name,
+                "cross_encoder_model": getattr(settings, "cross_encoder_model", None),
                 "chunk_size": settings.chunk_size,
                 "chunk_overlap": settings.chunk_overlap,
                 "top_k": settings.top_k,

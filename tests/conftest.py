@@ -68,7 +68,7 @@ def test_settings(monkeypatch, tmp_path):
     monkeypatch.setattr(
         retrieval_module,
         "get_cross_encoder",
-        lambda: _FixtureCrossEncoder(),
+        lambda _model_name: _FixtureCrossEncoder(),
     )
 
     get_settings.cache_clear()

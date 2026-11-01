@@ -484,6 +484,7 @@ Common settings:
 | `BM25_TOP_K` | Maximum candidates returned by BM25 search | `20` |
 | `FUSION_TOP_K` | Maximum candidates returned after RRF fusion | `15` |
 | `MIN_RETRIEVAL_SCORE` | Retrieval score threshold | `0.3` |
+| `CROSS_ENCODER_MODEL` | Sentence Transformers model used to rerank fused candidates | `cross-encoder/ms-marco-MiniLM-L6-v2` |
 | `STREAM` | Stream model output where supported | `true` |
 
 `TOP_K` remains accepted as a legacy alias for `FUSION_TOP_K` so existing local configuration continues to set the final candidate limit.

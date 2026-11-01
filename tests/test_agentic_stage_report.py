@@ -264,6 +264,7 @@ def test_agentic_evaluation_preserves_search_stages_union_metrics_context_and_la
         ("reranked", 3, 3),
     ]
     assert first_reranked["top_k"] == 3
+    assert first_reranked["metric_top_k"] == 1
     assert first_reranked["returned_count"] == 3
     assert first_reranked["results"][0]["rank"] == 1
     assert first_reranked["results"][0]["fusion_rank"] == 2
@@ -286,7 +287,7 @@ def test_agentic_evaluation_preserves_search_stages_union_metrics_context_and_la
         2 / 3
     )
     assert answer_result["retrieval_stage_metrics"]["reranked"]["ndcg"] == pytest.approx(
-        0.9197207891481876
+        1.0
     )
     assert answer_result["retrieval_stages"][1]["stages"]["reranked"][
         "results"
@@ -330,17 +331,18 @@ def test_agentic_evaluation_preserves_search_stages_union_metrics_context_and_la
     )
 
     report = (run_dir / "README.md").read_text(encoding="utf-8")
-    assert "Search ID | Search query" in report
-    assert "##### Vector results" in report
-    assert "##### BM25 results" in report
-    assert "##### RRF results" in report
-    assert "##### Reranked results" in report
-    assert "Union recall" in report
-    assert "Mean per-search NDCG" in report
-    assert "Pre-rerank and post-rerank comparison" in report
-    assert "Common cutoff" in report
+    assert "Search | Query" in report
+    assert "#### Vector results" in report
+    assert "#### BM25 results" in report
+    assert "#### RRF results" in report
+    assert "#### Reranked results" in report
+    assert "Rerank@1" in report
+    assert "Union recall" not in report
+    assert "Mean per-search NDCG" not in report
+    assert "Pre-rerank and post-rerank comparison" not in report
+    assert "Common cutoff" not in report
     assert "Search 1 | Retrieval search" in report
-    assert "Search 2 | Retrieval search" in report
+    assert "Search 2 | Rerank" in report
     assert "Controller latency" in report
     assert "Judge latency" in report
     assert "RAG query latency" in report

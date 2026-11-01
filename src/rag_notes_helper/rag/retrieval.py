@@ -17,7 +17,6 @@ from rag_notes_helper.utils.timer import deco_time_block
 
 _TOKEN_PATTERN = re.compile(r"\w+", re.UNICODE)
 _RRF_CONSTANT = 60
-_CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L6-v2"
 
 
 class CrossEncoderModel(Protocol):
@@ -87,7 +86,7 @@ class HybridSearchResults(Sequence[dict[str, Any]]):
 
 
 @lru_cache(maxsize=1)
-def get_cross_encoder(model_name: str = _CROSS_ENCODER_MODEL) -> CrossEncoderModel:
+def get_cross_encoder(model_name: str) -> CrossEncoderModel:
     from sentence_transformers import CrossEncoder
 
     return CrossEncoder(model_name)
@@ -221,7 +220,11 @@ def rerank_candidates(
     if not candidates:
         return []
 
-    model = cross_encoder if cross_encoder is not None else get_cross_encoder()
+    model = (
+        cross_encoder
+        if cross_encoder is not None
+        else get_cross_encoder(get_settings().cross_encoder_model)
+    )
     pairs = [(query, candidate["text"]) for candidate in candidates]
     scores = list(model.predict(pairs))
     if len(scores) != len(candidates):

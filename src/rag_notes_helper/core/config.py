@@ -13,6 +13,7 @@ from pydantic import (
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LLMProvider = Literal["hf", "openai", "ollama", "gemini", "openrouter"]
+DEFAULT_CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L6-v2"
 
 
 class LLMSettings(BaseSettings):
@@ -122,6 +123,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("FUSION_TOP_K", "TOP_K", "fusion_top_k"),
     )
     min_retrieval_score: float = Field(0.2, ge=0, le=1)
+    cross_encoder_model: str = Field(DEFAULT_CROSS_ENCODER_MODEL, min_length=1)
 
     # format
     stream: bool = True

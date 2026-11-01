@@ -6,9 +6,9 @@ import pytest
 import numpy as np
 import faiss
 
-from rag_notes_helper.rag.retrieval import retrieve
+from rag_notes_helper.rag.retrieval import rerank_candidates, retrieve
 from rag_notes_helper.rag.index import RagIndex
-from rag_notes_helper.core.config import LLMSettings, Settings, get_settings
+from rag_notes_helper.core.config import LLMSettings, Settings
 
 @pytest.fixture
 def mock_meta_store():
@@ -78,6 +78,7 @@ def test_hybrid_retrieval_keeps_method_ranks_and_fuses_shared_candidates(monkeyp
             bm25_top_k=2,
             fusion_top_k=2,
             min_retrieval_score=0.5,
+            cross_encoder_model="fixture/cross-encoder",
             llm=SimpleNamespace(max_chunks=5),
         ),
     )
@@ -93,6 +94,34 @@ def test_hybrid_retrieval_keeps_method_ranks_and_fuses_shared_candidates(monkeyp
     assert result.fused_results[0]["vector_score"] == pytest.approx(0.8)
     assert result.fused_results[0]["bm25_score"] > 0
     assert result[0] is result.reranked_results[0]
+
+
+def test_reranking_uses_cross_encoder_model_from_settings(monkeypatch):
+    factory_calls = []
+
+    class FakeCrossEncoder:
+        def predict(self, pairs):
+            assert pairs == [("query", "candidate")]
+            return [0.9]
+
+    model = FakeCrossEncoder()
+    monkeypatch.setattr(
+        "rag_notes_helper.rag.retrieval.get_settings",
+        lambda: SimpleNamespace(cross_encoder_model="fixture/configured-model"),
+    )
+
+    def fake_factory(model_name):
+        factory_calls.append(model_name)
+        return model
+
+    monkeypatch.setattr("rag_notes_helper.rag.retrieval.get_cross_encoder", fake_factory)
+    ranked = rerank_candidates(
+        "query",
+        [{"source": "notes/a.md", "chunk_id": 1, "text": "candidate"}],
+    )
+
+    assert factory_calls == ["fixture/configured-model"]
+    assert ranked[0]["reranker_score"] == 0.9
 
 
 def test_hybrid_retrieval_reranks_fused_candidates_without_score_thresholding(

@@ -193,7 +193,7 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert (run_dir / "README.md").is_file()
     assert not (run_dir / "summary.json").exists()
     results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
-    assert results["schema_version"] == 5
+    assert results["schema_version"] == 6
     for case in results["cases"]:
         assert len(case["search_queries"]) == len(case["search_results"])
         assert case["search_queries"][0] == case["question"]
@@ -255,12 +255,13 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert "## Query details" in readme
     assert "Search query" in readme
     if agentic:
-        assert "Stage rank" in readme
+        assert "| Rank | Stage score |" in readme
         assert "Full context" in readme
         assert "Retrieved chunk text" not in readme
         assert "Final generation context" in readme
     else:
-        assert "Retrieved chunk text" in readme
+        assert "Full context" in readme
+        assert "Retrieved chunk text" not in readme
         assert "Context passed to answer generation" in readme
     assert "Ragas diagnostics" in readme
     assert "Execution audit: latency and token usage" in readme
@@ -1336,9 +1337,12 @@ def test_classic_evaluation_records_stage_metrics_and_fair_rerank_comparison(
     assert "Noise stage text" not in report
     assert "Line eleven citation" not in report
     assert report.count("Line ten citation") == 1
-    assert "Evidence metrics at this stage cutoff" in report
-    assert "Pre-rerank and post-rerank comparison" in report
-    assert "| Search ID | Same candidate pool | Generation top-k | Common cutoff | RRF recall |" in report
+    assert "| Rerank@1 |" in report
+    assert "Evidence lines" in report
+    assert "Pre-rerank and post-rerank comparison" not in report
+    assert "| Search | Query |" in report
+    assert "_Search query:" not in report
+    assert "| Context order | Chunk ID | Source path | Lines | Full context | Evidence lines |" in report
 
 
 def test_classic_report_keeps_unmeasured_latencies_unavailable(monkeypatch):

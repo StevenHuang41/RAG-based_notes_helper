@@ -77,12 +77,12 @@ def test_report_uses_final_context_metrics_and_concise_audit_tables(tmp_path):
     assert "Answerability outcomes" not in report
     assert "Eligible cases / selected cases" not in report
     assert "### Provider usage" not in report
-    assert "| Search ID | Search query |" in report
+    assert "| Search | Query |" in report
     assert "| 1 | Which date? |" in report
     assert "candidate one" not in report
     assert report.count("candidate two") == 1
-    assert "| Context order | Chunk ID | Source path | Lines | Reranker score | Full context | Evidence lines | Recall | Precision | Context-order NDCG |" in report
-    assert "| 1 | 2 | notes/b.md | 3–3 | — | candidate two | 1/2 | 0.5000 | 0.2500 | 0.4000 |" in report
+    assert "| Context order | Chunk ID | Source path | Lines | Full context | Evidence lines |" in report
+    assert "| 1 | 2 | notes/b.md | 3–3 | candidate two | — |" in report
     assert "Status/reason" not in report
     assert "| Metric | Score |" in report
     assert "Provider total tokens" not in report
