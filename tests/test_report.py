@@ -200,3 +200,106 @@ def test_classic_query_detail_shows_stage_cutoffs_and_per_chunk_evidence(tmp_pat
         "#### Final generation context", 1
     )[0]
     assert "| 1 | 0.9000 | 1 | notes/noise.md | 1–2 | 1 | 0/2 |" in reranked_section
+
+
+@pytest.mark.parametrize(
+    ("workflow", "expected_controller", "expected_query", "expected_total"),
+    [
+        ("classic", "| Controller | — | — |", "| RAG query | 42.0000 | 21.0000 |", "| Total | 50.0000 | 25.0000 |"),
+        ("agentic", "| Controller | 6.0000 | 3.0000 |", "| RAG query | 48.0000 | 24.0000 |", "| Total | 56.0000 | 28.0000 |"),
+    ],
+)
+def test_overall_latency_reports_stage_totals_and_averages(
+    tmp_path,
+    workflow,
+    expected_controller,
+    expected_query,
+    expected_total,
+):
+    controller_values = (None, None) if workflow == "classic" else (2.0, 4.0)
+    cases = [
+        {
+            "case_id": f"latency-{index}",
+            "category": "direct",
+            "workflow": workflow,
+            "latency": {
+                "retrieval_ms": retrieval,
+                "controller_ms": controller,
+                "answer_generation_ms": generation,
+                "judge_ms": judge,
+                "rag_query_ms": 1000.0,
+                "end_to_end_ms": 2000.0,
+            },
+        }
+        for index, (retrieval, controller, generation, judge) in enumerate(
+            zip((10.0, 20.0), controller_values, (5.0, 7.0), (3.0, 5.0)),
+            start=1,
+        )
+    ]
+    results = {
+        "run_metadata": {"workflow": workflow},
+        "summary": {"workflows": {workflow: {}}},
+        "cases": cases,
+    }
+
+    report_path = tmp_path / "README.md"
+    write_readme(report_path, results)
+    report = report_path.read_text(encoding="utf-8")
+    latency_section = report.split("### Latency\n", 1)[1].split(
+        "### Judge usage by metric", 1
+    )[0]
+
+    assert "### Mean latency" not in report
+    assert "| Stage | Latency (ms) | Avg. Latency (ms) |" in latency_section
+    assert "| Retrieval | 30.0000 | 15.0000 |" in latency_section
+    assert expected_controller in latency_section
+    assert "| Generation | 12.0000 | 6.0000 |" in latency_section
+    assert expected_query in latency_section
+    assert "| Ragas | 8.0000 | 4.0000 |" in latency_section
+    assert expected_total in latency_section
+    assert latency_section.index("| Retrieval |") < latency_section.index("| Controller |")
+    assert latency_section.index("| Controller |") < latency_section.index("| Generation |")
+    assert latency_section.index("| Generation |") < latency_section.index("| RAG query |")
+    assert latency_section.index("| RAG query |") < latency_section.index("| Ragas |")
+    assert latency_section.index("| Ragas |") < latency_section.index("| Total |")
+
+
+def test_overall_composite_latency_averages_each_case_before_aggregating(tmp_path):
+    results = {
+        "run_metadata": {"workflow": "agentic"},
+        "summary": {"workflows": {"agentic": {}}},
+        "cases": [
+            {
+                "case_id": "answered",
+                "category": "direct",
+                "workflow": "agentic",
+                "latency": {
+                    "retrieval_ms": 10.0,
+                    "controller_ms": 2.0,
+                    "answer_generation_ms": None,
+                    "judge_ms": 3.0,
+                },
+            },
+            {
+                "case_id": "answered-with-generation",
+                "category": "direct",
+                "workflow": "agentic",
+                "latency": {
+                    "retrieval_ms": 30.0,
+                    "controller_ms": 4.0,
+                    "answer_generation_ms": 20.0,
+                    "judge_ms": 5.0,
+                },
+            },
+        ],
+    }
+
+    report_path = tmp_path / "README.md"
+    write_readme(report_path, results)
+    report = report_path.read_text(encoding="utf-8")
+    latency_section = report.split("### Latency\n", 1)[1].split(
+        "### Judge usage by metric", 1
+    )[0]
+
+    assert "| RAG query | 66.0000 | 33.0000 |" in latency_section
+    assert "| Total | 74.0000 | 37.0000 |" in latency_section

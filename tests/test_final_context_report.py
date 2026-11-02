@@ -87,8 +87,8 @@ def test_report_uses_final_context_metrics_and_concise_audit_tables(tmp_path):
     assert "| Metric | Score |" in report
     assert "Provider total tokens" not in report
     assert "| Process/call | Latency (ms) | Provider / model | Provider input tokens | Provider output tokens | Total tokens |" in report
-    assert "### Mean latency\n" in report
-    assert "### Mean latency (ms)" not in report
+    assert "### Latency\n" in report
+    assert "### Mean latency" not in report
     assert "**Faithfulness** checks whether the answer is supported by the final Answer generation context" in report
     assert "**Answer Relevancy** checks whether the answer addresses the question" in report
     assert "**Answer Correctness** checks the answer against the expected answer" in report

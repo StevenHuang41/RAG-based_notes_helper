@@ -2,6 +2,7 @@
 
 from html import escape
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -74,6 +75,80 @@ def _execution_rows(case: dict[str, Any]) -> list[list[Any]]:
         if key in latency:
             rows.append([label, latency[key], "—", "—", "—", "—"])
     return rows
+
+
+def _latency_value(case: dict[str, Any], stage_name: str) -> float | None:
+    raw_value = (case.get("latency", {}) or {}).get(stage_name)
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
+
+
+def _latency_statistics_from_values(
+    values: list[float],
+) -> tuple[float | None, float | None]:
+    if not values:
+        return None, None
+    total = math.fsum(values)
+    return total, total / len(values)
+
+
+def _latency_statistics(
+    cases: list[dict[str, Any]],
+    stage_name: str,
+) -> tuple[float | None, float | None]:
+    measured = [
+        value
+        for case in cases
+        if (value := _latency_value(case, stage_name)) is not None
+    ]
+    return _latency_statistics_from_values(measured)
+
+
+def _sum_case_latency(
+    case: dict[str, Any],
+    stage_names: list[str],
+) -> float | None:
+    values = [_latency_value(case, stage_name) for stage_name in stage_names]
+    if all(value is None for value in values):
+        return None
+    return math.fsum(value for value in values if value is not None)
+
+
+def _overall_latency_rows(
+    cases: list[dict[str, Any]],
+    workflow: str,
+) -> list[list[Any]]:
+    retrieval = _latency_statistics(cases, "retrieval_ms")
+    controller = _latency_statistics(cases, "controller_ms")
+    generation = _latency_statistics(cases, "answer_generation_ms")
+    ragas = _latency_statistics(cases, "judge_ms")
+    query_stage_names = ["retrieval_ms"]
+    if workflow == "agentic":
+        query_stage_names.append("controller_ms")
+    query_stage_names.append("answer_generation_ms")
+
+    rag_query_values = []
+    total_values = []
+    for case in cases:
+        rag_query_value = _sum_case_latency(case, query_stage_names)
+        if rag_query_value is None:
+            continue
+        rag_query_values.append(rag_query_value)
+        judge_value = _latency_value(case, "judge_ms")
+        total_values.append(rag_query_value + (judge_value or 0.0))
+    rag_query = _latency_statistics_from_values(rag_query_values)
+    total = _latency_statistics_from_values(total_values)
+    return [
+        ["Retrieval", *retrieval],
+        ["Controller", *controller],
+        ["Generation", *generation],
+        ["RAG query", *rag_query],
+        ["Ragas", *ragas],
+        ["Total", *total],
+    ]
 
 
 def _candidate_index(
@@ -515,9 +590,17 @@ def _readme_report(results: dict[str, Any]) -> str:
     lines.extend(_table(["Metric", "Score"], [[name, (workflow_summary.get("final_context_metrics", {}) or {}).get(name)] for name in ("recall", "precision", "ndcg")]))
     lines.extend(["", "### Ragas diagnostics", ""])
     lines.extend(_table(["Metric", "Score"], [[label, (workflow_summary.get(source, {}) or {}).get(metric)] for label, metric, source in RAGAS_METRICS]))
-    lines.extend(["", "### Mean latency", ""])
-    latency = workflow_summary.get("latency_ms", {}) or {}
-    lines.extend(_table(["Stage", "Latency (ms)"], [[label, latency.get(key)] for key, label in (("retrieval_ms", "Retrieval"), ("controller_ms", "Controller"), ("answer_generation_ms", "Final answer generation"), ("judge_ms", "Ragas judge"), ("rag_query_ms", "RAG query latency"), ("end_to_end_ms", "Evaluation latency"))]))
+    lines.extend(["", "### Latency", ""])
+    cases = [
+        case
+        for case in results.get("cases", [])
+        if isinstance(case, dict)
+        and case.get("workflow", workflow) == workflow
+    ]
+    lines.extend(_table(
+        ["Stage", "Latency (ms)", "Avg. Latency (ms)"],
+        _overall_latency_rows(cases, workflow),
+    ))
     lines.extend(["", "### Judge usage by metric", ""])
     judge_usage = workflow_summary.get("judge_usage_by_metric", {}) or {}
     lines.extend(_table(["Metric", "Calls", "Input tokens", "Output tokens", "Total tokens"], [[metric, (judge_usage.get(metric, {}) or {}).get("call_count", 0), *_usage_columns(judge_usage.get(metric, {}))] for _, metric, _ in RAGAS_METRICS]))
@@ -527,7 +610,7 @@ def _readme_report(results: dict[str, Any]) -> str:
         final = metrics.get("final_context_metrics", {}) or {}
         category_rows.append([category, metrics.get("case_count"), final.get("recall"), final.get("precision"), final.get("ndcg"), *[(metrics.get(source, {}) or {}).get(metric) for _, metric, source in RAGAS_METRICS], (metrics.get("latency_ms", {}) or {}).get("end_to_end_ms")])
     lines.extend(_table(["Category", "Cases", "Recall", "Precision", "NDCG", "Faithfulness", "Answer Relevancy", "Answer Correctness", "Context Utilization", "Mean evaluation latency (ms)"], category_rows))
-    lines.extend(["", "## Evaluation process and metric guide", "", "1. **Final context evidence metrics** are line-grounded Recall, Precision, and Context-order NDCG for the complete ordered Answer generation context. Overall and category values average each completed query's final Context prefix row.", "2. Retrieved chunks are audit candidates. Retrieval top-k is the maximum candidates for one search; it does not mean every candidate reached answer generation.", "3. **Search ID** is the sequential Retrieval search number. Search ranks are local to their Search ID.", "4. **Faithfulness** checks whether the answer is supported by the final Answer generation context. **Answer Relevancy** checks whether the answer addresses the question. **Answer Correctness** checks the answer against the expected answer. **Context Utilization** checks whether the final Answer generation context is useful for the answer. A dash means the score was unavailable.", "5. RAG query latency ends at the terminal answer or abstention. Evaluation latency adds Ragas judge latency. Token totals use a provider-reported total when present; otherwise they are the exact reported input-plus-output sum, or a dash when neither is available.", "", "## Query details", ""])
+    lines.extend(["", "## Evaluation process and metric guide", "", "1. **Final context evidence metrics** are line-grounded Recall, Precision, and Context-order NDCG for the complete ordered Answer generation context. Overall and category values average each completed query's final Context prefix row.", "2. Retrieved chunks are audit candidates. Retrieval top-k is the maximum candidates for one search; it does not mean every candidate reached answer generation.", "3. **Search ID** is the sequential Retrieval search number. Search ranks are local to their Search ID.", "4. **Faithfulness** checks whether the answer is supported by the final Answer generation context. **Answer Relevancy** checks whether the answer addresses the question. **Answer Correctness** checks the answer against the expected answer. **Context Utilization** checks whether the final Answer generation context is useful for the answer. A dash means the score was unavailable.", "5. Overall latency totals sum measured durations across cases; per-stage averages use cases with a measurement. RAG query is computed per case from Retrieval, Controller in Agentic mode, and Generation, then summed and averaged across cases with at least one measured query component. Total adds each case's measured Ragas duration to its RAG query. Token totals use a provider-reported total when present; otherwise they are the exact reported input-plus-output sum, or a dash when neither is available.", "", "## Query details", ""])
     report_cases = []
     for case in results.get("cases", []):
         if "workflow" not in case and workflow == "agentic":
