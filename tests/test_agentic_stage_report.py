@@ -337,6 +337,7 @@ def test_agentic_evaluation_preserves_search_stages_union_metrics_context_and_la
     assert "#### RRF results" in report
     assert "#### Reranked results" in report
     assert "Rerank@3" in report
+    assert "| Generation@1 | — | — | — |" in report
     assert "Union recall" not in report
     assert "Mean per-search NDCG" not in report
     assert "Pre-rerank and post-rerank comparison" not in report

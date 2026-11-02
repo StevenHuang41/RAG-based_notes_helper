@@ -177,7 +177,20 @@ def _stage_cutoffs(case: dict[str, Any], stage_name: str) -> list[int]:
     return cutoffs
 
 
-def _retrieval_stage_metric_rows(case: dict[str, Any]) -> list[list[Any]]:
+def _generation_cutoff(case: dict[str, Any], max_answer_chunks: Any) -> int | None:
+    if type(max_answer_chunks) is int and max_answer_chunks >= 0:
+        return max_answer_chunks
+    for search in _retrieval_searches(case):
+        cutoff = search.get("generation_top_k")
+        if type(cutoff) is int and cutoff >= 0:
+            return cutoff
+    return None
+
+
+def _quality_metric_rows(
+    case: dict[str, Any],
+    max_answer_chunks: Any,
+) -> list[list[Any]]:
     stage_metrics = case.get("retrieval_stage_metrics", {}) or {}
     rows = []
     for stage_name, label, _ in _RETRIEVAL_STAGE_LABELS:
@@ -201,16 +214,29 @@ def _retrieval_stage_metric_rows(case: dict[str, Any]) -> list[list[Any]]:
             metrics.get("precision"),
             metrics.get("ndcg"),
         ])
+    generation_context = case.get("generation_context")
+    if isinstance(generation_context, list):
+        metrics = case.get("final_context_metrics", {}) or {}
+        cutoff = _generation_cutoff(case, max_answer_chunks)
+        rows.append([
+            f"Generation@{cutoff if cutoff is not None else '—'}",
+            metrics.get("recall"),
+            metrics.get("precision"),
+            metrics.get("ndcg"),
+        ])
     return rows
 
 
-def _render_retrieval_stage_metrics(case: dict[str, Any]) -> list[str]:
+def _render_quality_metrics(
+    case: dict[str, Any],
+    max_answer_chunks: Any,
+) -> list[str]:
     return [
-        "**Retrieval stages metrics**",
+        "**Retrieval stages and generation-context metrics**",
         "",
         *_table(
             ["Stage", "Recall", "Precision", "NDCG"],
-            _retrieval_stage_metric_rows(case),
+            _quality_metric_rows(case, max_answer_chunks),
         ),
     ]
 
@@ -352,7 +378,7 @@ def _render_execution_audit(case: dict[str, Any]) -> list[str]:
     ]
 
 
-def _query_header(case: dict[str, Any]) -> list[str]:
+def _query_header(case: dict[str, Any], max_answer_chunks: Any) -> list[str]:
     return [
         f"### {case.get('case_id', 'unknown')}",
         "",
@@ -372,13 +398,16 @@ def _query_header(case: dict[str, Any]) -> list[str]:
         "",
         "#### Quality metrics",
         "",
-        *_render_retrieval_stage_metrics(case),
+        *_render_quality_metrics(case, max_answer_chunks),
         *_render_ragas_diagnostics(case),
     ]
 
 
-def _render_classic_query_details(case: dict[str, Any]) -> list[str]:
-    lines = _query_header(case)
+def _render_classic_query_details(
+    case: dict[str, Any],
+    max_answer_chunks: Any,
+) -> list[str]:
+    lines = _query_header(case, max_answer_chunks)
     latency = case.get("latency", {}) or {}
     stage_latency = latency.get("retrieval_stages_ms", {}) or {}
     latency_rows = [
@@ -406,8 +435,11 @@ def _render_classic_query_details(case: dict[str, Any]) -> list[str]:
     return lines
 
 
-def _render_agentic_query_details(case: dict[str, Any]) -> list[str]:
-    lines = _query_header(case)
+def _render_agentic_query_details(
+    case: dict[str, Any],
+    max_answer_chunks: Any,
+) -> list[str]:
+    lines = _query_header(case, max_answer_chunks)
     latency = case.get("latency", {}) or {}
     lines.extend(["", "#### Latency", ""])
     per_search_rows = [
@@ -446,17 +478,20 @@ def _render_agentic_query_details(case: dict[str, Any]) -> list[str]:
     return lines
 
 
-def _render_query_details(cases: list[dict[str, Any]]) -> list[str]:
+def _render_query_details(
+    cases: list[dict[str, Any]],
+    max_answer_chunks: Any,
+) -> list[str]:
     """Render the per-query audit without mixing it into aggregate sections."""
     lines: list[str] = []
     for case in cases:
         if case.get("workflow") == "classic":
-            lines.extend(_render_classic_query_details(case))
+            lines.extend(_render_classic_query_details(case, max_answer_chunks))
             continue
         if case.get("workflow") == "agentic":
-            lines.extend(_render_agentic_query_details(case))
+            lines.extend(_render_agentic_query_details(case, max_answer_chunks))
             continue
-        lines.extend(_render_classic_query_details(case))
+        lines.extend(_render_classic_query_details(case, max_answer_chunks))
     return lines
 
 
@@ -498,7 +533,10 @@ def _readme_report(results: dict[str, Any]) -> str:
         if "workflow" not in case and workflow == "agentic":
             case = {**case, "workflow": workflow}
         report_cases.append(case)
-    lines.extend(_render_query_details(report_cases))
+    lines.extend(_render_query_details(
+        report_cases,
+        metadata.get("max_answer_chunks"),
+    ))
     lines.extend(["## Artifacts", "", "- [Machine-readable results](results.json)", "- [Evaluation process log](run.log)", ""])
     return "\n".join(lines)
 

@@ -6,7 +6,11 @@ from rag_notes_helper.eval.report import write_readme
 @pytest.mark.parametrize("workflow", ["classic", "agentic"])
 def test_report_keeps_candidates_separate_from_final_answer_context(tmp_path, workflow):
     results = {
-        "run_metadata": {"workflow": workflow, "top_k": 3},
+        "run_metadata": {
+            "workflow": workflow,
+            "top_k": 3,
+            "max_answer_chunks": 5,
+        },
         "summary": {"workflows": {workflow: {
             "final_context_metrics": {"recall": 1.0, "precision": 0.5, "ndcg": 0.8},
             "generation_metrics": {"faithfulness": 0.9},
@@ -44,6 +48,7 @@ def test_report_keeps_candidates_separate_from_final_answer_context(tmp_path, wo
 
     assert "| Search | Query |" in report
     assert "| 2 | follow up |" in report
+    assert "| Generation@5 | 1.0000 | 0.5000 | 0.8000 |" in report
     if workflow == "agentic":
         assert "noise" not in report
         assert "| 1 | 2 | notes/launch.md | 2–2 | date | 1/1 |" in report
@@ -114,6 +119,7 @@ def test_classic_query_detail_shows_stage_cutoffs_and_per_chunk_evidence(tmp_pat
         "run_metadata": {
             "workflow": "classic",
             "cross_encoder_model": "fixture/custom-cross-encoder",
+            "max_answer_chunks": 1,
         },
         "summary": {"workflows": {"classic": {}}},
         "cases": [{
@@ -173,6 +179,7 @@ def test_classic_query_detail_shows_stage_cutoffs_and_per_chunk_evidence(tmp_pat
     assert "| Vector@2 | 0.5000 | 0.3333 | 0.6300 |" in report
     assert "| Fusion@2 | 0.5000 | 0.3333 | 0.5000 |" in report
     assert "| Rerank@2 | 0.5000 | 0.3333 | 1.0000 |" in report
+    assert "| Generation@1 | 0.5000 | 1.0000 | 1.0000 |" in report
     assert "| Rank | Stage score | Chunk ID | Source path | Lines | Search | Evidence lines |" in report
     assert "| 2 | 0.8000 | 10 | notes/evidence.md | 10–10 | 1 | 1/2 |" in report
     assert "| 1 | 0.9000 | 1 | notes/noise.md | 1–2 | 1 | 0/2 |" in report
@@ -184,7 +191,9 @@ def test_classic_query_detail_shows_stage_cutoffs_and_per_chunk_evidence(tmp_pat
     assert "| 1 | 10 | notes/evidence.md | 10–10 | Reviewed evidence line. | 1/2 |" in report
     assert "Recall | Precision | Context-order NDCG" not in report
     assert "| Reranking | 4.0000 |" in report
-    assert report.index("**Retrieval stages metrics**") < report.index("#### Latency")
+    assert report.index(
+        "**Retrieval stages and generation-context metrics**"
+    ) < report.index("#### Latency")
     assert report.index("#### Expected evidence") < report.index("#### Search query")
     assert report.index("#### Search query") < report.index("#### Vector results")
     reranked_section = report.split("#### Reranked results", 1)[1].split(
