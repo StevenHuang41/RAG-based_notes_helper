@@ -358,9 +358,12 @@ def test_classic_and_agentic_workflows_use_the_shared_hybrid_search(monkeypatch)
 
         def generate_raw(self, prompt):
             self.calls += 1
+            request = json.loads(prompt[1]["content"])
+            if "candidate_answer" in request:
+                return json.dumps({"action": "accept"})
             if self.calls == 1:
                 return json.dumps({"action": "search", "query": "ownership"})
-            evidence = json.loads(prompt[1]["content"])["evidence"]
+            evidence = request["evidence"]
             return json.dumps({
                 "action": "answer",
                 "evidence": [
@@ -382,7 +385,7 @@ def test_classic_and_agentic_workflows_use_the_shared_hybrid_search(monkeypatch)
 
     expected_sources = {"notes/vector.md", "notes/lexical.md"}
     assert {hit["source"] for hit in classic["retrieved_evidence"]} == expected_sources
-    assert controller.calls == 2
+    assert controller.calls == 3
     assert len(agentic_result["search_results"]) == 2
     assert all(
         {hit["source"] for hit in search_result} == expected_sources

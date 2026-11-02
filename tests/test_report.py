@@ -65,6 +65,12 @@ def test_report_uses_exact_token_sum_and_dash_for_unavailable_values(tmp_path):
         "run_metadata": {"workflow": "classic"},
         "summary": {"workflows": {"classic": {"judge_usage_by_metric": {}}}},
         "cases": [{
+            "latency": {
+                "retrieval_ms": 8,
+                "controller_ms": 1,
+                "answer_generation_ms": 2,
+                "rag_query_ms": 11,
+            },
             "case_id": "usage", "generation_usage": {"calls": [
                 {"call_type": "answer", "provider": "fixture", "model": "v1", "latency_ms": 2,
                  "token_usage": {"input_tokens": 3, "output_tokens": 4, "total_tokens": None}},
@@ -77,11 +83,19 @@ def test_report_uses_exact_token_sum_and_dash_for_unavailable_values(tmp_path):
     write_readme(path, results)
     report = path.read_text(encoding="utf-8")
 
-    assert "| answer call 1 | 2 | fixture / v1 | 3 | 4 | 7 |" in report
-    assert "| controller call 2 | 1 | fixture / v1 | — | — | — |" in report
+    assert "| Answer call 1 | 2 | fixture / v1 | 3 | 4 | 7 |" in report
+    assert "| Controller call 1 | 1 | fixture / v1 | — | — | — |" in report
     assert "Calculated input+output" not in report
     assert "Usage status" not in report
     assert "Input chars" not in report
+    audit = report.split(
+        "#### Execution audit: latency and token usage", 1
+    )[1].split("## Artifacts", 1)[0]
+    assert "Retrieval search" not in audit
+    assert "RAG query latency" not in audit
+    assert "Evaluation latency" not in audit
+    assert "| Controller total | 1 | — | — | — | — |" in audit
+    assert "| Answer total | 2 | — | 3 | 4 | 7 |" in audit
 
 
 def test_classic_query_detail_shows_stage_cutoffs_and_per_chunk_evidence(tmp_path):

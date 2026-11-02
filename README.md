@@ -77,7 +77,7 @@ This project keeps knowledge external and inspectable. Notes are chunked, embedd
   - OpenRouter
   - Ollama for local inference
 - Grounds answers in retrieved context.
-- Offers an opt-in Agentic RAG workflow that can inspect evidence and search again up to three times for one query.
+- Offers an opt-in Agentic RAG workflow with up to three Search attempts and three evidence-reviewed Answer attempts per query.
 - Supports optional citation output for source visibility.
 - Supports streaming responses in REPL mode.
 
@@ -130,7 +130,7 @@ User query -> workflow selection
           v                v
 Classic RAG          Agentic RAG
 one retrieval        bounded LangGraph StateGraph
-          |          search / answer / abstain
+          |          search / generate / review / abstain
           +-------+--------+
                   |
                   v
@@ -167,6 +167,7 @@ one retrieval        bounded LangGraph StateGraph
 6. **Workflow selection and answer generation**
    - Classic RAG sends one retrieval result to answer generation.
    - Agentic RAG uses a LangGraph StateGraph to ask the configured LLM for a Pydantic-validated JSON action after inspecting retrieved chunks. It can request another focused search, select evidence for an answer, or abstain. The initial search uses the original question and each query is limited to three searches, including that initial search.
+   - Agentic RAG buffers each candidate answer and asks the controller to accept it, request a focused revision, or abstain based on the selected evidence. It permits at most three Answer attempts including the first candidate; a third rejected candidate returns a deterministic insufficient-answer response. Agentic mode therefore does not stream unreviewed candidate text, while Classic streaming remains available.
    - Both workflows abstain without answer generation when retrieval returns no chunks.
    - Retrieved chunks are inserted into the LLM prompt as context.
    - The answer can include source citations.
@@ -321,7 +322,7 @@ uv run rag-app --repl --agentic
 uv run rag-app --repl --agentic "What changed before launch?"
 ```
 
-Each query starts with fresh Agentic state; conversation memory is not enabled.
+Each query starts with fresh Agentic state; conversation memory is not enabled. Agentic answers are buffered until evidence review accepts them, even when REPL streaming is enabled.
 
 ### Remote MCP search
 
@@ -522,7 +523,7 @@ ghcr.io/stevenhuang41/rag-based-notes-helper:latest
 
 ## Limitations
 
-- Agentic retrieval is limited to one query at a time; conversation memory is not yet implemented.
+- Agentic retrieval is limited to one query at a time; conversation memory is not yet implemented. Each query is capped at three Search attempts and three Answer attempts.
 - Retrieval quality depends on note quality, chunk size, and embedding model choice.
 - Runtime artifacts such as FAISS indexes and logs are local by default; evaluation reports are local to the source checkout.
 - API-based LLM providers require valid credentials in `.env`.

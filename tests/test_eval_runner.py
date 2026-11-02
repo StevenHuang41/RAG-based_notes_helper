@@ -13,13 +13,30 @@ import numpy as np
 import pytest
 
 from rag_notes_helper.eval import eval_runner
-from rag_notes_helper.rag.agentic import MAX_SEARCHES
+from rag_notes_helper.rag.agentic import MAX_ANSWER_ATTEMPTS, MAX_SEARCHES
 from rag_notes_helper.rag.index import RagIndex
 
 
 class FixtureEmbeddingModel:
     def encode(self, texts, *, normalize_embeddings, convert_to_numpy):
         return np.ones((len(texts), 4), dtype=np.float32)
+
+
+def test_exhausted_answer_attempts_are_an_abstention_and_skip_ragas():
+    fields = eval_runner._answerability_fields(
+        {"answerable": False},
+        "Please ask a more specific question.",
+        forced_abstention=True,
+    )
+    case = {
+        **fields,
+        "answer": "Please ask a more specific question.",
+        "answer_contexts": ["Rejected candidate context."],
+    }
+
+    assert fields["abstained"] is True
+    assert fields["answerability_correct"] is True
+    assert eval_runner._ragas_metric_is_eligible(case, "faithfulness") is False
 
 
 class FixtureAnswerModel:
@@ -54,6 +71,9 @@ class FixtureController:
 
     def generate_raw(self, prompt):
         request = json.loads(prompt[-1]["content"])
+        if "candidate_answer" in request:
+            self.last_output = json.dumps({"action": "accept"})
+            return self.last_output
         evidence = request["evidence"]
         self.last_output = json.dumps({
             "action": "answer",
@@ -193,7 +213,7 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert (run_dir / "README.md").is_file()
     assert not (run_dir / "summary.json").exists()
     results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
-    assert results["schema_version"] == 6
+    assert results["schema_version"] == 7
     for case in results["cases"]:
         assert len(case["search_queries"]) == len(case["search_results"])
         assert case["search_queries"][0] == case["question"]
@@ -243,6 +263,10 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert results["run_metadata"]["judge_provider"] == "ollama"
     assert results["run_metadata"]["judge_model"] == "llama3.1"
     assert results["run_metadata"]["agentic_max_searches"] == MAX_SEARCHES
+    assert (
+        results["run_metadata"]["agentic_max_answer_attempts"]
+        == MAX_ANSWER_ATTEMPTS
+    )
     assert results["run_metadata"]["workflow"] == workflow
     assert results["run_metadata"]["timezone"] == "Asia/Taipei"
     assert results["run_metadata"]["chunk_size"] == 200
@@ -396,7 +420,7 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     direct_summary = summary["workflows"][workflow]["by_category"]["direct"]
     assert direct_summary["generation_usage"]["token_usage"]["total_tokens"] == (
         sum(case["category"] == "direct" for case in fixture_cases)
-        * (19 if agentic else 12)
+        * (26 if agentic else 12)
     )
     direct_answerable_count = sum(
         case["category"] == "direct" and case["answerable"]
@@ -422,12 +446,12 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
         "token_usage"
     ]["total_tokens"] == answerable_count * 3
     selected_case = results["cases"][0]
-    assert selected_case["generation_usage"]["call_count"] == (2 if agentic else 1)
+    assert selected_case["generation_usage"]["call_count"] == (3 if agentic else 1)
     assert selected_case["generation_usage"]["token_usage"] == {
         "status": "available",
-        "input_tokens": 13 if agentic else 10,
-        "output_tokens": 6 if agentic else 2,
-        "total_tokens": 19 if agentic else 12,
+        "input_tokens": 16 if agentic else 10,
+        "output_tokens": 10 if agentic else 2,
+        "total_tokens": 26 if agentic else 12,
     }
     if agentic:
         assert selected_case["generation_usage"]["character_usage"]["input"] > 0
@@ -452,11 +476,11 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
         "rag_query_ms"
     ]
     assert summary["workflows"][workflow]["generation_usage"]["call_count"] == (
-        len(fixture_cases) * (2 if agentic else 1)
+        len(fixture_cases) * (3 if agentic else 1)
     )
     assert summary["workflows"][workflow]["generation_usage"]["token_usage"][
         "total_tokens"
-    ] == len(fixture_cases) * (19 if agentic else 12)
+    ] == len(fixture_cases) * (26 if agentic else 12)
     assert summary["category_counts"] == {
         category: sum(case["category"] == category for case in fixture_cases)
         for category in ("direct", "multi_hop", "unanswerable", "ambiguous")

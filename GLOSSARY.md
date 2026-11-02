@@ -16,6 +16,14 @@ _Avoid_: Agent mode, conversational agent
 An answer whose factual claims are supported by retrieved note evidence; when evidence is insufficient, the system abstains.
 _Avoid_: Hallucination-free answer
 
+**Answer attempt**:
+One candidate answer generation followed by an evidence-grounded Answer review.
+_Avoid_: Answer retry
+
+**Answer review**:
+A per-query controller decision that accepts a candidate answer, requests a revision, or abstains based on the selected note evidence.
+_Avoid_: Ragas judge, answer grading
+
 ## Retrieval
 
 **Note Search Tool**:

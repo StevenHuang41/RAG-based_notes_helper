@@ -34,7 +34,7 @@ from rag_notes_helper.eval.retrieval_metrics import (
 )
 from rag_notes_helper.eval.report import write_readme
 from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE
-from rag_notes_helper.rag.agentic import MAX_SEARCHES
+from rag_notes_helper.rag.agentic import MAX_ANSWER_ATTEMPTS, MAX_SEARCHES
 from rag_notes_helper.rag.index import (
     RagIndex,
     build_and_save_rag_from_isolated_corpus,
@@ -187,6 +187,10 @@ def _run_ragas_isolated(
             if not has_nonblank_answer(case.get("answer")):
                 scored_results[scored_position]["metric_reasons"][metric_name] = (
                     "Skipped because no generated answer was available."
+                )
+            elif case.get("abstained") is True:
+                scored_results[scored_position]["metric_reasons"][metric_name] = (
+                    "Skipped because the workflow abstained."
                 )
             elif skip_reason and not case.get("answer_contexts"):
                 scored_results[scored_position]["metric_reasons"][metric_name] = (
@@ -596,7 +600,12 @@ def _aggregate_usage(calls: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _answerability_fields(case: dict[str, Any], answer: Any) -> dict[str, Any]:
+def _answerability_fields(
+    case: dict[str, Any],
+    answer: Any,
+    *,
+    forced_abstention: bool = False,
+) -> dict[str, Any]:
     expected_answerable = bool(case["answerable"])
     if not has_nonblank_answer(answer):
         return {
@@ -606,7 +615,7 @@ def _answerability_fields(case: dict[str, Any], answer: Any) -> dict[str, Any]:
             "correct_abstention": None,
             "answerability_correct": None,
         }
-    abstained = (
+    abstained = forced_abstention or (
         isinstance(answer, str)
         and answer.strip().casefold() == ABSTENTION_MESSAGE.casefold()
     )
@@ -692,6 +701,7 @@ def _ragas_metric_is_eligible(case: dict[str, Any], metric: str) -> bool:
     if (
         case.get("expected_answerable") is not True
         or not has_nonblank_answer(case.get("answer"))
+        or case.get("abstained") is True
     ):
         return False
     required_context = {
@@ -1096,6 +1106,7 @@ def _record_case(
     generation_calls: list[dict[str, Any]] = []
     retrieval_calls: list[dict[str, Any]] = []
     workflow_error = None
+    result: dict[str, Any] = {}
     query_started = perf_counter()
     try:
         result = run_query(
@@ -1333,6 +1344,8 @@ def _record_case(
         "workflow": workflow,
         "question": case["question"],
         "answer": answer,
+        "answer_attempts": result.get("answer_attempts"),
+        "answer_retry_exhausted": result.get("answer_retry_exhausted", False),
         "citations": citation_records,
         "retrieved_evidence": evidence_records,
         "search_results": search_result_records,
@@ -1352,7 +1365,11 @@ def _record_case(
         "missing_information": case.get("missing_information"),
         "expected_sources": case["expected_sources"],
         "expected_evidence": case["expected_evidence"],
-        **_answerability_fields(case, answer),
+        **_answerability_fields(
+            case,
+            answer,
+            forced_abstention=result.get("answer_retry_exhausted") is True,
+        ),
         **_retrieval_coverage(case, evidence_records),
         "retrieval_metrics": {
             **retrieval_metrics,
@@ -1371,7 +1388,7 @@ def _record_case(
             "retrieval_ms": retrieval_latency_ms,
             "retrieval_stages_ms": _classic_stage_latency_totals(
                 retrieval_stages
-            ) if workflow == "classic" else {},
+            ),
             "controller_ms": controller_latency_ms,
             "answer_generation_ms": answer_latency_ms,
             "generation_ms": (
@@ -1663,7 +1680,7 @@ def run_evaluation(
     _log(run_log, f"Starting {workflow} synthetic-notes RAG evaluation.")
 
     results: dict[str, Any] = {
-        "schema_version": 6,
+        "schema_version": 7,
         "run_metadata": {
             "timestamp_local": timestamp,
             "timezone": "Asia/Taipei",
@@ -1700,6 +1717,7 @@ def run_evaluation(
                 "min_retrieval_score": settings.min_retrieval_score,
                 "max_answer_chunks": settings.llm.max_chunks,
                 "agentic_max_searches": MAX_SEARCHES,
+                "agentic_max_answer_attempts": MAX_ANSWER_ATTEMPTS,
             }
             workflow_results: dict[Workflow, list[dict[str, Any]]] = {}
             judge_usage_by_workflow: dict[Workflow, list[dict[str, Any]]] = {}

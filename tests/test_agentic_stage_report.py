@@ -342,12 +342,13 @@ def test_agentic_evaluation_preserves_search_stages_union_metrics_context_and_la
     assert "Mean per-search NDCG" not in report
     assert "Pre-rerank and post-rerank comparison" not in report
     assert "Common cutoff" not in report
-    assert "Search 1 | Retrieval search" in report
+    assert "Search 1 | Vector" in report
     assert "Search 2 | Rerank" in report
-    assert "Controller latency" in report
-    assert "Judge latency" in report
-    assert "RAG query latency" in report
-    assert "End-to-end evaluation latency" in report
+    assert "**Stage Latency**" in report
+    assert "| Controller | 3.5000 |" in report
+    assert "| Complete query |" in report
+    assert "Judge total" in report
+    assert "End-to-end evaluation latency" not in report
     assert "RETRIEVED_ONLY_NOISE" not in report
     assert "RETRIEVED_ONLY_LINE_TEN" not in report
     assert report.count("FINAL_CONTEXT_ONLY_TEXT") == 1

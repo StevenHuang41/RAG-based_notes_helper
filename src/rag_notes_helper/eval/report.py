@@ -58,22 +58,77 @@ def _usage_columns(usage: dict[str, Any] | None) -> list[Any]:
     return [token_usage.get("input_tokens"), token_usage.get("output_tokens"), _total_tokens(usage)]
 
 
+def _summed_usage_columns(calls: list[dict[str, Any]]) -> list[Any]:
+    columns = [_usage_columns(call) for call in calls]
+    if not columns:
+        return [None, None, None]
+    return [
+        sum(values) if values and all(value is not None for value in values) else None
+        for values in zip(*columns, strict=False)
+    ]
+
+
+def _call_label(call: dict[str, Any], call_number: int) -> str:
+    call_type = call.get("call_type", "generation")
+    if call_type == "controller":
+        label = f"Controller call {call_number}"
+        if call.get("phase") == "retrieval_review" and call.get("search_index"):
+            return f"{label} (Search {call['search_index']})"
+        if call.get("phase") == "answer_review" and call.get("answer_attempt"):
+            return f"{label} (Answer review {call['answer_attempt']})"
+        return label
+    if call_type in {"answer", "final_answer"}:
+        attempt = call.get("answer_attempt", call_number)
+        return f"Answer call {attempt}"
+    return f"{str(call_type).replace('_', ' ').title()} call {call_number}"
+
+
 def _execution_rows(case: dict[str, Any]) -> list[list[Any]]:
     latency = case.get("latency", {}) or {}
     rows: list[list[Any]] = []
-    for index, call in enumerate(latency.get("retrieval_calls", []), start=1):
-        rows.append([f"Retrieval search {call.get('search_index', index)}", call.get("latency_ms"), "—", "—", "—", "—"])
-    for index, call in enumerate((case.get("generation_usage", {}) or {}).get("calls", []), start=1):
-        rows.append([f"{call.get('call_type', 'generation')} call {index}", call.get("latency_ms"), f"{call.get('provider', '—')} / {call.get('model', '—')}", *_usage_columns(call)])
+    generation_calls = (case.get("generation_usage", {}) or {}).get("calls", [])
+    call_counts: dict[str, int] = {}
+    for call in generation_calls:
+        group = (
+            "controller"
+            if call.get("call_type") == "controller"
+            else "answer"
+            if call.get("call_type") in {"answer", "final_answer"}
+            else str(call.get("call_type", "generation"))
+        )
+        call_counts[group] = call_counts.get(group, 0) + 1
+        rows.append([
+            _call_label(call, call_counts[group]),
+            call.get("latency_ms"),
+            f"{call.get('provider', '—')} / {call.get('model', '—')}",
+            *_usage_columns(call),
+        ])
     for metric, usage in (case.get("judge_usage_by_metric", {}) or {}).items():
         calls = usage.get("calls", [])
         metric_latency = (latency.get("judge_metrics_ms", {}) or {}).get(metric)
         if calls or metric_latency is not None:
             providers = sorted({f"{call.get('provider', '—')} / {call.get('model', '—')}" for call in calls})
             rows.append([f"Judge: {metric}", metric_latency, ", ".join(providers) or "—", *_usage_columns(usage)])
-    for key, label in (("retrieval_ms", "Retrieval latency total"), ("controller_ms", "Controller latency total"), ("answer_generation_ms", "Answer generation latency total"), ("judge_ms", "Judge latency total"), ("rag_query_ms", "RAG query latency"), ("end_to_end_ms", "Evaluation latency")):
-        if key in latency:
-            rows.append([label, latency[key], "—", "—", "—", "—"])
+    controller_calls = [
+        call for call in generation_calls if call.get("call_type") == "controller"
+    ]
+    answer_calls = [
+        call for call in generation_calls
+        if call.get("call_type") in {"answer", "final_answer"}
+    ]
+    judge_calls = (case.get("judge_usage", {}) or {}).get("calls", [])
+    for label, latency_key, calls in (
+        ("Controller total", "controller_ms", controller_calls),
+        ("Answer total", "answer_generation_ms", answer_calls),
+        ("Judge total", "judge_ms", judge_calls),
+    ):
+        if calls or latency.get(latency_key) is not None:
+            rows.append([
+                label,
+                latency.get(latency_key),
+                "—",
+                *_summed_usage_columns(calls),
+            ])
     return rows
 
 
@@ -516,31 +571,80 @@ def _render_agentic_query_details(
 ) -> list[str]:
     lines = _query_header(case, max_answer_chunks)
     latency = case.get("latency", {}) or {}
-    lines.extend(["", "#### Latency", ""])
-    per_search_rows = [
-        [f"Search {call.get('search_index', index)}", "Retrieval search", call.get("latency_ms")]
-        for index, call in enumerate(latency.get("retrieval_calls", []), start=1)
+    generation_calls = (case.get("generation_usage", {}) or {}).get("calls", [])
+    retrieval_controller_calls = [
+        call for call in generation_calls
+        if call.get("call_type") == "controller"
+        and call.get("phase") in {None, "retrieval_review"}
     ]
+    controller_by_search: dict[Any, list[Any]] = {}
+    for index, call in enumerate(retrieval_controller_calls, start=1):
+        search_index = call.get("search_index", index)
+        controller_by_search.setdefault(search_index, []).append(
+            call.get("latency_ms")
+        )
+
+    lines.extend(["", "#### Latency", "", "**Search**", ""])
+    per_search_rows: list[list[Any]] = []
     for search in _retrieval_searches(case):
+        search_id = search.get("search_id", "—")
         for stage_name, label, _ in _RETRIEVAL_STAGE_LABELS:
             stage = (search.get("stages", {}) or {}).get(stage_name)
             if isinstance(stage, dict):
                 per_search_rows.append([
-                    f"Search {search.get('search_id', '—')}",
+                    f"Search {search_id}",
                     label,
                     stage.get("latency_ms"),
                 ])
+        controller_values = controller_by_search.get(search_id, [])
+        per_search_rows.append([
+            f"Search {search_id}",
+            "Controller",
+            (
+                math.fsum(controller_values)
+                if controller_values
+                and all(value is not None for value in controller_values)
+                else None
+            ),
+        ])
     lines.extend(_table(["Search", "Stage", "Measured latency (ms)"], per_search_rows))
-    lines.extend(["", "**Measured totals**", ""])
+
+    answer_rows = []
+    for call in generation_calls:
+        if call.get("call_type") in {"answer", "final_answer"}:
+            answer_rows.append([
+                f"Answer {call.get('answer_attempt', len(answer_rows) + 1)}",
+                "Generation",
+                call.get("latency_ms"),
+            ])
+        elif (
+            call.get("call_type") == "controller"
+            and call.get("phase") == "answer_review"
+        ):
+            answer_rows.append([
+                f"Answer {call.get('answer_attempt', '—')}",
+                "Controller review",
+                call.get("latency_ms"),
+            ])
+    if answer_rows:
+        lines.extend(["", "**Answer attempts**", ""])
+        lines.extend(_table(
+            ["Attempt", "Stage", "Measured latency (ms)"],
+            answer_rows,
+        ))
+
+    stage_latency = latency.get("retrieval_stages_ms", {}) or {}
+    lines.extend(["", "**Stage Latency**", ""])
     lines.extend(_table(
         ["Stage", "Latency (ms)"],
         [
-            ["Retrieval searches", latency.get("retrieval_ms")],
-            ["Controller latency", latency.get("controller_ms")],
+            ["Vector search", stage_latency.get("vector")],
+            ["BM25 search", stage_latency.get("bm25")],
+            ["Fusion", stage_latency.get("rrf")],
+            ["Reranking", stage_latency.get("reranked")],
+            ["Controller", latency.get("controller_ms")],
             ["Answer generation", latency.get("answer_generation_ms")],
-            ["Judge latency", latency.get("judge_ms")],
-            ["RAG query latency", latency.get("rag_query_ms")],
-            ["End-to-end evaluation latency", latency.get("end_to_end_ms")],
+            ["Complete query", latency.get("rag_query_ms")],
         ],
     ))
     lines.extend([""])
@@ -582,6 +686,8 @@ def _readme_report(results: dict[str, Any]) -> str:
         ("Embedding model", metadata.get("embedding_model")), ("Retrieval top-k", metadata.get("top_k")),
         ("Cross-encoder model", metadata.get("cross_encoder_model")),
         ("Maximum answer chunks", metadata.get("max_answer_chunks")),
+        ("Agentic maximum searches", metadata.get("agentic_max_searches")),
+        ("Agentic maximum answer attempts", metadata.get("agentic_max_answer_attempts")),
         ("Sample size", metadata.get("sample_count") if metadata.get("sample_count") is not None else "Full fixture"),
         ("Sampling seed", metadata.get("seed") if metadata.get("seed") is not None else "Not set"),
     )]))
@@ -610,7 +716,7 @@ def _readme_report(results: dict[str, Any]) -> str:
         final = metrics.get("final_context_metrics", {}) or {}
         category_rows.append([category, metrics.get("case_count"), final.get("recall"), final.get("precision"), final.get("ndcg"), *[(metrics.get(source, {}) or {}).get(metric) for _, metric, source in RAGAS_METRICS], (metrics.get("latency_ms", {}) or {}).get("end_to_end_ms")])
     lines.extend(_table(["Category", "Cases", "Recall", "Precision", "NDCG", "Faithfulness", "Answer Relevancy", "Answer Correctness", "Context Utilization", "Mean evaluation latency (ms)"], category_rows))
-    lines.extend(["", "## Evaluation process and metric guide", "", "1. **Final context evidence metrics** are line-grounded Recall, Precision, and Context-order NDCG for the complete ordered Answer generation context. Overall and category values average each completed query's final Context prefix row.", "2. Retrieved chunks are audit candidates. Retrieval top-k is the maximum candidates for one search; it does not mean every candidate reached answer generation.", "3. **Search ID** is the sequential Retrieval search number. Search ranks are local to their Search ID.", "4. **Faithfulness** checks whether the answer is supported by the final Answer generation context. **Answer Relevancy** checks whether the answer addresses the question. **Answer Correctness** checks the answer against the expected answer. **Context Utilization** checks whether the final Answer generation context is useful for the answer. A dash means the score was unavailable.", "5. Overall latency totals sum measured durations across cases; per-stage averages use cases with a measurement. RAG query is computed per case from Retrieval, Controller in Agentic mode, and Generation, then summed and averaged across cases with at least one measured query component. Total adds each case's measured Ragas duration to its RAG query. Token totals use a provider-reported total when present; otherwise they are the exact reported input-plus-output sum, or a dash when neither is available.", "", "## Query details", ""])
+    lines.extend(["", "## Evaluation process and metric guide", "", "1. **Final context evidence metrics** are line-grounded Recall, Precision, and Context-order NDCG for the complete ordered Answer generation context. Overall and category values average each completed query's final Context prefix row.", "2. Retrieved chunks are audit candidates. Retrieval top-k is the maximum candidates for one search; it does not mean every candidate reached answer generation.", "3. **Search ID** is the sequential Retrieval search number. Search ranks are local to their Search ID.", "4. **Faithfulness** checks whether the answer is supported by the final Answer generation context. **Answer Relevancy** checks whether the answer addresses the question. **Answer Correctness** checks the answer against the expected answer. **Context Utilization** checks whether the final Answer generation context is useful for the answer. A dash means the score was unavailable.", "5. Overall latency totals sum measured durations across cases; per-stage averages use cases with a measurement. In each query detail, Latency contains only RAG workflow stages, while the Execution audit contains token-consuming controller, answer, and Ragas judge calls plus their category totals. Token totals use a provider-reported total when present; otherwise they are the exact reported input-plus-output sum, or a dash when neither is available.", "6. Agentic RAG permits at most three Search attempts and three Answer generation attempts, each including its initial attempt. Every candidate answer is reviewed against the selected evidence before it is returned.", "", "## Query details", ""])
     report_cases = []
     for case in results.get("cases", []):
         if "workflow" not in case and workflow == "agentic":

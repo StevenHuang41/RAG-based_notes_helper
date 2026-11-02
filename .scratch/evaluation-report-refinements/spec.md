@@ -44,12 +44,12 @@ Clarify process latency and provider usage, including calculated token totals wh
 26. As an evaluation reviewer, I want retrieval-level metrics and context-prefix metrics labeled by their distinct scopes, so that identical metric names do not imply that candidate rankings and model context are the same data.
 27. As an evaluation reviewer, I want the guide to say that prefix metrics assess evidence available at each context length while one answer is generated from the complete final context, so that prefix rows are not interpreted as separate generated answers.
 28. As an evaluation reviewer, I want expected sources and reviewed evidence spans displayed together with a blank line before the evidence table, so that the Markdown renders as intended.
-29. As an evaluation reviewer, I want the latency summary to name retrieval, controller, final answer generation, judge, RAG query, and evaluation latency in plain language, so that I can identify what each duration measures.
+29. As an evaluation reviewer, I want each query's Latency section to contain only RAG workflow stages, so that runtime query cost is not mixed with evaluation-only Ragas cost.
 30. As an evaluation reviewer, I want latency units shown in the column heading rather than embedded in metric names, so that values are easy to scan.
-31. As an evaluation reviewer, I want each retrieval call, controller call, answer call, and judge metric latency shown in the query audit, so that repeated work is visible.
+31. As an evaluation reviewer, I want the Execution audit to show every token-consuming controller, answer, and Ragas judge call, so that provider usage and LLM latency can be audited without retrieval-only rows.
 32. As an evaluation reviewer, I want RAG query latency defined from query processing start through the workflow's terminal answer or abstention, including retrieval and controller work, so that I can understand the user-facing workflow duration.
-33. As an evaluation reviewer, I want evaluation latency defined as RAG query latency plus all Ragas judge latency, so that scoring cost is distinguishable from producing the answer.
-34. As an evaluation reviewer, I want the report to omit the ambiguous generation total that combines controller and answer calls, so that it does not duplicate clearly named process times.
+33. As an evaluation reviewer, I want Ragas judge latency shown with the token-consuming calls in the Execution audit, so that evaluation-only cost remains visible but separate from RAG latency.
+34. As an evaluation reviewer, I want Controller, Answer, and Judge total rows to aggregate their preceding calls without claiming a provider/model for the aggregate, so that repeated Agentic work is easy to compare.
 35. As an evaluation reviewer, I want the report not to present TTFT for the non-streaming evaluation path, so that a full generation duration is not misrepresented as first-token latency.
 36. As an evaluation reviewer, I want provider-reported input, output, and total token fields kept distinct from calculated totals, so that token provenance is clear.
 37. As an evaluation reviewer, I want an input-plus-output total calculated and labeled when both token counts are available but the provider total is absent, so that the report does not show N/A for an exact sum.
@@ -81,8 +81,10 @@ Clarify process latency and provider usage, including calculated token totals wh
 - Keep context-prefix metrics distinct from retrieval metrics. Prefix metrics describe evidence available in the model input prefix; they do not represent a separate model answer for every prefix.
 - If exact source-line provenance is unavailable for transformed context, mark affected prefix metrics N/A rather than claiming unsupported line coverage.
 - Show a compact one-row retrieval metric summary for the configured top-k in the retrieval section. Show cumulative prefix metrics in the context table.
-- Use human-readable latency labels with units in the heading. Show individual retrieval, controller, answer, and judge-call durations in the per-query audit.
-- Define RAG query latency as query processing through the workflow's terminal answer or abstention. Define evaluation latency as RAG query latency plus Ragas judge latency. Remove the combined controller-plus-answer generation total from the human-readable report; retain clear controller and final-answer durations.
+- Use human-readable latency labels with units in the heading. Keep each per-query Latency section limited to measured RAG workflow stages and the complete query.
+- For Classic RAG, show Vector, BM25, Fusion, Reranking, Answer generation, and Complete query in execution order.
+- For Agentic RAG, show each Search's Vector, BM25, Fusion, Reranking, and retrieval-review Controller latency; show each Answer generation and Answer-review Controller latency; then aggregate Vector, BM25, Fusion, Reranking, Controller, Answer generation, and Complete query.
+- In the Execution audit, show only token-consuming controller, answer, and Ragas judge calls. Follow them with Controller, Answer, and Judge totals that aggregate latency and token usage without a provider/model value. Do not repeat retrieval, RAG-query, or end-to-end evaluation total rows there.
 - Do not report TTFT for the non-streaming --eval path.
 - Preserve provider-reported input/output/total token values. When provider total is missing but every included call has reported input and output values, show their exact sum as calculated. If any required input/output value is missing, show the total as unavailable rather than summing missing values as zero; keep provider status partial or unavailable.
 - Show recorded character counts in separate character units where available. Never convert characters to token estimates. Judge character counts remain N/A when not recorded.
@@ -105,7 +107,7 @@ Clarify process latency and provider usage, including calculated token totals wh
 - Changing the behavior or output format of --eval-base.
 - Running separate answer generations for each context prefix or sweeping multiple retrieval top-k settings.
 - Adding TTFT or changing the evaluation path to streaming.
-- Changing retrieval, controller, or answer-generation behavior.
+- Changing retrieval, controller, or answer-generation behavior; bounded Agentic Answer review is governed separately by `.scratch/agentic-answer-review/spec.md` and ADR-0005.
 - Adding hybrid retrieval, reranking, or new search algorithms.
 - Changing fixture questions, reference answers, evidence annotations, or sampling behavior.
 - Adding or recalibrating Ragas metrics, prompts, thresholds, or pass/fail gates.

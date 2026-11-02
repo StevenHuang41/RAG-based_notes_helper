@@ -4,6 +4,7 @@ import pytest
 
 from rag_notes_helper.rag import agentic as agentic_module
 from rag_notes_helper.rag.agentic import (
+    ANSWER_RETRY_EXHAUSTED_MESSAGE,
     AgenticWorkflowError,
     agentic_answer,
 )
@@ -39,7 +40,9 @@ class FakeController:
 
     def generate_raw(self, prompt):
         self.prompts.append(prompt)
-        return self.responses.pop(0)
+        if self.responses:
+            return self.responses.pop(0)
+        return action_json({"action": "accept"})
 
 
 class RawResponseLLM(BaseLLM):
@@ -267,7 +270,9 @@ def test_agentic_reports_each_search_and_controller_latency(monkeypatch):
             "evidence": [{"source": "note.md", "chunk_id": 0}],
         }),
     ])
-    samples = iter([0.0, 0.010, 1.0, 1.020, 2.0, 2.030, 3.0, 3.015])
+    samples = iter([
+        0.0, 0.010, 1.0, 1.020, 2.0, 2.030, 3.0, 3.015, 4.0, 4.025,
+    ])
     monkeypatch.setattr(agentic_module, "perf_counter", lambda: next(samples))
     retrieval_events = []
     generation_calls = []
@@ -291,9 +296,16 @@ def test_agentic_reports_each_search_and_controller_latency(monkeypatch):
     assert [call["call_type"] for call in generation_calls] == [
         "controller",
         "controller",
+        "controller",
     ]
-    assert [call["latency_ms"] for call in generation_calls] == [20.0, 15.0]
+    assert [call["latency_ms"] for call in generation_calls] == [20.0, 15.0, 25.0]
+    assert [call["phase"] for call in generation_calls] == [
+        "retrieval_review",
+        "retrieval_review",
+        "answer_review",
+    ]
     assert [call["token_usage"]["total_tokens"] for call in generation_calls] == [
+        5,
         5,
         5,
     ]
@@ -477,7 +489,7 @@ def test_agentic_invalid_json_is_retried_once():
         },
     )
 
-    assert len(controller.prompts) == 2
+    assert len(controller.prompts) == 3
     assert "validation_feedback" in controller.prompts[1][1]["content"]
     assert result["answer"] == "Grounded answer."
 
@@ -562,7 +574,7 @@ def test_agentic_retries_unknown_evidence_reference():
         },
     )
 
-    assert len(controller.prompts) == 2
+    assert len(controller.prompts) == 3
     assert "not returned by search_notes" in controller.prompts[1][1]["content"]
     assert result["answer"] == "Grounded answer."
 
@@ -605,6 +617,137 @@ def test_agentic_searches_at_most_three_times_then_can_abstain():
         "search_results": [[hit], [hit], [hit]],
         "search_queries": ["original question", "second search", "third search"],
     }
+
+
+def test_agentic_revises_answer_at_most_three_attempts_then_accepts():
+    hit = make_hit("note.md", 0, "The owner is Mina.")
+    controller = FakeController([
+        action_json({
+            "action": "answer",
+            "evidence": [{"source": "note.md", "chunk_id": 0}],
+        }),
+        action_json({"action": "revise", "feedback": "Name the owner."}),
+        action_json({"action": "revise", "feedback": "Be direct."}),
+        action_json({"action": "accept"}),
+    ])
+    answer_calls = []
+
+    def answer(query, *, hits, stream, revision_feedback=None):
+        answer_calls.append((query, hits, stream, revision_feedback))
+        return {
+            "answer": ["Someone owns it.", "Mina owns it.", "Mina."][
+                len(answer_calls) - 1
+            ],
+            "citations": [],
+        }
+
+    result = agentic_answer(
+        "Who owns it?",
+        rag=None,
+        meta_store=None,
+        search_fn=lambda _query: [hit],
+        controller=controller,
+        answer_fn=answer,
+    )
+
+    assert [call[3] for call in answer_calls] == [
+        None,
+        "Name the owner.",
+        "Be direct.",
+    ]
+    assert result["answer"] == "Mina."
+    assert result["answer_attempts"] == 3
+
+
+def test_agentic_returns_specific_insufficiency_after_three_answer_attempts():
+    hit = make_hit("note.md", 0, "Partial evidence.")
+    controller = FakeController([
+        action_json({
+            "action": "answer",
+            "evidence": [{"source": "note.md", "chunk_id": 0}],
+        }),
+        action_json({"action": "revise", "feedback": "Try again."}),
+        action_json({"action": "revise", "feedback": "Still incomplete."}),
+        action_json({"action": "revise", "feedback": "Still unsupported."}),
+    ])
+    answer_calls = []
+
+    def answer(_query, *, hits, stream, revision_feedback=None):
+        answer_calls.append(revision_feedback)
+        return {
+            "answer": "Unsupported candidate.",
+            "citations": [{"source": hits[0]["source"]}],
+            "generation_context": hits,
+        }
+
+    result = agentic_answer(
+        "Question",
+        rag=None,
+        meta_store=None,
+        search_fn=lambda _query: [hit],
+        controller=controller,
+        answer_fn=answer,
+    )
+
+    assert len(answer_calls) == 3
+    assert result["answer"] == ANSWER_RETRY_EXHAUSTED_MESSAGE
+    assert result["citations"] == []
+    assert result["answer_retry_exhausted"] is True
+    assert result["answer_attempts"] == 3
+
+
+def test_agentic_retries_invalid_answer_review_once():
+    hit = make_hit("note.md", 0, "Grounded evidence.")
+    controller = FakeController([
+        action_json({
+            "action": "answer",
+            "evidence": [{"source": "note.md", "chunk_id": 0}],
+        }),
+        "not valid review json",
+        action_json({"action": "accept"}),
+    ])
+
+    result = agentic_answer(
+        "Question",
+        rag=None,
+        meta_store=None,
+        search_fn=lambda _query: [hit],
+        controller=controller,
+        answer_fn=lambda _query, *, hits, stream: {
+            "answer": "Grounded answer.",
+            "citations": [],
+        },
+    )
+
+    review_retry = json.loads(controller.prompts[-1][-1]["content"])
+    assert "validation_feedback" in review_retry
+    assert result["answer"] == "Grounded answer."
+
+
+def test_agentic_answer_review_can_abstain():
+    hit = make_hit("note.md", 0, "Partial evidence.")
+    controller = FakeController([
+        action_json({
+            "action": "answer",
+            "evidence": [{"source": "note.md", "chunk_id": 0}],
+        }),
+        action_json({"action": "abstain"}),
+    ])
+
+    result = agentic_answer(
+        "Question",
+        rag=None,
+        meta_store=None,
+        search_fn=lambda _query: [hit],
+        controller=controller,
+        answer_fn=lambda _query, *, hits, stream: {
+            "answer": "Unsupported candidate.",
+            "citations": [],
+        },
+    )
+
+    assert result["answer"] == ABSTENTION_MESSAGE
+    assert result["answer_attempts"] == 1
 
 
 def test_agentic_preserves_each_search_ranking_for_retrieval_evaluation():
