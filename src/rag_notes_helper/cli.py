@@ -25,6 +25,7 @@ from rag_notes_helper.rag.agentic import (
     MAX_SEARCHES,
     AgenticWorkflowError,
     ProgressStage,
+    RETRIEVAL_FAILURE_MESSAGE,
     agentic_answer,
 )
 from rag_notes_helper.utils.logger import get_logger
@@ -244,7 +245,29 @@ def run_query(
     retrieval_kwargs = {}
     if cross_encoder is not None:
         retrieval_kwargs["cross_encoder"] = cross_encoder
-    hits = retrieve(rag, meta_store, query=query, **retrieval_kwargs)
+    try:
+        hits = retrieve(rag, meta_store, query=query, **retrieval_kwargs)
+    except Exception as exc:
+        if on_retrieval is not None:
+            on_retrieval({
+                "search_index": 1,
+                "latency_ms": round((perf_counter() - retrieval_started) * 1000, 3),
+                "result_count": None,
+            })
+        return {
+            "answer": RETRIEVAL_FAILURE_MESSAGE,
+            "citations": [],
+            "generation_context": [],
+            "retrieved_evidence": [],
+            "search_results": [],
+            "search_queries": [query],
+            "retrieval_stages": [],
+            "search_attempts": 1,
+            "reason_code": "retrieval_failure",
+            "response_origin": "deterministic",
+            "workflow_error": "retrieval_failure",
+            "workflow_error_type": type(exc).__name__,
+        }
     if on_retrieval is not None:
         on_retrieval({
             "search_index": 1,

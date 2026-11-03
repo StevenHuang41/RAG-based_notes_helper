@@ -26,4 +26,3 @@
 - Verification: full offline pytest suite passed (231 test items); focused Agentic/query/Retrieval/evaluation/report tests passed (101); `py_compile` and `git diff --check` passed.
 - Answer review still cannot reopen Retrieval in this slice; that state transition and budget behavior remain ticket 06 scope.
 - Ruff was not run because the existing project virtual environment does not provide a Ruff executable. Live-provider behavior remains unverified.
-

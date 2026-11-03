@@ -71,6 +71,44 @@ def test_classic_empty_retrieval_returns_structured_no_evidence_outcome(
     assert result["retrieval_stages"] == []
 
 
+def test_classic_retrieval_failure_returns_structured_non_empty_outcome(
+    monkeypatch,
+):
+    retrieval_events = []
+
+    def failed_retrieval(*_args, **_kwargs):
+        raise RuntimeError("index unavailable")
+
+    monkeypatch.setattr(cli, "retrieve", failed_retrieval)
+    monkeypatch.setattr(
+        cli,
+        "rag_answer",
+        lambda *_args, **_kwargs: pytest.fail(
+            "a Retrieval failure must not invoke the Answer model"
+        ),
+    )
+
+    result = cli.run_query(
+        object(),
+        object(),
+        query="Who owns the launch?",
+        on_retrieval=retrieval_events.append,
+    )
+
+    assert result["answer"] == agentic_module.RETRIEVAL_FAILURE_MESSAGE
+    assert result["reason_code"] == "retrieval_failure"
+    assert result["response_origin"] == "deterministic"
+    assert result["workflow_error"] == "retrieval_failure"
+    assert result["workflow_error_type"] == "RuntimeError"
+    assert result["search_attempts"] == 1
+    assert result["search_queries"] == ["Who owns the launch?"]
+    assert result["search_results"] == []
+    assert result["retrieved_evidence"] == []
+    assert result["retrieval_stages"] == []
+    assert retrieval_events[0]["search_index"] == 1
+    assert retrieval_events[0]["result_count"] is None
+
+
 def test_classic_grounded_answer_preserves_generation_evidence_and_metadata(
     monkeypatch,
 ):
@@ -1092,6 +1130,75 @@ def test_agentic_retrieval_exception_is_not_reported_as_empty_search(
     assert result["search_results"] == []
     assert result["search_attempts"] == 1
     assert retrieval_events[0]["result_count"] is None
+
+
+def test_agentic_rerank_failure_returns_degraded_outcome_with_search_trace(
+    monkeypatch,
+):
+    hit = {
+        "source": "notes/launch.md",
+        "chunk_id": 4,
+        "score": 0.91,
+        "text": "Mina owns the launch.",
+        "rank": 1,
+        "vector_rank": 1,
+        "vector_score": 0.91,
+        "bm25_rank": 1,
+        "bm25_score": 2.0,
+        "fusion_score": 0.03,
+    }
+    hybrid = _hybrid_result(
+        [hit],
+        vector_min_score=0.3,
+        bm25_min_score_ratio=0.0,
+    )
+
+    monkeypatch.setattr(agentic_module, "retrieve", lambda *_args, **_kwargs: hybrid)
+
+    def failed_rerank(*_args, **_kwargs):
+        raise RuntimeError("cross-encoder unavailable")
+
+    monkeypatch.setattr(
+        agentic_module,
+        "rerank_candidates",
+        failed_rerank,
+    )
+    monkeypatch.setattr(
+        agentic_module,
+        "get_llm",
+        lambda: pytest.fail("controller must not run after reranking fails"),
+    )
+    monkeypatch.setattr(
+        agentic_module,
+        "rag_answer",
+        lambda *_args, **_kwargs: pytest.fail(
+            "Answer generation must not run after reranking fails"
+        ),
+    )
+
+    result = cli.run_query(
+        object(),
+        object(),
+        query="Who owns the launch?",
+        agentic=True,
+    )
+
+    assert result["answer"] == agentic_module.RETRIEVAL_FAILURE_MESSAGE
+    assert result["reason_code"] == "retrieval_failure"
+    assert result["response_origin"] == "deterministic"
+    assert result["workflow_error"] == "retrieval_failure"
+    assert result["workflow_error_type"] == "RuntimeError"
+    assert result["search_attempts"] == 1
+    assert result["search_queries"] == ["Who owns the launch?"]
+    assert result["search_results"] == [[hit]]
+    assert result["retrieved_evidence"] == [hit]
+    assert len(result["retrieval_stages"]) == 1
+    assert result["retrieval_stages"][0]["search_query"] == (
+        "Who owns the launch?"
+    )
+    assert result["retrieval_stages"][0]["stages"]["vector"]["results"] == [hit]
+    assert result["retrieval_stages"][0]["stages"]["bm25"]["results"] == [hit]
+    assert result["retrieval_stages"][0]["stages"]["rrf"]["results"] == [hit]
 
 
 def test_agentic_later_retrieval_failure_retains_completed_search(

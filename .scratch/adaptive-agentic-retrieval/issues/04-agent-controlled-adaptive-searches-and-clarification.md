@@ -26,4 +26,3 @@
 - Search actions validate a rewritten query, finite `[0,1]` thresholds, and `replace`/`extend`; this slice records the evidence mode but intentionally leaves pool replacement, extension, deduplication, and original-question reranking to ticket 05.
 - Ruff was not run because the existing project virtual environment does not provide a Ruff executable; no network installation was attempted.
 - Live-provider controller JSON adherence and live evaluation behavior remain unverified.
-

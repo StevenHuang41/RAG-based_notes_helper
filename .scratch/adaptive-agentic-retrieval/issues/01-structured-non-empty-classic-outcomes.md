@@ -26,4 +26,4 @@
 - Ruff was not executed because the existing checkout environment has no Ruff
   executable. A worktree-local environment could not be completed because
   sandboxed dependency download failed DNS resolution.
-
+- Integration review fix (2026-11-04): Classic Retrieval exceptions now return a deterministic, non-empty `retrieval_failure` outcome, preserve the attempted query and attempt count, and emit a failed Retrieval timing event without calling the Answer model. `run_query()` regression test passed. Focused query/Agentic/CLI/Retrieval tests passed (94); the full offline suite passed (239).

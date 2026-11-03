@@ -24,4 +24,3 @@
 - TDD/public seams: `retrieve()` covers threshold validation, Vector filtering, query-relative BM25 filtering, fixed top-k, RRF inputs, and diagnostics; `run_query()` coverage verifies Classic and initial Agentic searches preserve configured thresholds in structured stage records.
 - Verification: full offline suite passed (`216 passed`); focused Retrieval/query/Agentic/evaluation tests passed; `py_compile` and `git diff --check` passed.
 - Ruff remains unverified because the existing project virtual environment has no Ruff executable and sandboxed dependency download was unavailable.
-

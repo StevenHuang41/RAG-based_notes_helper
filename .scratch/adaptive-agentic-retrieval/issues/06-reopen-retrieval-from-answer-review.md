@@ -29,4 +29,3 @@
 - ADR-0005 now permits bounded Retrieval reopening while retaining read-only operation, per-query isolation, grounded review, and buffered candidates.
 - Verification before resolution: full offline pytest suite passed (236 test items); focused query/Agentic/CLI/Retrieval/evaluation/report intersection passed (121); `py_compile` and `git diff --check` passed.
 - Live-provider JSON adherence and behavior remain unverified; all verification used offline fakes.
-

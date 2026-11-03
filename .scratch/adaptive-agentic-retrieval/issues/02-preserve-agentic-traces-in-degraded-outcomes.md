@@ -24,4 +24,4 @@
 - `run_evaluation()` consumes structured degraded results directly, including partial evidence, queries, stage metrics, latency callbacks, reason code, response origin, and workflow-error metadata.
 - Verification: 86 focused tests passed across Agentic runtime, CLI, query outcomes, stage reporting, and evaluation runner; the complete offline pytest suite passed. `py_compile` and `git diff --check` passed.
 - Ruff remains unverified because the existing project environment has no Ruff executable; no network installation was attempted.
-
+- Integration review fix (2026-11-04): Agentic active-pool rerank failures now return a degraded `retrieval_failure` while retaining the completed Search query, candidates, and Vector/BM25/RRF/Rerank stage record. The `run_query()` regression test passed. `_AgenticAuditTrace` is a typed write-ahead record distinct from LangGraph committed node state: it records work before fallible operations, so attempt counts and partial results remain available if a node raises before returning its state update. Focused query/Agentic/CLI/Retrieval tests passed (94); the full offline suite passed (239).

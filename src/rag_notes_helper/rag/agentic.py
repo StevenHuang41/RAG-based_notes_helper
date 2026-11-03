@@ -200,6 +200,18 @@ ProgressFunction = Callable[[ProgressStage, int], None]
 RetrievalFunction = Callable[[dict[str, Any]], None]
 
 
+class _AgenticAuditTrace(TypedDict):
+    """Write-ahead record retained when a LangGraph node fails to commit."""
+
+    search_attempts: int
+    answer_attempts: int
+    search_queries: list[str]
+    retrieval_stages: list[dict[str, Any]]
+    search_results: list[list[dict[str, Any]]]
+    retrieved_evidence: list[dict[str, Any]]
+    generation_context: list[dict[str, Any]]
+
+
 class _AgenticState(TypedDict):
     query: str
     search: SearchFunction
@@ -223,7 +235,9 @@ class _AgenticState(TypedDict):
     answer_review: AnswerReviewAction | None
     candidate_result: dict[str, Any] | None
     used_hybrid_search: bool
-    audit_trace: dict[str, Any]
+    # Graph state is committed between nodes; this separate write-ahead trace
+    # also records attempts and results from nodes that fail before committing.
+    audit_trace: _AgenticAuditTrace
     result: dict[str, Any] | None
 
 
@@ -740,20 +754,27 @@ def _record_search(
         stage_record["evidence_mode"] = evidence_mode
 
     search_hits = _deduplicate_hits(ranked_hits)
-    active_hits = _active_candidate_pool(
-        state,
-        ranked_hits,
-        search_id=search_index,
-        search_query=query,
-        evidence_mode=evidence_mode,
-        stage_record=stage_record,
-    )
     trace["search_results"].append(search_hits)
     trace["retrieved_evidence"] = _deduplicate_hits(
         trace["retrieved_evidence"] + search_hits
     )
     if stage_record is not None:
         trace["retrieval_stages"].append(stage_record)
+
+    try:
+        active_hits = _active_candidate_pool(
+            state,
+            ranked_hits,
+            search_id=search_index,
+            search_query=query,
+            evidence_mode=evidence_mode,
+            stage_record=stage_record,
+        )
+    except Exception as exc:
+        raise _RetrievalExecutionError(
+            f"Retrieval search {search_index} reranking failed "
+            f"({type(exc).__name__})."
+        ) from exc
 
     return search_index, search_hits, active_hits, stage_record
 
@@ -1095,7 +1116,7 @@ _AGENTIC_GRAPH = _build_agentic_graph()
 
 
 def _degraded_result(
-    trace: dict[str, Any],
+    trace: _AgenticAuditTrace,
     *,
     reason_code: Literal["controller_failure", "retrieval_failure"],
     error: Exception,

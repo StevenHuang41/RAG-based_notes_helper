@@ -33,4 +33,3 @@
 - ADR-0003 now defines outcome/input-based Ragas applicability and separates execution status, workflow reliability, and semantic diagnostics while keeping Ragas evaluation-only.
 - Verification before resolution: full offline pytest suite passed (237 test items); focused evaluation/report/Ragas suite passed (42); `py_compile` and `git diff --check` passed.
 - Evaluation corpus, reviewed QA ground truth, index isolation, sampling semantics, and live provider settings were not changed. Live Ragas/provider behavior remains unverified; automated verification used offline fakes.
-
