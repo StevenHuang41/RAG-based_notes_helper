@@ -59,6 +59,34 @@ def _search_record(search_id, search_query, vector, bm25, rrf, reranked):
         "search_id": search_id,
         "search_query": search_query,
         "generation_top_k": 1,
+        "effective_thresholds": {
+            "vector_min_score": 0.5 if search_id == 1 else 0.2,
+            "bm25_min_score_ratio": 0.25 if search_id == 1 else 0.1,
+        },
+        "configured_top_k": {
+            "vector": 2,
+            "bm25": 2,
+            "fusion": 3,
+            "rerank": 3,
+            "generation": 1,
+        },
+        "filter_diagnostics": {
+            "vector": {
+                "pre_filter_count": len(vector) + 1,
+                "post_filter_count": len(vector),
+                "observed_top_k_score_bounds": {
+                    "highest": 0.9,
+                    "lowest": 0.4,
+                },
+                "highest_excluded_score": 0.4,
+            },
+            "bm25": {
+                "pre_filter_count": len(bm25),
+                "post_filter_count": len(bm25),
+                "observed_top_k_score_bounds": None,
+                "highest_excluded_score": None,
+            },
+        },
         "stages": {
             name: {
                 "top_k": cutoff,
@@ -253,6 +281,17 @@ def test_agentic_evaluation_preserves_search_stages_union_metrics_context_and_la
         (1, evidence_case["question"]),
         (2, "release backup owner"),
     ]
+    assert answer_result["retrieval_stages"][0]["effective_thresholds"] == {
+        "vector_min_score": 0.5,
+        "bm25_min_score_ratio": 0.25,
+    }
+    assert answer_result["retrieval_stages"][1]["effective_thresholds"] == {
+        "vector_min_score": 0.2,
+        "bm25_min_score_ratio": 0.1,
+    }
+    assert answer_result["retrieval_stages"][0]["filter_diagnostics"][
+        "vector"
+    ]["highest_excluded_score"] == 0.4
     first_reranked = answer_result["retrieval_stages"][0]["stages"]["reranked"]
     assert [
         (name, stage["top_k"], stage["returned_count"])
@@ -331,7 +370,12 @@ def test_agentic_evaluation_preserves_search_stages_union_metrics_context_and_la
     )
 
     report = (run_dir / "README.md").read_text(encoding="utf-8")
-    assert "Search | Query" in report
+    assert "Search | Query | Vector threshold | BM25 threshold ratio" in report
+    assert (
+        f"| 1 | {evidence_case['question']} | 0.5000 | 0.2500 |"
+        in report
+    )
+    assert "| 2 | release backup owner | 0.2000 | 0.1000 |" in report
     assert "#### Vector results" in report
     assert "#### BM25 results" in report
     assert "#### RRF results" in report

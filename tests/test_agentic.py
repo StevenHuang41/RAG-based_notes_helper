@@ -24,6 +24,22 @@ def action_json(action: dict) -> str:
     return json.dumps(action)
 
 
+def search_action(
+    query: str,
+    *,
+    vector_min_score: float = 0.5,
+    bm25_min_score_ratio: float = 0.25,
+    evidence_mode: str = "extend",
+) -> str:
+    return action_json({
+        "action": "search",
+        "query": query,
+        "vector_min_score": vector_min_score,
+        "bm25_min_score_ratio": bm25_min_score_ratio,
+        "evidence_mode": evidence_mode,
+    })
+
+
 class FakeController:
     def __init__(self, responses: list[str]):
         self.responses = list(responses)
@@ -263,7 +279,7 @@ def test_agentic_answer_ignores_extra_text_on_evidence_references():
 def test_agentic_reports_each_search_and_controller_latency(monkeypatch):
     hit = make_hit("note.md", 0, "Evidence.")
     controller = FakeController([
-        action_json({"action": "search", "query": "follow-up"}),
+        search_action("follow-up"),
         action_json({
             "action": "answer",
             "evidence": [{"source": "note.md", "chunk_id": 0}],
@@ -280,7 +296,7 @@ def test_agentic_reports_each_search_and_controller_latency(monkeypatch):
         "question",
         rag=None,
         meta_store=None,
-        search_fn=lambda _query: [hit],
+        search_fn=lambda _query, **_kwargs: [hit],
         controller=controller,
         answer_fn=lambda *_args, **_kwargs: {
             "answer": "answer",
@@ -317,12 +333,7 @@ def test_agentic_answer_refines_search_and_deduplicates_evidence():
     answer_calls = []
     controller = FakeController(
         [
-            action_json(
-                {
-                    "action": "search",
-                    "query": "project budget",
-                }
-            ),
+                search_action("project budget"),
             action_json(
                 {
                     "action": "answer",
@@ -335,7 +346,7 @@ def test_agentic_answer_refines_search_and_deduplicates_evidence():
         ]
     )
 
-    def search(query):
+    def search(query, **_kwargs):
         calls.append(query)
         if len(calls) == 1:
             return [first_hit]
@@ -376,7 +387,7 @@ def test_agentic_answer_reports_progress_for_each_search_and_decision():
     progress = []
     controller = FakeController(
         [
-            action_json({"action": "search", "query": "project budget"}),
+            search_action("project budget"),
             action_json(
                 {
                     "action": "answer",
@@ -389,7 +400,7 @@ def test_agentic_answer_reports_progress_for_each_search_and_decision():
         ]
     )
 
-    def search(query):
+    def search(query, **_kwargs):
         return [first_hit] if query == "original question" else [second_hit]
 
     agentic_answer(
@@ -416,40 +427,40 @@ def test_agentic_answer_reports_progress_for_each_search_and_decision():
     ]
 
 
-def test_agentic_empty_search_reports_abstention_progress():
+def test_agentic_empty_search_can_abstain_after_controller_review():
     progress = []
+    controller = FakeController([action_json({"action": "abstain"})])
 
     result = agentic_answer(
         "Question without note evidence",
         rag=None,
         meta_store=None,
         search_fn=lambda query: [],
+        controller=controller,
         on_progress=lambda stage, search_count: progress.append(
             (stage, search_count)
         ),
     )
 
     assert result["answer"] == ABSTENTION_MESSAGE
-    assert progress == [("searching", 1), ("abstaining", 1)]
+    assert progress == [
+        ("searching", 1),
+        ("reviewing", 1),
+        ("abstaining", 1),
+    ]
 
 
-def test_agentic_empty_initial_search_abstains_without_llm(monkeypatch):
-    def unexpected_controller():
-        pytest.fail("controller should not be created for empty retrieval")
-
+def test_agentic_empty_initial_search_uses_controller_without_answer():
     def unexpected_answer(*args, **kwargs):
         pytest.fail("answer generation should not run for empty retrieval")
-
-    monkeypatch.setattr(
-        "rag_notes_helper.rag.agentic.get_llm",
-        unexpected_controller,
-    )
+    controller = FakeController([action_json({"action": "abstain"})])
 
     result = agentic_answer(
         "Question without note evidence",
         rag=None,
         meta_store=None,
         search_fn=lambda query: [],
+        controller=controller,
         answer_fn=unexpected_answer,
     )
 
@@ -459,6 +470,7 @@ def test_agentic_empty_initial_search_abstains_without_llm(monkeypatch):
         "retrieved_evidence": [],
         "search_results": [[]],
         "search_queries": ["Question without note evidence"],
+        "search_attempts": 1,
     }
 
 
@@ -582,14 +594,14 @@ def test_agentic_searches_at_most_three_times_then_can_abstain():
     calls = []
     controller = FakeController(
         [
-            action_json({"action": "search", "query": "second search"}),
-            action_json({"action": "search", "query": "third search"}),
-            action_json({"action": "search", "query": "over the limit"}),
+            search_action("second search"),
+            search_action("third search"),
+            search_action("over the limit"),
             action_json({"action": "abstain"}),
         ]
     )
 
-    def search(query):
+    def search(query, **_kwargs):
         calls.append(query)
         return [hit]
 
@@ -614,6 +626,7 @@ def test_agentic_searches_at_most_three_times_then_can_abstain():
         "retrieved_evidence": [hit],
         "search_results": [[hit], [hit], [hit]],
         "search_queries": ["original question", "second search", "third search"],
+        "search_attempts": 3,
     }
 
 
@@ -760,7 +773,7 @@ def test_agentic_preserves_each_search_ranking_for_retrieval_evaluation():
     search_results = iter([first_ranked, second_ranked])
     controller = FakeController(
         [
-            action_json({"action": "search", "query": "follow-up"}),
+            search_action("follow-up"),
             action_json({
                 "action": "answer",
                 "evidence": [{"source": "first.md", "chunk_id": 0}],
@@ -772,7 +785,7 @@ def test_agentic_preserves_each_search_ranking_for_retrieval_evaluation():
         "Question",
         rag=None,
         meta_store=None,
-        search_fn=lambda _query: next(search_results),
+        search_fn=lambda _query, **_kwargs: next(search_results),
         controller=controller,
         answer_fn=lambda *_args, **_kwargs: {
             "answer": "Grounded answer.",

@@ -1,3 +1,4 @@
+import json
 import sys
 from types import SimpleNamespace
 
@@ -174,13 +175,299 @@ class _Controller:
     def __init__(self, responses):
         self._responses = iter(responses)
         self.calls = 0
+        self.prompts = []
 
-    def generate_raw(self, _prompt):
+    def generate_raw(self, prompt):
         self.calls += 1
+        self.prompts.append(prompt)
         response = next(self._responses)
         if isinstance(response, Exception):
             raise response
         return response
+
+
+def _hybrid_result(
+    hits,
+    *,
+    vector_min_score,
+    bm25_min_score_ratio,
+    vector_pre_filter_count=2,
+    vector_post_filter_count=None,
+):
+    vector_post_filter_count = (
+        len(hits)
+        if vector_post_filter_count is None
+        else vector_post_filter_count
+    )
+    return HybridSearchResults(
+        vector_results=list(hits),
+        bm25_results=list(hits),
+        fused_results=list(hits),
+        reranked_results=list(hits),
+        generation_top_k=1,
+        stage_latencies_ms={
+            "vector": 1.0,
+            "bm25": 2.0,
+            "rrf": 3.0,
+            "reranked": 4.0,
+        },
+        vector_top_k=2,
+        bm25_top_k=2,
+        fusion_top_k=3,
+        effective_thresholds={
+            "vector_min_score": vector_min_score,
+            "bm25_min_score_ratio": bm25_min_score_ratio,
+        },
+        configured_top_k={
+            "vector": 2,
+            "bm25": 2,
+            "fusion": 3,
+            "rerank": 3,
+            "generation": 1,
+        },
+        filter_diagnostics={
+            "vector": {
+                "pre_filter_count": vector_pre_filter_count,
+                "post_filter_count": vector_post_filter_count,
+                "observed_top_k_score_bounds": {
+                    "highest": 0.49,
+                    "lowest": 0.41,
+                },
+                "highest_excluded_score": 0.49,
+            },
+            "bm25": {
+                "pre_filter_count": 0,
+                "post_filter_count": 0,
+                "observed_top_k_score_bounds": None,
+                "highest_excluded_score": None,
+            },
+        },
+    )
+
+
+def test_agentic_empty_search_can_adapt_thresholds_and_rewrite_query(
+    monkeypatch,
+):
+    hit = {
+        "source": "notes/launch.md",
+        "chunk_id": 4,
+        "score": 0.91,
+        "text": "Mina owns the launch.",
+    }
+    controller = _Controller([
+        '{"action":"search","query":"launch owner",'
+        '"vector_min_score":0.2,"bm25_min_score_ratio":0.1,'
+        '"evidence_mode":"replace","vector_top_k":999}',
+        '{"action":"answer","evidence":['
+        '{"source":"notes/launch.md","chunk_id":4}]}',
+        '{"action":"accept"}',
+    ])
+    searches = []
+
+    def retrieve_adaptively(_rag, _meta_store, *, query, **kwargs):
+        searches.append((query, kwargs))
+        if len(searches) == 1:
+            return _hybrid_result(
+                [],
+                vector_min_score=0.5,
+                bm25_min_score_ratio=0.25,
+                vector_post_filter_count=0,
+            )
+        return _hybrid_result(
+            [hit],
+            vector_min_score=kwargs["vector_min_score"],
+            bm25_min_score_ratio=kwargs["bm25_min_score_ratio"],
+        )
+
+    monkeypatch.setattr(agentic_module, "get_llm", lambda: controller)
+    monkeypatch.setattr(agentic_module, "retrieve", retrieve_adaptively)
+    monkeypatch.setattr(
+        agentic_module,
+        "rag_answer",
+        lambda *_args, **_kwargs: {
+            "answer": "Mina owns the launch.",
+            "citations": [hit],
+            "generation_context": [hit],
+        },
+    )
+
+    result = cli.run_query(
+        object(),
+        object(),
+        query="Who owns it?",
+        agentic=True,
+    )
+
+    assert searches[0][0] == "Who owns it?"
+    assert len(searches) == 2
+    assert searches[1][0] == "launch owner"
+    assert searches[1][1]["vector_min_score"] == 0.2
+    assert searches[1][1]["bm25_min_score_ratio"] == 0.1
+    assert "vector_top_k" not in searches[1][1]
+    assert result["answer"] == "Mina owns the launch."
+    assert result["search_queries"] == ["Who owns it?", "launch owner"]
+    assert result["search_attempts"] == 2
+    assert result["retrieval_stages"][1]["effective_thresholds"] == {
+        "vector_min_score": 0.2,
+        "bm25_min_score_ratio": 0.1,
+    }
+    assert result["retrieval_stages"][0]["evidence_mode"] == "replace"
+    assert result["retrieval_stages"][1]["evidence_mode"] == "replace"
+    controller_input = controller.prompts[0][1]["content"]
+    assert '"searches_remaining": 2' in controller_input
+    assert '"answer_attempts_remaining": 3' in controller_input
+    assert '"filter_diagnostics"' in controller_input
+    assert '"highest_excluded_score": 0.49' in controller_input
+
+
+@pytest.mark.parametrize(
+    ("query", "clarification"),
+    [
+        ("asdf qwer zxcv", "Please clarify what information you want from the notes."),
+        ("What did they decide?", "Which person or project does 'they' refer to?"),
+    ],
+)
+def test_agentic_unclear_query_returns_normal_clarification(
+    monkeypatch,
+    query,
+    clarification,
+):
+    controller = _Controller([
+        '{"action":"clarify","message":'
+        + json.dumps(clarification)
+        + "}",
+    ])
+    monkeypatch.setattr(agentic_module, "get_llm", lambda: controller)
+    monkeypatch.setattr(
+        agentic_module,
+        "retrieve",
+        lambda *_args, **_kwargs: _hybrid_result(
+            [],
+            vector_min_score=0.5,
+            bm25_min_score_ratio=0.25,
+            vector_post_filter_count=0,
+        ),
+    )
+    monkeypatch.setattr(
+        agentic_module,
+        "rag_answer",
+        lambda *_args, **_kwargs: pytest.fail(
+            "clarification must not invoke Answer generation"
+        ),
+    )
+
+    result = cli.run_query(object(), object(), query=query, agentic=True)
+
+    assert result["answer"] == clarification
+    assert result["reason_code"] == "needs_clarification"
+    assert result["response_origin"] == "controller"
+    assert "workflow_error" not in result
+    assert result["search_attempts"] == 1
+    assert result["search_queries"] == [query]
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        ("vector_min_score", 1.1),
+        ("bm25_min_score_ratio", -0.1),
+        ("vector_min_score", "NaN"),
+    ],
+)
+def test_agentic_invalid_adaptive_threshold_retries_without_search(
+    monkeypatch,
+    field,
+    invalid_value,
+):
+    invalid_action = {
+        "action": "search",
+        "query": "unsafe search",
+        "vector_min_score": 0.2,
+        "bm25_min_score_ratio": 0.1,
+        "evidence_mode": "replace",
+    }
+    invalid_action[field] = invalid_value
+    controller = _Controller([
+        json.dumps(invalid_action),
+        '{"action":"clarify","message":"Please clarify the subject."}',
+    ])
+    retrieval_calls = []
+
+    def retrieve_once(*_args, **_kwargs):
+        retrieval_calls.append("search")
+        return _hybrid_result(
+            [],
+            vector_min_score=0.5,
+            bm25_min_score_ratio=0.25,
+            vector_post_filter_count=0,
+        )
+
+    monkeypatch.setattr(agentic_module, "get_llm", lambda: controller)
+    monkeypatch.setattr(agentic_module, "retrieve", retrieve_once)
+
+    result = cli.run_query(
+        object(),
+        object(),
+        query="What did they decide?",
+        agentic=True,
+    )
+
+    assert retrieval_calls == ["search"]
+    assert controller.calls == 2
+    assert result["reason_code"] == "needs_clarification"
+    assert result["search_attempts"] == 1
+    retry_input = controller.prompts[1][1]["content"]
+    assert '"validation_feedback"' in retry_input
+
+
+def test_agentic_can_raise_thresholds_without_changing_top_k(monkeypatch):
+    noisy_hit = {
+        "source": "notes/noise.md",
+        "chunk_id": 1,
+        "score": 0.3,
+        "text": "Unrelated launch mention.",
+    }
+    controller = _Controller([
+        '{"action":"search","query":"specific launch owner",'
+        '"vector_min_score":0.8,"bm25_min_score_ratio":0.9,'
+        '"evidence_mode":"replace","fusion_top_k":999}',
+        '{"action":"abstain"}',
+    ])
+    searches = []
+
+    def retrieve_with_narrowing(_rag, _meta_store, *, query, **kwargs):
+        searches.append((query, kwargs))
+        if len(searches) == 1:
+            return _hybrid_result(
+                [noisy_hit],
+                vector_min_score=0.2,
+                bm25_min_score_ratio=0.1,
+            )
+        return _hybrid_result(
+            [],
+            vector_min_score=kwargs["vector_min_score"],
+            bm25_min_score_ratio=kwargs["bm25_min_score_ratio"],
+            vector_post_filter_count=0,
+        )
+
+    monkeypatch.setattr(agentic_module, "get_llm", lambda: controller)
+    monkeypatch.setattr(agentic_module, "retrieve", retrieve_with_narrowing)
+
+    result = cli.run_query(
+        object(), object(), query="Who owns the launch?", agentic=True
+    )
+
+    assert searches[1][1]["vector_min_score"] == 0.8
+    assert searches[1][1]["bm25_min_score_ratio"] == 0.9
+    assert "fusion_top_k" not in searches[1][1]
+    assert result["search_attempts"] == 2
+    assert result["retrieval_stages"][1]["configured_top_k"] == {
+        "vector": 2,
+        "bm25": 2,
+        "fusion": 3,
+        "rerank": 3,
+        "generation": 1,
+    }
 
 
 def test_agentic_invalid_actions_return_degraded_outcome_with_search_trace(
@@ -307,7 +594,9 @@ def test_agentic_later_retrieval_failure_retains_completed_search(
         "text": "Mina owns the launch.",
     }
     controller = _Controller([
-        '{"action":"search","query":"launch backup owner"}',
+        '{"action":"search","query":"launch backup owner",'
+        '"vector_min_score":0.4,"bm25_min_score_ratio":0.2,'
+        '"evidence_mode":"replace"}',
     ])
     retrieval_calls = 0
 

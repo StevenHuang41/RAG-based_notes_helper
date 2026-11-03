@@ -543,7 +543,13 @@ def test_classic_and_agentic_workflows_use_the_shared_hybrid_search(monkeypatch)
             if "candidate_answer" in request:
                 return json.dumps({"action": "accept"})
             if self.calls == 1:
-                return json.dumps({"action": "search", "query": "ownership"})
+                    return json.dumps({
+                        "action": "search",
+                        "query": "ownership",
+                        "vector_min_score": 0.5,
+                        "bm25_min_score_ratio": 0.0,
+                        "evidence_mode": "extend",
+                    })
             evidence = request["evidence"]
             return json.dumps({
                 "action": "answer",
