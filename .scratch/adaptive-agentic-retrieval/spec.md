@@ -1,6 +1,6 @@
 # Adaptive bounded Agentic retrieval and complete evaluation outcomes
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
