@@ -193,6 +193,7 @@ def _hybrid_result(
     bm25_min_score_ratio,
     vector_pre_filter_count=2,
     vector_post_filter_count=None,
+    fusion_top_k=3,
 ):
     vector_post_filter_count = (
         len(hits)
@@ -213,7 +214,7 @@ def _hybrid_result(
         },
         vector_top_k=2,
         bm25_top_k=2,
-        fusion_top_k=3,
+        fusion_top_k=fusion_top_k,
         effective_thresholds={
             "vector_min_score": vector_min_score,
             "bm25_min_score_ratio": bm25_min_score_ratio,
@@ -221,8 +222,8 @@ def _hybrid_result(
         configured_top_k={
             "vector": 2,
             "bm25": 2,
-            "fusion": 3,
-            "rerank": 3,
+            "fusion": fusion_top_k,
+            "rerank": fusion_top_k,
             "generation": 1,
         },
         filter_diagnostics={
@@ -242,6 +243,233 @@ def _hybrid_result(
                 "highest_excluded_score": None,
             },
         },
+    )
+
+
+def test_agentic_replace_discards_active_noise_but_preserves_search_audit(
+    monkeypatch,
+):
+    noise = {
+        "source": "notes/noise.md",
+        "chunk_id": 1,
+        "score": 0.7,
+        "text": "An unrelated owner is mentioned.",
+        "rank": 1,
+        "vector_rank": 1,
+        "vector_score": 0.7,
+        "bm25_rank": None,
+        "bm25_score": None,
+        "fusion_score": 1 / 61,
+    }
+    owner = {
+        "source": "notes/launch.md",
+        "chunk_id": 4,
+        "score": 0.9,
+        "text": "Mina owns the launch.",
+        "rank": 1,
+        "vector_rank": 1,
+        "vector_score": 0.9,
+        "bm25_rank": 1,
+        "bm25_score": 2.0,
+        "fusion_score": 2 / 61,
+    }
+    controller = _Controller([
+        '{"action":"search","query":"launch owner",'
+        '"vector_min_score":0.3,"bm25_min_score_ratio":0.1,'
+        '"evidence_mode":"replace"}',
+        '{"action":"answer","evidence":['
+        '{"source":"notes/launch.md","chunk_id":4}]}',
+        '{"action":"accept"}',
+    ])
+    searches = iter([
+        _hybrid_result(
+            [noise],
+            vector_min_score=0.5,
+            bm25_min_score_ratio=0.25,
+        ),
+        _hybrid_result(
+            [owner],
+            vector_min_score=0.3,
+            bm25_min_score_ratio=0.1,
+        ),
+    ])
+
+    class OriginalQuestionReranker:
+        def __init__(self):
+            self.queries = []
+
+        def predict(self, pairs):
+            self.queries.extend(query for query, _text in pairs)
+            return [0.9] * len(pairs)
+
+    reranker = OriginalQuestionReranker()
+    monkeypatch.setattr(agentic_module, "get_llm", lambda: controller)
+    monkeypatch.setattr(
+        agentic_module,
+        "retrieve",
+        lambda *_args, **_kwargs: next(searches),
+    )
+    monkeypatch.setattr(
+        agentic_module,
+        "rag_answer",
+        lambda _query, *, hits, **_kwargs: {
+            "answer": "Mina owns the launch.",
+            "citations": hits,
+            "generation_context": hits,
+        },
+    )
+
+    result = cli.run_query(
+        object(),
+        object(),
+        query="Who owns the launch?",
+        agentic=True,
+        cross_encoder=reranker,
+    )
+
+    assert [hit["source"] for hit in result["retrieved_evidence"]] == [
+        "notes/launch.md"
+    ]
+    assert result["search_results"] == [[noise], [owner]]
+    assert len(result["retrieval_stages"]) == 2
+    assert result["retrieval_stages"][0]["stages"]["rrf"]["results"] == [noise]
+    rerank_stage = result["retrieval_stages"][1]["stages"]["reranked"]
+    assert rerank_stage["provenance"] == {
+        "evidence_mode": "replace",
+        "candidate_count_before_rerank": 1,
+        "active_search_ids": [2],
+    }
+    assert [hit["source"] for hit in rerank_stage["results"]] == [
+        "notes/launch.md"
+    ]
+    assert set(reranker.queries) == {"Who owns the launch?"}
+
+
+def test_agentic_extend_deduplicates_and_preserves_multi_search_provenance(
+    monkeypatch,
+):
+    first = {
+        "source": "notes/plan.md", "chunk_id": 1, "text": "Phase one.",
+        "rank": 1, "score": 0.8,
+        "vector_rank": 1, "vector_score": 0.8,
+        "bm25_rank": None, "bm25_score": None,
+        "fusion_score": 1 / 61,
+    }
+    shared_first = {
+        "source": "notes/shared.md", "chunk_id": 2, "text": "Shared fact.",
+        "rank": 2, "score": 0.7,
+        "vector_rank": 2, "vector_score": 0.7,
+        "bm25_rank": 1, "bm25_score": 3.0,
+        "fusion_score": 1 / 62 + 1 / 61,
+    }
+    shared_second = {
+        **shared_first,
+        "rank": 1,
+        "score": 0.95,
+        "vector_rank": 1,
+        "vector_score": 0.95,
+        "bm25_rank": 2,
+        "bm25_score": 4.0,
+        "fusion_score": 1 / 61 + 1 / 62,
+    }
+    second = {
+        "source": "notes/budget.md", "chunk_id": 3, "text": "Budget is 20k.",
+        "rank": 2, "score": 0.85,
+        "vector_rank": 2, "vector_score": 0.85,
+        "bm25_rank": 1, "bm25_score": 5.0,
+        "fusion_score": 1 / 62 + 1 / 61,
+    }
+    controller = _Controller([
+        '{"action":"search","query":"project budget",'
+        '"vector_min_score":0.2,"bm25_min_score_ratio":0.1,'
+        '"evidence_mode":"extend"}',
+        '{"action":"answer","evidence":['
+        '{"source":"notes/shared.md","chunk_id":2},'
+        '{"source":"notes/budget.md","chunk_id":3}]}',
+        '{"action":"accept"}',
+    ])
+    searches = iter([
+        _hybrid_result(
+            [first, shared_first],
+            vector_min_score=0.5,
+            bm25_min_score_ratio=0.25,
+            fusion_top_k=2,
+        ),
+        _hybrid_result(
+            [shared_second, second],
+            vector_min_score=0.2,
+            bm25_min_score_ratio=0.1,
+            fusion_top_k=2,
+        ),
+    ])
+
+    class OriginalQuestionReranker:
+        def __init__(self):
+            self.calls = []
+
+        def predict(self, pairs):
+            self.calls.append(list(pairs))
+            scores = {
+                "Phase one.": 0.1,
+                "Shared fact.": 0.9,
+                "Budget is 20k.": 0.8,
+            }
+            return [scores[text] for _query, text in pairs]
+
+    reranker = OriginalQuestionReranker()
+    monkeypatch.setattr(agentic_module, "get_llm", lambda: controller)
+    monkeypatch.setattr(
+        agentic_module,
+        "retrieve",
+        lambda *_args, **_kwargs: next(searches),
+    )
+    monkeypatch.setattr(
+        agentic_module,
+        "rag_answer",
+        lambda _query, *, hits, **_kwargs: {
+            "answer": "The shared fact and budget answer the question.",
+            "citations": hits,
+            "generation_context": hits,
+        },
+    )
+
+    result = cli.run_query(
+        object(),
+        object(),
+        query="Summarize the project and budget.",
+        agentic=True,
+        cross_encoder=reranker,
+    )
+
+    active = result["retrieved_evidence"]
+    assert [(hit["source"], hit["chunk_id"]) for hit in active] == [
+        ("notes/shared.md", 2),
+        ("notes/budget.md", 3),
+    ]
+    shared = active[0]
+    assert [item["search_id"] for item in shared["search_provenance"]] == [1, 2]
+    assert shared["search_provenance"][0]["vector_rank"] == 2
+    assert shared["search_provenance"][1]["vector_rank"] == 1
+    assert shared["search_provenance"][0]["effective_thresholds"] == {
+        "vector_min_score": 0.5,
+        "bm25_min_score_ratio": 0.25,
+    }
+    assert shared["search_provenance"][1]["effective_thresholds"] == {
+        "vector_min_score": 0.2,
+        "bm25_min_score_ratio": 0.1,
+    }
+    second_rerank = result["retrieval_stages"][1]["stages"]["reranked"]
+    assert second_rerank["top_k"] == 2
+    assert second_rerank["returned_count"] == 2
+    assert second_rerank["provenance"] == {
+        "evidence_mode": "extend",
+        "candidate_count_before_rerank": 3,
+        "active_search_ids": [1, 2],
+    }
+    assert all(
+        query == "Summarize the project and budget."
+        for call in reranker.calls
+        for query, _text in call
     )
 
 
