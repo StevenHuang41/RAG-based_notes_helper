@@ -119,11 +119,7 @@ def _run_ragas_isolated(
     *,
     usage_recorder: Callable[[dict[str, Any]], None],
 ) -> list[dict[str, Any]]:
-    scored_cases = [
-        (case_index, case)
-        for case_index, case in enumerate(cases)
-        if case.get("expected_answerable") is True
-    ]
+    scored_cases = list(enumerate(cases))
     if not scored_cases:
         return [{} for _case in cases]
 
@@ -188,13 +184,9 @@ def _run_ragas_isolated(
                 scored_results[scored_position]["metric_reasons"][metric_name] = (
                     "Skipped because no generated answer was available."
                 )
-            elif case.get("abstained") is True:
-                scored_results[scored_position]["metric_reasons"][metric_name] = (
-                    "Skipped because the workflow abstained."
-                )
             elif skip_reason and not case.get("answer_contexts"):
                 scored_results[scored_position]["metric_reasons"][metric_name] = (
-                    f"Skipped because {skip_reason}."
+                    "Unavailable because no final generation context was available."
                 )
         if not eligible_cases:
             continue
@@ -698,11 +690,7 @@ def _answerability_outcomes(cases: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _ragas_metric_is_eligible(case: dict[str, Any], metric: str) -> bool:
-    if (
-        case.get("expected_answerable") is not True
-        or not has_nonblank_answer(case.get("answer"))
-        or case.get("abstained") is True
-    ):
+    if not has_nonblank_answer(case.get("answer")):
         return False
     required_context = {
         "faithfulness": "answer_contexts",
@@ -1449,15 +1437,6 @@ def _attach_ragas_scores(
     )
     if len(scores) != len(workflow_cases):
         raise ValueError("Ragas returned a different number of scores than cases.")
-    scored_case_indices = [
-        index
-        for index, case in enumerate(workflow_cases)
-        if case["expected_answerable"]
-    ]
-    scored_position_by_case_index = {
-        case_index: scored_position
-        for scored_position, case_index in enumerate(scored_case_indices)
-    }
     calls_by_row_metric: dict[tuple[int, str], list[dict[str, Any]]] = defaultdict(list)
     for call in judge_calls:
         row_index = call.get("row_index")
@@ -1466,7 +1445,7 @@ def _attach_ragas_scores(
             calls_by_row_metric[(row_index, metric)].append(call)
 
     for case_index, case in enumerate(workflow_cases):
-        scored_row_index = scored_position_by_case_index.get(case_index)
+        scored_row_index = case_index
         case_scores = scores[case_index]
         case["generation_metrics"] = {
             metric: _safe_score(case_scores.get(metric))
@@ -1477,11 +1456,6 @@ def _attach_ragas_scores(
             for metric in RETRIEVAL_METRIC_NAMES
         })
         metric_reasons = case_scores.get("metric_reasons", {}).copy()
-        if not case["expected_answerable"]:
-            metric_reasons = {
-                metric: "Skipped because expected answerability is unanswerable."
-                for metric in METRIC_NAMES
-            }
         case["metric_reasons"] = metric_reasons
         metric_latencies = case_scores.get("metric_latencies_ms", {})
         case_judge_calls = [
@@ -1561,6 +1535,8 @@ def _workflow_summary(cases: list[dict[str, Any]]) -> dict[str, Any]:
         by_category[case["category"]].append(case)
 
     def summarize_group(group: list[dict[str, Any]]) -> dict[str, Any]:
+        semantic_group = [case for case in group if not case.get("workflow_error")]
+        workflow_error_group = [case for case in group if case.get("workflow_error")]
         generation_calls = [
             call
             for case in group
@@ -1588,14 +1564,35 @@ def _workflow_summary(cases: list[dict[str, Any]]) -> dict[str, Any]:
             "generation_metrics": {
                 metric: _mean([
                     case["generation_metrics"].get(metric)
-                    for case in group
+                    for case in semantic_group
                 ])
                 for metric in GENERATION_METRIC_NAMES
             },
             "retrieval_metrics": {
-                metric: _mean([case["retrieval_metrics"].get(metric) for case in group])
+                metric: _mean([
+                    case["retrieval_metrics"].get(metric)
+                    for case in (
+                        semantic_group
+                        if metric in RETRIEVAL_METRIC_NAMES
+                        else group
+                    )
+                ])
                 for metric in ("recall", "precision", "ndcg", *RETRIEVAL_METRIC_NAMES)
             },
+            "workflow_error_ragas_metrics": {
+                metric: _mean([
+                    (case.get(source, {}) or {}).get(metric)
+                    for case in workflow_error_group
+                ])
+                for metric, source in (
+                    ("faithfulness", "generation_metrics"),
+                    ("answer_relevancy", "generation_metrics"),
+                    ("answer_correctness", "generation_metrics"),
+                    ("context_utilization", "retrieval_metrics"),
+                )
+            },
+            "semantic_response_case_count": len(semantic_group),
+            "workflow_error_diagnostic_case_count": len(workflow_error_group),
             "final_context_metrics": {
                 metric: _mean([
                     case.get("final_context_metrics", {}).get(metric)
@@ -1654,6 +1651,18 @@ def _workflow_summary(cases: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _workflow_reliability(cases: list[dict[str, Any]]) -> dict[str, Any]:
+    selected_cases = len(cases)
+    successful_cases = sum(not case.get("workflow_error") for case in cases)
+    return {
+        "successful_cases": successful_cases,
+        "selected_cases": selected_cases,
+        "ratio": (
+            successful_cases / selected_cases if selected_cases else None
+        ),
+    }
+
+
 def _judge_usage_call(
     record: dict[str, Any],
     settings: Any,
@@ -1707,7 +1716,8 @@ def run_evaluation(
     _log(run_log, f"Starting {workflow} synthetic-notes RAG evaluation.")
 
     results: dict[str, Any] = {
-        "schema_version": 7,
+        "schema_version": 8,
+        "run_status": "running",
         "run_metadata": {
             "timestamp_local": timestamp,
             "timezone": "Asia/Taipei",
@@ -1793,15 +1803,16 @@ def run_evaluation(
 
                 for workflow, workflow_cases in workflow_results.items():
                     judge_calls: list[dict[str, Any]] = []
-                    answerable_count = sum(
-                        case["expected_answerable"] for case in workflow_cases
+                    judgeable_count = sum(
+                        has_nonblank_answer(case.get("answer"))
+                        for case in workflow_cases
                     )
                     progress.set_description(f"RAG evaluation ({workflow} metrics)")
                     progress.set_postfix_str("Ragas metrics")
                     _log(
                         run_log,
                         f"[{workflow}] Starting Ragas metrics for "
-                        f"{answerable_count} answerable cases.",
+                        f"{judgeable_count} non-empty outcomes.",
                     )
                     try:
                         _attach_ragas_scores(
@@ -1818,18 +1829,13 @@ def run_evaluation(
                     finally:
                         progress.update(1)
 
-                    answerable_cases = [
-                        case
-                        for case in workflow_cases
-                        if case["expected_answerable"]
-                    ]
                     judge_usage_by_workflow[workflow] = [
                         _judge_usage_call(
                             call,
                             settings,
-                            answerable_cases[call["row_index"]]["case_id"]
+                            workflow_cases[call["row_index"]]["case_id"]
                             if isinstance(call.get("row_index"), int)
-                            and 0 <= call["row_index"] < len(answerable_cases)
+                            and 0 <= call["row_index"] < len(workflow_cases)
                             else None,
                         )
                         for call in judge_calls
@@ -1859,8 +1865,30 @@ def run_evaluation(
                 ]),
             }
             results["judge_usage"] = judge_usage
+            selected_workflow_cases = workflow_results[workflow]
+            workflow_error_count = sum(
+                bool(case.get("workflow_error"))
+                for case in selected_workflow_cases
+            )
+            workflow_reliability = _workflow_reliability(
+                selected_workflow_cases
+            )
+            results.update({
+                "run_status": "completed",
+                "workflow_outcome": (
+                    "completed_with_errors"
+                    if workflow_error_count
+                    else "completed"
+                ),
+                "workflow_error_count": workflow_error_count,
+                "workflow_reliability": workflow_reliability,
+            })
             results["summary"] = {
-                "schema_version": 1,
+                "schema_version": 2,
+                "run_status": results["run_status"],
+                "workflow_outcome": results["workflow_outcome"],
+                "workflow_error_count": workflow_error_count,
+                "workflow_reliability": workflow_reliability,
                 "run_metadata": results["run_metadata"],
                 "case_count": len(cases),
                 "category_counts": results["category_counts"],
@@ -1868,8 +1896,10 @@ def run_evaluation(
                     "This fixture is a regression set, not a statistically "
                     "representative benchmark. A sampled run may omit categories; "
                     "selected case IDs and category counts identify the coverage. "
-                    "Ragas metrics apply only to eligible expected-answerable cases "
-                    "that produced a nonblank answer; per-metric eligible counts are recorded. "
+                    "Ragas applicability follows the produced non-empty outcome and "
+                    "available Final generation context; per-metric eligible counts "
+                    "and unavailable reasons are recorded. Workflow-error diagnostics "
+                    "remain per-case and are excluded from semantic-response means. "
                     "Inspect abstention cases through grouped answerability outcomes "
                     "and reviewed evidence."
                 ),
@@ -1887,6 +1917,7 @@ def run_evaluation(
         raise
     except Exception as exc:
         _log(run_log, f"Evaluation failed ({type(exc).__name__}).")
+        results["run_status"] = "failed"
         results["error"] = type(exc).__name__
         _write_json(results_path, results)
         write_readme(readme_path, results)

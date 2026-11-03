@@ -72,7 +72,7 @@ def test_report_uses_final_context_metrics_and_concise_audit_tables(tmp_path):
     report = report_path.read_text(encoding="utf-8")
 
     assert "Final context evidence metrics" in report
-    assert "| recall | 0.5000 |" in report
+    assert "| Recall | 0.5000 |" in report
     assert "| direct | 1 | 0.5000 | 0.2500 | 0.4000 | 0.9000 | — | 0.8000 | — | 12.0000 |" in report
     assert "Answerability outcomes" not in report
     assert "Eligible cases / selected cases" not in report
@@ -84,7 +84,7 @@ def test_report_uses_final_context_metrics_and_concise_audit_tables(tmp_path):
     assert "| Context order | Chunk ID | Source path | Lines | Full context | Evidence lines |" in report
     assert "| 1 | 2 | notes/b.md | 3–3 | candidate two | — |" in report
     assert "Status/reason" not in report
-    assert "| Metric | Score |" in report
+    assert "| Metric | Score | Applicability |" in report
     assert "Provider total tokens" not in report
     assert "| Process/call | Latency (ms) | Provider / model | Provider input tokens | Provider output tokens | Total tokens |" in report
     assert "### Latency\n" in report

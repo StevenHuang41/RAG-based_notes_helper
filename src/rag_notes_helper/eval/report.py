@@ -332,11 +332,6 @@ def _quality_metric_rows(
                 if isinstance(stage, dict):
                     metrics = stage.get("metrics", {}) or {}
                     break
-        if not cutoffs and not any(
-            metrics.get(metric) is not None
-            for metric in ("recall", "precision", "ndcg")
-        ):
-            continue
         cutoff_label = ",".join(str(value) for value in cutoffs) if cutoffs else "—"
         rows.append([
             f"{label}@{cutoff_label}",
@@ -505,8 +500,20 @@ def _render_ragas_diagnostics(case: dict[str, Any]) -> list[str]:
         "**Ragas diagnostics**",
         "",
         *_table(
-            ["Metric", "Score"],
-            [[label, (case.get(source, {}) or {}).get(metric)] for label, metric, source in RAGAS_METRICS],
+            ["Metric", "Score", "Applicability"],
+            [
+                [
+                    label,
+                    (case.get(source, {}) or {}).get(metric),
+                    (case.get("metric_reasons", {}) or {}).get(metric)
+                    or (
+                        "Scored."
+                        if (case.get(source, {}) or {}).get(metric) is not None
+                        else "Unavailable."
+                    ),
+                ]
+                for label, metric, source in RAGAS_METRICS
+            ],
         ),
     ]
 
@@ -695,7 +702,16 @@ def _readme_report(results: dict[str, Any]) -> str:
     summary = results.get("summary", {}) or {}
     workflow = metadata.get("workflow", "unknown")
     workflow_summary = (summary.get("workflows", {}) or {}).get(workflow, {}) or {}
-    lines = ["# RAG Evaluation Report", "", f"- **Status:** `{'failed' if results.get('error') else 'completed'}`", f"- **Workflow:** `{workflow}`", f"- **Run timestamp (Asia/Taipei):** `{metadata.get('timestamp_local', 'unknown')}`", "- **Artifacts:** [results.json](results.json) · [run.log](run.log)", "", "## Configuration", ""]
+    reliability = results.get("workflow_reliability", {}) or {}
+    reliability_ratio = reliability.get("ratio")
+    reliability_text = (
+        f"{reliability.get('successful_cases', 0)}/"
+        f"{reliability.get('selected_cases', 0)} "
+        f"({reliability_ratio:.4f})"
+        if isinstance(reliability_ratio, (int, float))
+        else "unavailable"
+    )
+    lines = ["# RAG Evaluation Report", "", f"- **Status:** `{results.get('run_status', 'failed' if results.get('error') else 'completed')}`", f"- **Workflow outcome:** `{results.get('workflow_outcome', 'unavailable')}`", f"- **Workflow errors:** `{results.get('workflow_error_count', 0)}`", f"- **Workflow reliability:** `{reliability_text}`", f"- **Workflow:** `{workflow}`", f"- **Run timestamp (Asia/Taipei):** `{metadata.get('timestamp_local', 'unknown')}`", "- **Artifacts:** [results.json](results.json) · [run.log](run.log)", "", "## Configuration", ""]
     lines.extend(_table(["Setting", "Value"], [[label, value] for label, value in (
         ("Answer provider", metadata.get("answer_provider")), ("Answer model", metadata.get("answer_model")),
         ("Judge provider", metadata.get("judge_provider")), ("Judge model", metadata.get("judge_model")),
@@ -709,9 +725,20 @@ def _readme_report(results: dict[str, Any]) -> str:
     )]))
     lines.extend(["", "## Fixture coverage", "", f"- **Cases:** {summary.get('case_count', len(results.get('cases', [])))}", "- **Selected case IDs:** " + _markdown_cell(", ".join(metadata.get("selected_case_ids", []))), ""])
     lines.extend(["", "## Overall metrics", "", "### Final context evidence metrics", ""])
-    lines.extend(_table(["Metric", "Score"], [[name, (workflow_summary.get("final_context_metrics", {}) or {}).get(name)] for name in ("recall", "precision", "ndcg")]))
+    lines.extend(_table(["Metric", "Score"], [[label, (workflow_summary.get("final_context_metrics", {}) or {}).get(name)] for label, name in (("Recall", "recall"), ("Precision", "precision"), ("NDCG", "ndcg"))]))
     lines.extend(["", "### Ragas diagnostics", ""])
     lines.extend(_table(["Metric", "Score"], [[label, (workflow_summary.get(source, {}) or {}).get(metric)] for label, metric, source in RAGAS_METRICS]))
+    lines.extend(["", "### Workflow-error Ragas diagnostics", ""])
+    workflow_error_metrics = workflow_summary.get(
+        "workflow_error_ragas_metrics", {}
+    ) or {}
+    lines.extend(_table(
+        ["Metric", "Score"],
+        [
+            [label, workflow_error_metrics.get(metric)]
+            for label, metric, _source in RAGAS_METRICS
+        ],
+    ))
     lines.extend(["", "### Latency", ""])
     cases = [
         case
