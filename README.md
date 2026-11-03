@@ -130,7 +130,7 @@ User query -> workflow selection
           v                v
 Classic RAG          Agentic RAG
 one retrieval        bounded LangGraph StateGraph
-          |          search / generate / review / abstain
+          |          search / generate / review / clarify / abstain
           +-------+--------+
                   |
                   v
@@ -166,9 +166,11 @@ one retrieval        bounded LangGraph StateGraph
 
 6. **Workflow selection and answer generation**
    - Classic RAG sends one retrieval result to answer generation.
-   - Agentic RAG uses a LangGraph StateGraph to ask the configured LLM for a Pydantic-validated JSON action after inspecting retrieved chunks. It can request another focused search, select evidence for an answer, or abstain. The initial search uses the original question and each query is limited to three searches, including that initial search.
-   - Agentic RAG buffers each candidate answer and asks the controller to accept it, request a focused revision, or abstain based on the selected evidence. It permits at most three Answer attempts including the first candidate; a third rejected candidate returns a deterministic insufficient-answer response. Agentic mode therefore does not stream unreviewed candidate text, while Classic streaming remains available.
-   - Both workflows abstain without answer generation when retrieval returns no chunks.
+   - Agentic RAG uses a LangGraph StateGraph to ask the configured LLM for Pydantic-validated JSON actions after inspecting retrieved chunks and filtering diagnostics. The initial search uses the original question and configured starting thresholds. A later search supplies a nonblank rewritten query, validated Vector and query-relative BM25 thresholds, and a `replace` or `extend` evidence mode. It may adapt thresholds but cannot change configured top-k values, the RRF constant, models, or generation limits.
+   - Each Agentic query has independent hard limits of three Retrieval searches and three Answer generations, both including the first attempt. Controller calls and validation retries do not consume either budget. `replace` starts a new active candidate pool; `extend` deduplicates old and new fused candidates before reranking the combined pool against the original question. Every executed Search and its thresholds remain available for audit.
+   - Agentic RAG buffers each candidate answer and asks the controller to accept it, request a focused revision, reopen Retrieval, ask the user to clarify, or abstain based on selected evidence and remaining budgets. A third rejected candidate returns deterministic `answer_attempts_exhausted` text without exposing the candidate. Agentic mode therefore does not stream unreviewed candidate text, while Classic streaming remains available.
+   - Every query returns a structured non-empty outcome. Stable reason codes distinguish `invalid_query`, `needs_clarification`, `no_evidence_after_searches`, `insufficient_evidence`, `answer_attempts_exhausted`, `controller_failure`, and `retrieval_failure`; response-origin and workflow-error fields distinguish deterministic degraded responses from normal bounded results.
+   - Classic RAG returns deterministic insufficient-evidence text without Answer generation when its single Retrieval search returns no chunks. Agentic RAG may use remaining capacity for a safe rewritten search, or ask for clarification when no safe rewrite exists; it abstains when bounded recovery cannot find sufficient evidence.
    - Retrieved chunks are inserted into the LLM prompt as context.
    - The answer can include source citations.
    - REPL mode keeps the loaded index available for faster repeated queries.
@@ -187,7 +189,11 @@ rag-app --agentic --eval --sample 5 --seed 42
 
 Each run writes `README.md`, `results.json`, and `run.log` under a local-time, Taipei timestamped directory in `evals/results/`. These generated reports are ignored by Git. When stderr is a terminal, evaluation shows a progress bar for case execution and RAGAS metric stages. Run metadata records the selected workflow, sampling settings, and selected case IDs. Sample selection is uniform without replacement; cases run in evaluation-corpus order. The same corpus, QA set, sample count, and seed select the same cases. Without a seed, a sampled run may select a different subset each time. A seed without `--sample` still runs the full QA set. `--sample` must be a positive integer no larger than the QA set size.
 
-The evaluation corpus and QA set are a fixed regression set, not a statistically representative benchmark. A small sample can omit categories; inspect the selected case IDs and category counts in the report. Evaluation logs use case IDs and do not include query or note text. Results include reference-free faithfulness, answer relevancy, and context utilization diagnostics, plus expected source/evidence coverage, answerability behavior, generation token usage, and separate RAGAS judge usage. RAGAS metrics use the generated answer and retrieved contexts, not the QA reference answer; the reference answer remains in each case result for human inspection. RAGAS metrics are not applicable to unanswerable and ambiguous cases; those cases are evaluated through answerability, abstention, and evidence coverage. Token counts are provider-reported; unavailable values remain marked unavailable, while character counts are recorded separately.
+The evaluation corpus and QA set are a fixed regression set, not a statistically representative benchmark. A small sample can omit categories; inspect the selected case IDs and category counts in the report. Evaluation logs use case IDs and do not include query or note text. Results keep deterministic answerability, reason-code, response-origin, workflow-error, Retrieval evidence, and line-grounded Recall/Precision/NDCG checks separate from model-based RAGAS diagnostics.
+
+Answer Relevancy and Answer Correctness run for every non-empty normal or degraded response, including abstentions and clarifications; Answer Correctness uses the reviewed Reference answer. Faithfulness and Context Utilization additionally require a non-empty exact Final generation context. When that context is absent, their scores remain unavailable with an explicit reason rather than becoming a synthetic zero or high score. Workflow-error cases retain per-case diagnostics but are excluded from normal semantic-response means. RAGAS scores are provider-dependent observations, not pass/fail guarantees.
+
+The report distinguishes artifact process status from workflow outcome. A successfully written run containing query-level failures is `completed` with workflow outcome `completed_with_errors`; it reports the workflow-error count and reliability over selected cases. Per-query Search registries show each query and effective Vector/BM25 thresholds, stage records retain every executed search even after later failure or replacement, and Final context evidence metrics use only the exact context sent to the final Answer generation call. Token counts are provider-reported; unavailable values remain marked unavailable, while character counts are recorded separately.
 
 The QA set covers direct lookup, multi-hop integration, unanswerable questions, and ambiguous questions. Evaluation always uses this reviewed evaluation corpus and isolated synthetic index; it never evaluates a user's `data/` directory or persistent `storage/` snapshot. If the corpus changes, review and update any affected line-anchored QA evidence in the same change; validation rejects stale evidence rather than rewriting it automatically.
 
@@ -481,11 +487,11 @@ Common settings:
 | `LLM_TEMPERATURE` | Generation temperature | `0.1` |
 | `CHUNK_SIZE` | Chunk size for ingestion | `800` |
 | `CHUNK_OVERLAP` | Chunk overlap | `200` |
-| `VECTOR_TOP_K` | Maximum candidates returned by Vector search | `30` |
-| `BM25_TOP_K` | Maximum candidates returned by BM25 search | `20` |
-| `FUSION_TOP_K` | Maximum candidates returned after RRF fusion | `15` |
-| `VECTOR_MIN_SCORE` | Starting Vector similarity threshold in the inclusive range `[0, 1]` | `0.3` |
-| `BM25_MIN_SCORE_RATIO` | Starting query-relative BM25 threshold ratio in the inclusive range `[0, 1]` | `0.0` |
+| `VECTOR_TOP_K` | Human-configured maximum candidates returned by Vector search; Agentic actions cannot change it | `30` |
+| `BM25_TOP_K` | Human-configured maximum candidates returned by BM25 search; Agentic actions cannot change it | `20` |
+| `FUSION_TOP_K` | Human-configured maximum candidates returned after RRF fusion; Agentic actions cannot change it | `15` |
+| `VECTOR_MIN_SCORE` | Starting Vector similarity threshold in `[0, 1]`; later Agentic searches may adapt it | `0.3` |
+| `BM25_MIN_SCORE_RATIO` | Starting query-relative BM25 threshold ratio in `[0, 1]`; later Agentic searches may adapt it | `0.0` |
 | `CROSS_ENCODER_MODEL` | Sentence Transformers model used to rerank fused candidates | `cross-encoder/ms-marco-MiniLM-L6-v2` |
 | `STREAM` | Stream model output where supported | `true` |
 

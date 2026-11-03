@@ -21,7 +21,7 @@ One candidate answer generation followed by an evidence-grounded Answer review.
 _Avoid_: Answer retry
 
 **Answer review**:
-A per-query controller decision that accepts a candidate answer, requests a revision, or abstains based on the selected note evidence.
+A per-query controller decision that accepts a candidate answer, requests a revision, reopens Retrieval with a validated adaptive search, asks for clarification, or abstains based on the selected note evidence and remaining budgets.
 _Avoid_: Ragas judge, answer grading
 
 ## Retrieval
@@ -34,6 +34,12 @@ A read-only external interface that runs Hybrid retrieval over the Allowed note 
 
 **Retrieval search**:
 One invocation of the Note Search Tool for a query. A retrieval search can contain separate Search method results and downstream ranking stages.
+
+**Adaptive search**:
+A later Agentic RAG Retrieval search with a validated rewritten query, Vector minimum score, query-relative BM25 minimum-score ratio, and Evidence mode. It consumes one Search attempt only when Retrieval executes.
+
+**Evidence mode**:
+The per-search choice to `replace` the active candidate pool with the new fused candidates or `extend` it with deduplicated prior and new fused candidates before reranking against the original question. All executed Search audits remain available in either mode.
 
 **Allowed note corpus**:
 The set of note files approved as evidence sources for runtime retrieval. It is distinct from the Evaluation corpus used by benchmark runs.
@@ -99,3 +105,12 @@ The persisted FAISS index and its matching chunk metadata under `storage/`, repr
 
 **Evaluation sample**:
 A subset of prepared evaluation cases selected for one run; it is not a claim that the cases statistically represent a broader question population.
+
+**Structured outcome**:
+The non-empty query result plus stable reason code, response origin, and optional workflow-error category. Normal bounded outcomes and degraded workflow-error outcomes remain distinguishable even when both provide user-facing text.
+
+**Evaluation run status**:
+Whether the evaluation process completed artifact generation or failed. It is independent from the workflow outcome of the selected query cases.
+
+**Workflow reliability**:
+The ratio of selected evaluation cases that reached a normal bounded outcome without a workflow error. A completed artifact run can have a `completed_with_errors` workflow outcome and reliability below one.
