@@ -20,7 +20,7 @@ from rag_notes_helper.rag.retrieval import (
     HybridSearchResults,
     retrieve,
 )
-from rag_notes_helper.rag.answer import rag_answer
+from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE, rag_answer
 from rag_notes_helper.rag.agentic import (
     MAX_SEARCHES,
     AgenticWorkflowError,
@@ -32,6 +32,12 @@ from rag_notes_helper.utils.timer import time_block, deco_time_block
 
 
 logger = get_logger("cli")
+
+
+INVALID_QUERY_MESSAGE = "Please enter a non-empty question."
+NO_EVIDENCE_MESSAGE = (
+    "I could not find sufficient supporting evidence in the notes."
+)
 
 
 class EvaluationUnavailableError(RuntimeError):
@@ -205,6 +211,18 @@ def run_query(
     on_retrieval: Callable[[dict[str, Any]], None] | None = None,
     cross_encoder: CrossEncoderModel | None = None,
 ) -> dict[str, Any]:
+    if not query.strip():
+        return {
+            "answer": INVALID_QUERY_MESSAGE,
+            "citations": [],
+            "generation_context": [],
+            "retrieved_evidence": [],
+            "search_queries": [],
+            "retrieval_stages": [],
+            "reason_code": "invalid_query",
+            "response_origin": "deterministic",
+        }
+
     if agentic:
         kwargs = {
             "rag": rag,
@@ -232,15 +250,38 @@ def run_query(
             "latency_ms": round((perf_counter() - retrieval_started) * 1000, 3),
             "result_count": len(hits),
         })
+    retrieval_stages = [
+        hits.to_stage_record(search_id=1, search_query=query)
+    ] if isinstance(hits, HybridSearchResults) else []
+    if not hits:
+        return {
+            "answer": NO_EVIDENCE_MESSAGE,
+            "citations": [],
+            "generation_context": [],
+            "retrieved_evidence": hits,
+            "search_queries": [query],
+            "retrieval_stages": retrieval_stages,
+            "reason_code": "no_evidence_after_searches",
+            "response_origin": "deterministic",
+        }
     kwargs = {"hits": hits, "stream": stream}
     if on_generation is not None:
         kwargs["on_generation"] = on_generation
     result = rag_answer(query, **kwargs)
+    if isinstance(result["answer"], str) and not result["answer"].strip():
+        result["answer"] = NO_EVIDENCE_MESSAGE
+        result["reason_code"] = "insufficient_evidence"
+        result["response_origin"] = "deterministic"
+    else:
+        result["reason_code"] = (
+            "insufficient_evidence"
+            if result["answer"] == ABSTENTION_MESSAGE
+            else "answered"
+        )
+        result["response_origin"] = "answer_model"
     result["retrieved_evidence"] = hits
     result["search_queries"] = [query]
-    result["retrieval_stages"] = [
-        hits.to_stage_record(search_id=1, search_query=query)
-    ] if isinstance(hits, HybridSearchResults) else []
+    result["retrieval_stages"] = retrieval_stages
     return result
 
 
@@ -269,9 +310,6 @@ def repl(
             except KeyboardInterrupt:
                 print("\nBye~")
                 break
-
-            if query == "":
-                continue
 
             if query.startswith(";"):
                 print("\nCommand Typo:\n  commands should start with a colon\n")
@@ -480,6 +518,7 @@ def main():
         except ValueError as exc:
             parser.error(str(exc))
         return
+    query_submitted = bool(args.query)
     query = (" ".join(args.query)).strip()
     logger.info(
         f"[input]: rag-app{f' {query}' if query else ''}"
@@ -511,7 +550,7 @@ def main():
 
     if args.repl:
         logger.info("==== REPL start ====")
-        if query:
+        if query_submitted:
             try:
                 run_onetime(
                     rag,
@@ -532,7 +571,7 @@ def main():
         )
         logger.info("==== REPL end ====")
 
-    elif query and not args.repl:
+    elif query_submitted and not args.repl:
         logger.info("==== run_onetime start ====")
         try:
             run_onetime(
