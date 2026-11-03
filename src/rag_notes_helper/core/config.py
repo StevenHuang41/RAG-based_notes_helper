@@ -122,7 +122,24 @@ class Settings(BaseSettings):
         le=50,
         validation_alias=AliasChoices("FUSION_TOP_K", "TOP_K", "fusion_top_k"),
     )
-    min_retrieval_score: float = Field(0.2, ge=0, le=1)
+    vector_min_score: float = Field(
+        0.2,
+        ge=0,
+        le=1,
+        allow_inf_nan=False,
+        validation_alias=AliasChoices(
+            "VECTOR_MIN_SCORE",
+            "MIN_RETRIEVAL_SCORE",
+            "vector_min_score",
+            "min_retrieval_score",
+        ),
+    )
+    bm25_min_score_ratio: float = Field(
+        0.0,
+        ge=0,
+        le=1,
+        allow_inf_nan=False,
+    )
     cross_encoder_model: str = Field(DEFAULT_CROSS_ENCODER_MODEL, min_length=1)
 
     # format
@@ -156,6 +173,11 @@ class Settings(BaseSettings):
     def top_k(self) -> int:
         """Compatibility alias for the final fused retrieval result limit."""
         return self.fusion_top_k
+
+    @property
+    def min_retrieval_score(self) -> float:
+        """Compatibility alias for the Vector starting threshold."""
+        return self.vector_min_score
 
 
 @lru_cache
