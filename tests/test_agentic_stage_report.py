@@ -93,6 +93,15 @@ def _search_record(search_id, search_query, vector, bm25, rrf, reranked):
                 "returned_count": len(hits),
                 "latency_ms": search_id * stage_index / 10,
                 "results": hits,
+                **({
+                    "provenance": {
+                        "evidence_mode": (
+                            "replace" if search_id == 1 else "extend"
+                        ),
+                        "candidate_count_before_rerank": len(hits),
+                        "active_search_ids": list(range(1, search_id + 1)),
+                    },
+                } if name == "reranked" else {}),
             }
             for stage_index, (name, (hits, cutoff)) in enumerate(
                 stage_results.items(), start=1
@@ -145,6 +154,36 @@ def test_agentic_evaluation_preserves_search_stages_union_metrics_context_and_la
         "notes/release.md", 11, 11, 11, "FINAL_CONTEXT_ONLY_TEXT",
         vector_rank=3, bm25_rank=3, rank=3, rerank_rank=3,
     )
+    line_eleven["search_provenance"] = [
+        {
+            "search_id": 1,
+            "search_query": evidence_case["question"],
+            "effective_thresholds": {
+                "vector_min_score": 0.5,
+                "bm25_min_score_ratio": 0.25,
+            },
+            "vector_rank": 3,
+            "vector_score": 0.8,
+            "bm25_rank": 3,
+            "bm25_score": 2.0,
+            "fusion_rank": 3,
+            "fusion_score": 1 / 63,
+        },
+        {
+            "search_id": 2,
+            "search_query": "release backup owner",
+            "effective_thresholds": {
+                "vector_min_score": 0.2,
+                "bm25_min_score_ratio": 0.1,
+            },
+            "vector_rank": 1,
+            "vector_score": 0.9,
+            "bm25_rank": 2,
+            "bm25_score": 3.0,
+            "fusion_rank": 1,
+            "fusion_score": 2 / 61,
+        },
+    ]
     answer_searches = [
         _search_record(
             1,
@@ -292,6 +331,19 @@ def test_agentic_evaluation_preserves_search_stages_union_metrics_context_and_la
     assert answer_result["retrieval_stages"][0]["filter_diagnostics"][
         "vector"
     ]["highest_excluded_score"] == 0.4
+    assert answer_result["retrieval_stages"][1]["stages"]["reranked"][
+        "provenance"
+    ] == {
+        "evidence_mode": "extend",
+        "candidate_count_before_rerank": 3,
+        "active_search_ids": [1, 2],
+    }
+    assert [
+        item["search_id"]
+        for item in answer_result["retrieval_stages"][1]["stages"][
+            "reranked"
+        ]["results"][0]["search_provenance"]
+    ] == [1, 2]
     first_reranked = answer_result["retrieval_stages"][0]["stages"]["reranked"]
     assert [
         (name, stage["top_k"], stage["returned_count"])

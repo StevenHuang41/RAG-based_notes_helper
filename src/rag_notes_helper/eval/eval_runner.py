@@ -802,6 +802,8 @@ def _stage_result_record(
     ):
         if key in hit:
             record[key] = _safe_score(hit.get(key))
+    if isinstance(hit.get("search_provenance"), list):
+        record["search_provenance"] = hit["search_provenance"]
     return record
 
 
@@ -912,6 +914,11 @@ def _record_retrieval_stages(
                 "results": normalized_candidates,
                 "metrics": metrics,
             }
+            if stage_name == "reranked" and isinstance(
+                raw_stage.get("provenance"),
+                dict,
+            ):
+                stage_record["provenance"] = raw_stage["provenance"]
             record_stages[stage_name] = stage_record
             summary = {
                 "stage": stage_name,

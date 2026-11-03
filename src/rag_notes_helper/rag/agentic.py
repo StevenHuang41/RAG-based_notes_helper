@@ -247,6 +247,109 @@ def _deduplicate_hits(hits: Sequence[dict]) -> list[dict]:
     return list(unique.values())
 
 
+def _candidate_search_provenance(
+    candidate: dict[str, Any],
+    *,
+    search_id: int,
+    search_query: str,
+    effective_thresholds: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "search_id": search_id,
+        "search_query": search_query,
+        "effective_thresholds": dict(effective_thresholds),
+        "vector_rank": candidate.get("vector_rank"),
+        "vector_score": candidate.get("vector_score"),
+        "bm25_rank": candidate.get("bm25_rank"),
+        "bm25_score": candidate.get("bm25_score"),
+        "fusion_rank": candidate.get("rank"),
+        "fusion_score": candidate.get("fusion_score"),
+    }
+
+
+def _merge_active_candidates(candidates: Sequence[dict]) -> list[dict]:
+    merged: dict[tuple[str, int], dict[str, Any]] = {}
+    for candidate in candidates:
+        key = (candidate["source"], candidate["chunk_id"])
+        existing = merged.get(key)
+        if existing is None:
+            merged[key] = dict(candidate)
+            continue
+        provenance = list(existing.get("search_provenance", []))
+        provenance.extend(candidate.get("search_provenance", []))
+        if provenance:
+            existing["search_provenance"] = provenance
+    return list(merged.values())
+
+
+def _active_candidate_pool(
+    state: _AgenticState,
+    ranked_hits: Sequence[dict],
+    *,
+    search_id: int,
+    search_query: str,
+    evidence_mode: Literal["replace", "extend"],
+    stage_record: dict[str, Any] | None,
+) -> list[dict]:
+    if isinstance(ranked_hits, HybridSearchResults):
+        thresholds = ranked_hits.effective_thresholds
+        new_candidates = []
+        for candidate in ranked_hits.fused_results:
+            active_candidate = dict(candidate)
+            active_candidate["search_provenance"] = [
+                _candidate_search_provenance(
+                    candidate,
+                    search_id=search_id,
+                    search_query=search_query,
+                    effective_thresholds=thresholds,
+                )
+            ]
+            new_candidates.append(active_candidate)
+    else:
+        new_candidates = [dict(candidate) for candidate in ranked_hits]
+
+    combined = (
+        new_candidates
+        if evidence_mode == "replace"
+        else [*state["hits"], *new_candidates]
+    )
+    active_candidates = _merge_active_candidates(combined)
+
+    if not isinstance(ranked_hits, HybridSearchResults):
+        return active_candidates
+
+    rerank_started = perf_counter()
+    reranked = rerank_candidates(
+        state["query"],
+        active_candidates,
+        cross_encoder=state["cross_encoder"],
+    )
+    rerank_top_k = ranked_hits.configured_top_k.get(
+        "rerank",
+        ranked_hits.fusion_top_k,
+    )
+    reranked = reranked[:rerank_top_k]
+    rerank_latency_ms = round((perf_counter() - rerank_started) * 1000, 3)
+    if stage_record is not None:
+        active_search_ids = sorted({
+            provenance["search_id"]
+            for candidate in active_candidates
+            for provenance in candidate.get("search_provenance", [])
+        })
+        stage_record["stages"]["reranked"] = {
+            "top_k": rerank_top_k,
+            "returned_count": len(reranked),
+            "results": reranked,
+            "latency_ms": rerank_latency_ms,
+            "provenance": {
+                "evidence_mode": evidence_mode,
+                "candidate_count_before_rerank": len(active_candidates),
+                "active_search_ids": active_search_ids,
+            },
+        }
+    return reranked
+
+
 def _build_controller_prompt(
     *,
     query: str,
@@ -539,7 +642,7 @@ def _record_search(
     vector_min_score: float | None = None,
     bm25_min_score_ratio: float | None = None,
     evidence_mode: Literal["replace", "extend"] = "replace",
-) -> tuple[int, list[dict], dict[str, Any] | None]:
+) -> tuple[int, list[dict], list[dict], dict[str, Any] | None]:
     search_index = state["search_index"] + 1
     trace = state["audit_trace"]
     trace["search_attempts"] = search_index
@@ -586,6 +689,14 @@ def _record_search(
         stage_record["evidence_mode"] = evidence_mode
 
     search_hits = _deduplicate_hits(ranked_hits)
+    active_hits = _active_candidate_pool(
+        state,
+        ranked_hits,
+        search_id=search_index,
+        search_query=query,
+        evidence_mode=evidence_mode,
+        stage_record=stage_record,
+    )
     trace["search_results"].append(search_hits)
     trace["retrieved_evidence"] = _deduplicate_hits(
         trace["retrieved_evidence"] + search_hits
@@ -593,14 +704,17 @@ def _record_search(
     if stage_record is not None:
         trace["retrieval_stages"].append(stage_record)
 
-    return search_index, search_hits, stage_record
+    return search_index, search_hits, active_hits, stage_record
 
 
 def _initial_search_node(state: _AgenticState) -> dict[str, Any]:
     if state["on_progress"] is not None:
         state["on_progress"]("searching", 1)
 
-    search_index, hits, stage_record = _record_search(state, state["query"])
+    search_index, search_hits, active_hits, stage_record = _record_search(
+        state,
+        state["query"],
+    )
     retrieval_stages = state["retrieval_stages"]
     if stage_record is not None:
         retrieval_stages = retrieval_stages + [stage_record]
@@ -610,8 +724,8 @@ def _initial_search_node(state: _AgenticState) -> dict[str, Any]:
         "searches_used": search_index,
         "search_queries": state["search_queries"] + [state["query"]],
         "retrieval_stages": retrieval_stages,
-        "search_results": [hits],
-        "hits": hits,
+        "search_results": [search_hits],
+        "hits": active_hits,
         "used_hybrid_search": state["used_hybrid_search"] or stage_record is not None,
     }
 
@@ -666,7 +780,7 @@ def _focused_search_node(state: _AgenticState) -> dict[str, Any]:
     if state["on_progress"] is not None:
         state["on_progress"]("searching", next_search_count)
 
-    search_index, search_hits, stage_record = _record_search(
+    search_index, search_hits, active_hits, stage_record = _record_search(
         state,
         action.query,
         vector_min_score=action.vector_min_score,
@@ -683,7 +797,7 @@ def _focused_search_node(state: _AgenticState) -> dict[str, Any]:
         "search_queries": state["search_queries"] + [action.query],
         "retrieval_stages": retrieval_stages,
         "search_results": state["search_results"] + [search_hits],
-        "hits": _deduplicate_hits(state["hits"] + search_hits),
+        "hits": active_hits,
         "used_hybrid_search": state["used_hybrid_search"] or stage_record is not None,
     }
 
