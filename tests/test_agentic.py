@@ -704,6 +704,9 @@ def test_agentic_returns_specific_insufficiency_after_three_answer_attempts():
     assert result["answer"] == ANSWER_RETRY_EXHAUSTED_MESSAGE
     assert result["citations"] == []
     assert result["answer_retry_exhausted"] is True
+    assert result["reason_code"] == "answer_attempts_exhausted"
+    assert result["response_origin"] == "deterministic"
+    assert result["answer"] != "Unsupported candidate."
     assert result["answer_attempts"] == 3
 
 

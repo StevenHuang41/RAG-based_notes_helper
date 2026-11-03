@@ -473,6 +473,288 @@ def test_agentic_extend_deduplicates_and_preserves_multi_search_provenance(
     )
 
 
+def test_answer_review_can_reopen_retrieval_without_resetting_budgets(
+    monkeypatch,
+):
+    first = {
+        "source": "notes/plan.md",
+        "chunk_id": 1,
+        "score": 0.8,
+        "text": "The project has a launch owner.",
+    }
+    second = {
+        "source": "notes/owner.md",
+        "chunk_id": 2,
+        "score": 0.9,
+        "text": "Mina owns the launch.",
+    }
+    controller = _Controller([
+        '{"action":"answer","evidence":['
+        '{"source":"notes/plan.md","chunk_id":1}]}',
+        '{"action":"search","query":"launch owner Mina",'
+        '"vector_min_score":0.3,"bm25_min_score_ratio":0.1,'
+        '"evidence_mode":"extend"}',
+        '{"action":"answer","evidence":['
+        '{"source":"notes/plan.md","chunk_id":1},'
+        '{"source":"notes/owner.md","chunk_id":2}]}',
+        '{"action":"accept"}',
+    ])
+    searches = []
+    answers = []
+
+    def retrieve_after_review(_rag, _meta_store, *, query, **kwargs):
+        searches.append((query, kwargs))
+        return [first] if len(searches) == 1 else [second]
+
+    def generate_candidate(_query, *, hits, **_kwargs):
+        answers.append(list(hits))
+        return {
+            "answer": (
+                "REJECTED CANDIDATE"
+                if len(answers) == 1
+                else "Mina owns the launch."
+            ),
+            "citations": hits,
+            "generation_context": hits,
+        }
+
+    monkeypatch.setattr(agentic_module, "get_llm", lambda: controller)
+    monkeypatch.setattr(agentic_module, "retrieve", retrieve_after_review)
+    monkeypatch.setattr(agentic_module, "rag_answer", generate_candidate)
+
+    result = cli.run_query(
+        object(),
+        object(),
+        query="Who owns the launch?",
+        agentic=True,
+    )
+
+    assert searches[1][0] == "launch owner Mina"
+    assert searches[1][1]["vector_min_score"] == 0.3
+    assert searches[1][1]["bm25_min_score_ratio"] == 0.1
+    assert len(answers) == 2
+    assert answers[0] == [first]
+    assert answers[1] == [first, second]
+    assert result["answer"] == "Mina owns the launch."
+    assert result["answer"] != "REJECTED CANDIDATE"
+    assert result["search_attempts"] == 2
+    assert result["answer_attempts"] == 2
+    assert result["search_queries"] == [
+        "Who owns the launch?",
+        "launch owner Mina",
+    ]
+
+
+def test_answer_review_can_request_clarification_without_exposing_candidate(
+    monkeypatch,
+):
+    hit = {
+        "source": "notes/decision.md",
+        "chunk_id": 1,
+        "score": 0.8,
+        "text": "The team approved one of the proposals.",
+    }
+    controller = _Controller([
+        '{"action":"answer","evidence":['
+        '{"source":"notes/decision.md","chunk_id":1}]}',
+        '{"action":"clarify","message":"Which proposal do you mean?"}',
+    ])
+    answer_calls = []
+
+    monkeypatch.setattr(agentic_module, "get_llm", lambda: controller)
+    monkeypatch.setattr(
+        agentic_module,
+        "retrieve",
+        lambda *_args, **_kwargs: [hit],
+    )
+    monkeypatch.setattr(
+        agentic_module,
+        "rag_answer",
+        lambda *_args, **_kwargs: answer_calls.append("candidate") or {
+            "answer": "REJECTED CANDIDATE",
+            "citations": [hit],
+            "generation_context": [hit],
+        },
+    )
+
+    result = cli.run_query(
+        object(), object(), query="What did they approve?", agentic=True
+    )
+
+    assert answer_calls == ["candidate"]
+    assert result["answer"] == "Which proposal do you mean?"
+    assert result["answer"] != "REJECTED CANDIDATE"
+    assert result["citations"] == []
+    assert result["reason_code"] == "needs_clarification"
+    assert result["response_origin"] == "controller"
+    assert result["search_attempts"] == 1
+    assert result["answer_attempts"] == 1
+
+
+def test_agentic_mixed_cycle_stops_at_exact_search_and_answer_caps(
+    monkeypatch,
+):
+    hits = [
+        {
+            "source": f"notes/search-{index}.md",
+            "chunk_id": index,
+            "score": 0.9,
+            "text": f"Evidence from search {index}.",
+        }
+        for index in range(1, 4)
+    ]
+    controller = _Controller([
+        '{"action":"answer","evidence":['
+        '{"source":"notes/search-1.md","chunk_id":1}]}',
+        '{"action":"search","query":"search two",'
+        '"vector_min_score":0.4,"bm25_min_score_ratio":0.2,'
+        '"evidence_mode":"replace"}',
+        '{"action":"answer","evidence":['
+        '{"source":"notes/search-2.md","chunk_id":2}]}',
+        '{"action":"search","query":"search three",'
+        '"vector_min_score":0.3,"bm25_min_score_ratio":0.1,'
+        '"evidence_mode":"replace"}',
+        '{"action":"answer","evidence":['
+        '{"source":"notes/search-3.md","chunk_id":3}]}',
+        '{"action":"accept"}',
+    ])
+    search_calls = []
+    answer_calls = []
+
+    def retrieve_three(*_args, query, **_kwargs):
+        search_calls.append(query)
+        return [hits[len(search_calls) - 1]]
+
+    def answer_three(_query, *, hits, **_kwargs):
+        answer_calls.append(list(hits))
+        return {
+            "answer": f"Candidate {len(answer_calls)}",
+            "citations": hits,
+            "generation_context": hits,
+        }
+
+    monkeypatch.setattr(agentic_module, "get_llm", lambda: controller)
+    monkeypatch.setattr(agentic_module, "retrieve", retrieve_three)
+    monkeypatch.setattr(agentic_module, "rag_answer", answer_three)
+
+    result = cli.run_query(
+        object(), object(), query="Original question", agentic=True
+    )
+
+    assert search_calls == ["Original question", "search two", "search three"]
+    assert len(answer_calls) == 3
+    assert result["answer"] == "Candidate 3"
+    assert result["search_attempts"] == 3
+    assert result["answer_attempts"] == 3
+
+
+def test_answer_review_search_at_search_cap_retries_without_fourth_search(
+    monkeypatch,
+):
+    hit = {
+        "source": "notes/evidence.md",
+        "chunk_id": 1,
+        "score": 0.9,
+        "text": "Partial evidence.",
+    }
+    illegal_search = (
+        '{"action":"search","query":"fourth search",'
+        '"vector_min_score":0.1,"bm25_min_score_ratio":0.1,'
+        '"evidence_mode":"extend"}'
+    )
+    controller = _Controller([
+        '{"action":"search","query":"second search",'
+        '"vector_min_score":0.4,"bm25_min_score_ratio":0.2,'
+        '"evidence_mode":"replace"}',
+        '{"action":"search","query":"third search",'
+        '"vector_min_score":0.3,"bm25_min_score_ratio":0.1,'
+        '"evidence_mode":"replace"}',
+        '{"action":"answer","evidence":['
+        '{"source":"notes/evidence.md","chunk_id":1}]}',
+        illegal_search,
+        '{"action":"abstain"}',
+    ])
+    search_calls = []
+
+    def retrieve_three(*_args, query, **_kwargs):
+        search_calls.append(query)
+        return [hit]
+
+    monkeypatch.setattr(agentic_module, "get_llm", lambda: controller)
+    monkeypatch.setattr(agentic_module, "retrieve", retrieve_three)
+    monkeypatch.setattr(
+        agentic_module,
+        "rag_answer",
+        lambda *_args, **_kwargs: {
+            "answer": "REJECTED CANDIDATE",
+            "citations": [hit],
+            "generation_context": [hit],
+        },
+    )
+
+    result = cli.run_query(object(), object(), query="Question", agentic=True)
+
+    assert search_calls == ["Question", "second search", "third search"]
+    assert result["answer"] == ABSTENTION_MESSAGE
+    assert result["answer"] != "REJECTED CANDIDATE"
+    assert result["search_attempts"] == 3
+    assert result["answer_attempts"] == 1
+    retry_prompt = json.loads(controller.prompts[-1][1]["content"])
+    assert "validation_feedback" in retry_prompt
+    assert retry_prompt["searches_remaining"] == 0
+
+
+def test_answer_review_search_at_answer_cap_degrades_without_extra_work(
+    monkeypatch,
+):
+    hit = {
+        "source": "notes/evidence.md",
+        "chunk_id": 1,
+        "score": 0.9,
+        "text": "Partial evidence.",
+    }
+    illegal_search = (
+        '{"action":"search","query":"more evidence",'
+        '"vector_min_score":0.1,"bm25_min_score_ratio":0.1,'
+        '"evidence_mode":"extend"}'
+    )
+    controller = _Controller([
+        '{"action":"answer","evidence":['
+        '{"source":"notes/evidence.md","chunk_id":1}]}',
+        '{"action":"revise","feedback":"Try again."}',
+        '{"action":"revise","feedback":"Still incomplete."}',
+        illegal_search,
+        illegal_search,
+    ])
+    search_calls = []
+    answer_calls = []
+
+    def answer_three(*_args, **_kwargs):
+        answer_calls.append("candidate")
+        return {
+            "answer": "REJECTED CANDIDATE",
+            "citations": [hit],
+            "generation_context": [hit],
+        }
+
+    monkeypatch.setattr(agentic_module, "get_llm", lambda: controller)
+    monkeypatch.setattr(
+        agentic_module,
+        "retrieve",
+        lambda *_args, **_kwargs: search_calls.append("search") or [hit],
+    )
+    monkeypatch.setattr(agentic_module, "rag_answer", answer_three)
+
+    result = cli.run_query(object(), object(), query="Question", agentic=True)
+
+    assert search_calls == ["search"]
+    assert len(answer_calls) == 3
+    assert result["reason_code"] == "controller_failure"
+    assert result["answer"] != "REJECTED CANDIDATE"
+    assert result["search_attempts"] == 1
+    assert result["answer_attempts"] == 3
+
+
 def test_agentic_empty_search_can_adapt_thresholds_and_rewrite_query(
     monkeypatch,
 ):
