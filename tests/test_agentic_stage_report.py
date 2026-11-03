@@ -297,8 +297,18 @@ def test_agentic_evaluation_preserves_search_stages_union_metrics_context_and_la
                 },
             },
             {
-                **{metric: None for metric in metric_names},
-                "metric_reasons": {},
+                "faithfulness": None,
+                "answer_relevancy": 0.6,
+                "answer_correctness": 0.7,
+                "context_utilization": None,
+                "metric_reasons": {
+                    "faithfulness": (
+                        "Unavailable because no final generation context was available."
+                    ),
+                    "context_utilization": (
+                        "Unavailable because no final generation context was available."
+                    ),
+                },
                 "metric_latencies_ms": {metric: None for metric in metric_names},
             },
         ]
@@ -417,9 +427,12 @@ def test_agentic_evaluation_preserves_search_stages_union_metrics_context_and_la
     assert abstain_result["latency"]["controller_ms"] is None
     assert abstain_result["latency"]["answer_generation_ms"] is None
     assert abstain_result["latency"]["judge_ms"] is None
-    assert abstain_result["latency"]["end_to_end_ms"] == pytest.approx(
-        abstain_result["latency"]["rag_query_ms"]
+    assert abstain_result["generation_metrics"]["answer_relevancy"] == 0.6
+    assert abstain_result["generation_metrics"]["answer_correctness"] == 0.7
+    assert abstain_result["metric_reasons"]["faithfulness"].startswith(
+        "Unavailable"
     )
+    assert abstain_result["latency"]["end_to_end_ms"] is None
 
     report = (run_dir / "README.md").read_text(encoding="utf-8")
     assert "Search | Query | Vector threshold | BM25 threshold ratio" in report
@@ -515,15 +528,10 @@ def test_agentic_evaluation_preserves_structured_degraded_search_trace(
             "phase": "retrieval_review",
             "latency_ms": 2.0,
         })
-        on_generation({
-            "call_type": "answer",
-            "phase": "answer_generation",
-            "latency_ms": 3.0,
-        })
         return {
             "answer": "I could not complete the bounded review.",
             "citations": [],
-            "generation_context": [hit],
+            "generation_context": [],
             "retrieved_evidence": [hit],
             "search_results": [[hit]],
             "search_queries": [query],
@@ -531,7 +539,6 @@ def test_agentic_evaluation_preserves_structured_degraded_search_trace(
             "reason_code": "controller_failure",
             "response_origin": "deterministic",
             "workflow_error": "controller_failure",
-            "answer_attempts": 1,
         }
 
     def fake_ragas(_cases, *, usage_recorder):
@@ -540,7 +547,14 @@ def test_agentic_evaluation_preserves_structured_degraded_search_trace(
             "answer_relevancy": 0.2,
             "answer_correctness": 0.1,
             "context_utilization": None,
-            "metric_reasons": {},
+            "metric_reasons": {
+                "faithfulness": (
+                    "Unavailable because no final generation context was available."
+                ),
+                "context_utilization": (
+                    "Unavailable because no final generation context was available."
+                ),
+            },
             "metric_latencies_ms": {},
         }]
 
@@ -554,10 +568,22 @@ def test_agentic_evaluation_preserves_structured_degraded_search_trace(
         output_root=tmp_path,
         agentic=True,
     )
-    result = json.loads(
+    results = json.loads(
         (run_dir / "results.json").read_text(encoding="utf-8")
-    )["cases"][0]
+    )
+    result = results["cases"][0]
+    summary = results["summary"]["workflows"]["agentic"]
+    report = (run_dir / "README.md").read_text(encoding="utf-8")
 
+    assert results["schema_version"] == 8
+    assert results["run_status"] == "completed"
+    assert results["workflow_outcome"] == "completed_with_errors"
+    assert results["workflow_error_count"] == 1
+    assert results["workflow_reliability"] == {
+        "successful_cases": 0,
+        "selected_cases": 1,
+        "ratio": 0.0,
+    }
     assert result["workflow_error"] == "controller_failure"
     assert result["answer"].strip()
     assert result["retrieved_evidence"][0]["chunk_id"] == 10
@@ -568,5 +594,34 @@ def test_agentic_evaluation_preserves_structured_degraded_search_trace(
     ] == 1
     assert result["latency"]["retrieval_calls"][0]["result_count"] == 1
     assert result["latency"]["controller_ms"] == 2.0
-    assert result["latency"]["answer_generation_ms"] == 3.0
-    assert result["generation_context"][0]["chunk_id"] == 10
+    assert result["latency"]["answer_generation_ms"] is None
+    assert result["generation_context"] == []
+    assert result["generation_metrics"] == {
+        "faithfulness": None,
+        "answer_relevancy": 0.2,
+        "answer_correctness": 0.1,
+    }
+    assert result["metric_reasons"]["faithfulness"].startswith("Unavailable")
+    assert result["metric_reasons"]["context_utilization"].startswith(
+        "Unavailable"
+    )
+    assert summary["generation_metrics"] == {
+        "faithfulness": None,
+        "answer_relevancy": None,
+        "answer_correctness": None,
+    }
+    assert summary["workflow_error_ragas_metrics"] == {
+        "faithfulness": None,
+        "answer_relevancy": 0.2,
+        "answer_correctness": 0.1,
+        "context_utilization": None,
+    }
+    assert "**Status:** `completed`" in report
+    assert "**Workflow outcome:** `completed_with_errors`" in report
+    assert "**Workflow reliability:** `0/1 (0.0000)`" in report
+    assert "| Vector@2 | 1.0000 | 1.0000 | 1.0000 |" in report
+    assert "| BM25@2 | 1.0000 | 1.0000 | 1.0000 |" in report
+    assert "| Fusion@3 | 1.0000 | 1.0000 | 1.0000 |" in report
+    assert "| Rerank@3 | 1.0000 | 1.0000 | 1.0000 |" in report
+    assert "| Generation@1 | — | — | — |" in report
+    assert "Unavailable because no final generation context was available." in report

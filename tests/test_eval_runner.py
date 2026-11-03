@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from rag_notes_helper.eval import eval_runner
+from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE
 from rag_notes_helper.rag.agentic import MAX_ANSWER_ATTEMPTS, MAX_SEARCHES
 from rag_notes_helper.rag.index import RagIndex
 
@@ -22,7 +23,7 @@ class FixtureEmbeddingModel:
         return np.ones((len(texts), 4), dtype=np.float32)
 
 
-def test_exhausted_answer_attempts_are_an_abstention_and_skip_ragas():
+def test_exhausted_answer_attempts_remain_judgeable_when_context_exists():
     fields = eval_runner._answerability_fields(
         {"answerable": False},
         "Please ask a more specific question.",
@@ -36,7 +37,7 @@ def test_exhausted_answer_attempts_are_an_abstention_and_skip_ragas():
 
     assert fields["abstained"] is True
     assert fields["answerability_correct"] is True
-    assert eval_runner._ragas_metric_is_eligible(case, "faithfulness") is False
+    assert eval_runner._ragas_metric_is_eligible(case, "faithfulness") is True
 
 
 class FixtureAnswerModel:
@@ -213,7 +214,10 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert (run_dir / "README.md").is_file()
     assert not (run_dir / "summary.json").exists()
     results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
-    assert results["schema_version"] == 7
+    assert results["schema_version"] == 8
+    assert results["run_status"] == "completed"
+    assert results["workflow_outcome"] == "completed"
+    assert results["workflow_error_count"] == 0
     for case in results["cases"]:
         assert len(case["search_queries"]) == len(case["search_results"])
         assert case["search_queries"][0] == case["question"]
@@ -311,7 +315,7 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
         for search_hits in case["search_results"]
         for hit in search_hits
     )
-    assert "reason for faithfulness" not in readme
+    assert "reason for faithfulness" in readme
     assert "## Metrics by category" in readme
     assert "Judge usage by metric" in readme
     run_log = (run_dir / "run.log").read_text(encoding="utf-8")
@@ -367,12 +371,6 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert all(
         all(value == 1.0 for value in case["generation_metrics"].values())
         for case in results["cases"]
-        if case["expected_answerable"]
-    )
-    assert all(
-        all(value is None for value in case["generation_metrics"].values())
-        for case in results["cases"]
-        if not case["expected_answerable"]
     )
     assert all(
         case["answerability_correct"] is True
@@ -389,7 +387,7 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     workflow_summary = summary["workflows"][workflow]
     assert workflow_summary["case_count"] == len(fixture_cases)
     assert workflow_summary["ragas_metric_eligible_case_counts"] == {
-        metric: answerable_count
+        metric: len(fixture_cases)
         for metric in (
             "faithfulness",
             "answer_relevancy",
@@ -422,19 +420,18 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
         sum(case["category"] == "direct" for case in fixture_cases)
         * (26 if agentic else 12)
     )
-    direct_answerable_count = sum(
-        case["category"] == "direct" and case["answerable"]
-        for case in fixture_cases
+    direct_case_count = sum(
+        case["category"] == "direct" for case in fixture_cases
     )
-    answerable_count = sum(case["answerable"] for case in fixture_cases)
+    case_count = len(fixture_cases)
     assert direct_summary["judge_usage"]["token_usage"]["total_tokens"] == (
-        direct_answerable_count * 12
+        direct_case_count * 12
     )
     assert summary["judge_usage"]["total"]["token_usage"] == {
         "status": "available",
-        "input_tokens": answerable_count * 8,
-        "output_tokens": answerable_count * 4,
-        "total_tokens": answerable_count * 12,
+        "input_tokens": case_count * 8,
+        "output_tokens": case_count * 4,
+        "total_tokens": case_count * 12,
     }
     assert summary["judge_usage"]["by_workflow"][workflow]["calls"][0][
         "provider"
@@ -444,7 +441,7 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     ] == "llama3.1"
     assert summary["judge_usage"]["by_metric"]["answer_correctness"][
         "token_usage"
-    ]["total_tokens"] == answerable_count * 3
+    ]["total_tokens"] == case_count * 3
     selected_case = results["cases"][0]
     assert selected_case["generation_usage"]["call_count"] == (3 if agentic else 1)
     assert selected_case["generation_usage"]["token_usage"] == {
@@ -505,9 +502,9 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     answer_relevancy_rows = workflow_batches[0]["rows"]
     context_utilization_rows = workflow_batches[1]["rows"]
     answer_rows = workflow_batches[2]["rows"]
-    assert len(context_utilization_rows) == answerable_count
-    assert len(answer_relevancy_rows) == answerable_count
-    assert len(answer_rows) == answerable_count
+    assert len(context_utilization_rows) == len(fixture_cases)
+    assert len(answer_relevancy_rows) == len(fixture_cases)
+    assert len(answer_rows) == len(fixture_cases)
     assert [batch["metric_names"] for batch in workflow_batches] == [
         ["answer_relevancy"],
         ["context_utilization"],
@@ -526,7 +523,6 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert [row["reference_answer"] for row in correctness_rows] == [
         case["reference_answer"]
         for case in results["cases"]
-        if case["expected_answerable"]
     ]
     assert selected_case["reference_answer"] == (
         "Lena Ortiz is the product owner."
@@ -534,12 +530,10 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert [row["contexts"] for row in answer_rows] == [
         case["answer_contexts"]
         for case in results["cases"]
-        if case["expected_answerable"]
     ]
     assert [row["contexts"] for row in context_utilization_rows] == [
         case["answer_contexts"]
         for case in results["cases"]
-        if case["expected_answerable"]
     ]
 
 
@@ -1084,15 +1078,15 @@ def test_ragas_metrics_skip_context_dependent_scores_when_retrieval_is_empty(
         ["faithfulness"],
         ["answer_correctness"],
     ]
-    assert [len(batch["rows"]) for batch in batches_seen] == [2, 1, 1, 2]
+    assert [len(batch["rows"]) for batch in batches_seen] == [3, 1, 1, 3]
     assert scores[0]["answer_relevancy"] == 0.5
     assert scores[0]["answer_correctness"] == 0.5
     assert "context_utilization" not in scores[0]
     assert "faithfulness" not in scores[0]
-    assert "no answer context" in scores[0]["metric_reasons"][
+    assert "no final generation context" in scores[0]["metric_reasons"][
         "context_utilization"
     ]
-    assert "no answer context" in scores[0]["metric_reasons"]["faithfulness"]
+    assert "no final generation context" in scores[0]["metric_reasons"]["faithfulness"]
     assert scores[2] == {
         "metric_reasons": {
             name: "Skipped because no generated answer was available."
@@ -1102,7 +1096,11 @@ def test_ragas_metrics_skip_context_dependent_scores_when_retrieval_is_empty(
     }
     assert scores[1]["context_utilization"] == 0.5
     assert scores[1]["faithfulness"] == 0.5
-    assert scores[3] == {}
+    assert scores[3]["answer_relevancy"] == 0.5
+    assert scores[3]["answer_correctness"] == 0.5
+    assert "no final generation context" in scores[3]["metric_reasons"][
+        "faithfulness"
+    ]
     assert [call["row_index"] for call in judge_calls if call["metric"] == "context_utilization"] == [1]
     assert [call["row_index"] for call in judge_calls if call["metric"] == "faithfulness"] == [1]
 
@@ -1748,3 +1746,177 @@ def test_run_evaluation_uses_final_answer_context_for_context_utilization(
         "answer": "Only the selected chunk.",
         "contexts": [selected_hit["text"]],
     }]
+
+
+def test_run_evaluation_judges_applicable_mixed_outcomes_and_separates_errors(
+    monkeypatch,
+    tmp_path,
+):
+    outcome_specs = [
+        ("normal", True, "Grounded answer.", None, None),
+        ("abstention", False, ABSTENTION_MESSAGE, None, None),
+        (
+            "clarification",
+            False,
+            "Which project do you mean?",
+            "needs_clarification",
+            None,
+        ),
+        (
+            "retrieval-failure",
+            True,
+            "RETRIEVAL FAILURE RESPONSE",
+            "retrieval_failure",
+            "retrieval_failure",
+        ),
+    ]
+    cases = [
+        {
+            "id": case_id,
+            "category": "direct",
+            "challenge_tags": ["mixed-outcome"],
+            "question": f"Question for {case_id}?",
+            "reference_answer": f"Reference for {case_id}.",
+            "answerable": answerable,
+            "expected_sources": [],
+            "expected_evidence": [],
+        }
+        for case_id, answerable, _answer, _reason, _error in outcome_specs
+    ]
+    settings = SimpleNamespace(
+        llm=SimpleNamespace(
+            provider="fixture",
+            model="fixture-answer",
+            effective_eval_provider="fixture",
+            effective_eval_model="fixture-judge",
+            max_chunks=1,
+        ),
+        embed_model_name="fixture-embedding",
+        chunk_size=200,
+        chunk_overlap=50,
+        top_k=1,
+        vector_top_k=1,
+        bm25_top_k=1,
+        fusion_top_k=1,
+        min_retrieval_score=0.0,
+    )
+    context_hit = {
+        "source": "notes/context.md",
+        "chunk_id": 1,
+        "start_line": 1,
+        "end_line": 1,
+        "score": 0.9,
+        "text": "Grounded context.",
+    }
+
+    @contextmanager
+    def isolated_index():
+        yield settings, object(), object()
+
+    outcomes = {
+        case["question"]: (answer, reason_code, workflow_error)
+        for case, (_case_id, _answerable, answer, reason_code, workflow_error)
+        in zip(cases, outcome_specs, strict=True)
+    }
+
+    def fake_run_query(
+        _rag,
+        _meta_store,
+        *,
+        query,
+        agentic,
+        stream,
+        on_generation,
+        on_retrieval,
+    ):
+        answer, reason_code, workflow_error = outcomes[query]
+        has_context = answer == "Grounded answer."
+        result = {
+            "answer": answer,
+            "citations": [context_hit] if has_context else [],
+            "retrieved_evidence": [context_hit] if has_context else [],
+            "search_results": [[context_hit]] if has_context else [[]],
+            "search_queries": [query],
+            "retrieval_stages": [],
+            "generation_context": [context_hit] if has_context else [],
+            "reason_code": reason_code,
+            "response_origin": "deterministic" if reason_code else "model",
+        }
+        if workflow_error:
+            result["workflow_error"] = workflow_error
+        return result
+
+    batches_seen = []
+
+    def fake_worker(_command, *, input, capture_output, text, check):
+        request = json.loads(input)
+        batches_seen.extend(request["batches"])
+        score_sets = []
+        for batch in request["batches"]:
+            metric = batch["metric_names"][0]
+            score_sets.append([
+                {
+                    metric: (
+                        0.1
+                        if row["answer"] == "RETRIEVAL FAILURE RESPONSE"
+                        else 0.9
+                    ),
+                    "metric_reasons": {metric: "Scored by fixture judge."},
+                    "metric_latencies_ms": {metric: 1.0},
+                }
+                for row in batch["rows"]
+            ])
+        return SimpleNamespace(
+            stdout=json.dumps({"scores": score_sets, "judge_calls": []}),
+            returncode=0,
+        )
+
+    monkeypatch.setattr(eval_runner, "load_qa_fixture", lambda: cases)
+    monkeypatch.setattr(eval_runner, "get_settings", lambda: settings)
+    monkeypatch.setattr(eval_runner, "_isolated_fixture_index", isolated_index)
+    monkeypatch.setattr("rag_notes_helper.cli.run_query", fake_run_query)
+    monkeypatch.setattr(eval_runner.subprocess, "run", fake_worker)
+
+    run_dir = eval_runner.run_evaluation(output_root=tmp_path, agentic=True)
+    results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
+    records = {record["case_id"]: record for record in results["cases"]}
+    summary = results["summary"]["workflows"]["agentic"]
+    report = (run_dir / "README.md").read_text(encoding="utf-8")
+
+    assert [batch["metric_names"] for batch in batches_seen] == [
+        ["answer_relevancy"],
+        ["context_utilization"],
+        ["faithfulness"],
+        ["answer_correctness"],
+    ]
+    assert [len(batch["rows"]) for batch in batches_seen] == [4, 1, 1, 4]
+    for case_id in records:
+        assert records[case_id]["generation_metrics"]["answer_relevancy"] is not None
+        assert records[case_id]["generation_metrics"]["answer_correctness"] is not None
+    for case_id in ("abstention", "clarification", "retrieval-failure"):
+        record = records[case_id]
+        assert record["generation_metrics"]["faithfulness"] is None
+        assert record["retrieval_metrics"]["context_utilization"] is None
+        assert record["metric_reasons"]["faithfulness"].startswith("Unavailable")
+        assert record["metric_reasons"]["context_utilization"].startswith(
+            "Unavailable"
+        )
+    assert summary["generation_metrics"]["answer_relevancy"] == 0.9
+    assert summary["generation_metrics"]["answer_correctness"] == 0.9
+    assert summary["workflow_error_ragas_metrics"]["answer_relevancy"] == 0.1
+    assert summary["workflow_error_ragas_metrics"]["answer_correctness"] == 0.1
+    assert results["workflow_reliability"] == {
+        "successful_cases": 3,
+        "selected_cases": 4,
+        "ratio": 0.75,
+    }
+    assert results["workflow_outcome"] == "completed_with_errors"
+    assert "**Workflow reliability:** `3/4 (0.7500)`" in report
+    retrieval_failure_section = report.split(
+        "### retrieval-failure", 1
+    )[1]
+    assert "| Vector@— | — | — | — |" in retrieval_failure_section
+    assert "| BM25@— | — | — | — |" in retrieval_failure_section
+    assert "| Fusion@— | — | — | — |" in retrieval_failure_section
+    assert "| Rerank@— | — | — | — |" in retrieval_failure_section
+    assert "| Generation@1 | — | — | — |" in retrieval_failure_section
