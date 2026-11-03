@@ -1121,6 +1121,9 @@ def _record_case(
         answer = result.get("answer")
         citations = result.get("citations", [])
         evidence = result.get("retrieved_evidence", [])
+        structured_error = result.get("workflow_error")
+        if isinstance(structured_error, str) and structured_error:
+            workflow_error = structured_error
     except Exception as exc:
         answer = None
         citations = []
@@ -1160,7 +1163,7 @@ def _record_case(
         return record
 
     evidence_records = [evidence_record(hit) for hit in evidence]
-    raw_search_results = result.get("search_results") if workflow_error is None else None
+    raw_search_results = result.get("search_results")
     if not isinstance(raw_search_results, list):
         raw_search_results = [evidence]
     search_result_records = [
@@ -1182,9 +1185,7 @@ def _record_case(
         for search_hits in search_result_records
         for hit in search_hits
     }
-    raw_generation_context = (
-        result.get("generation_context", []) if workflow_error is None else []
-    )
+    raw_generation_context = result.get("generation_context", [])
     if not isinstance(raw_generation_context, list):
         raw_generation_context = []
     generation_context_records = []
@@ -1256,9 +1257,7 @@ def _record_case(
             ).get("text")
         if isinstance(context_text, str):
             answer_contexts.append(context_text)
-    search_queries = (
-        result.get("search_queries", []) if workflow_error is None else []
-    )
+    search_queries = result.get("search_queries", [])
     if not isinstance(search_queries, list):
         search_queries = []
     if not search_queries and search_result_records:
@@ -1266,7 +1265,7 @@ def _record_case(
     retrieval_stages: list[dict[str, Any]] = []
     retrieval_stage_metrics: dict[str, Any] = {}
     rerank_comparison: dict[str, Any] = {}
-    if workflow == "classic" and workflow_error is None:
+    if workflow == "classic":
         (
             retrieval_stages,
             retrieval_stage_metrics,
@@ -1282,7 +1281,7 @@ def _record_case(
             retrieval_stage_metrics,
             rerank_comparison,
         ) = _record_agentic_retrieval_stages(
-            result.get("retrieval_stages", []) if workflow_error is None else [],
+            result.get("retrieval_stages", []),
             expected_evidence=case["expected_evidence"],
             settings=get_settings(),
         )
@@ -1344,6 +1343,9 @@ def _record_case(
         "workflow": workflow,
         "question": case["question"],
         "answer": answer,
+        "reason_code": result.get("reason_code"),
+        "response_origin": result.get("response_origin"),
+        "search_attempts": result.get("search_attempts"),
         "answer_attempts": result.get("answer_attempts"),
         "answer_retry_exhausted": result.get("answer_retry_exhausted", False),
         "citations": citation_records,
@@ -1407,6 +1409,8 @@ def _record_case(
     }
     if workflow_error is not None:
         record["workflow_error"] = workflow_error
+        if result.get("workflow_error_type") is not None:
+            record["workflow_error_type"] = result["workflow_error_type"]
     return record
 
 

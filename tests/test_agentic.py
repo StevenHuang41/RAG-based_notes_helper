@@ -5,7 +5,6 @@ import pytest
 from rag_notes_helper.rag import agentic as agentic_module
 from rag_notes_helper.rag.agentic import (
     ANSWER_RETRY_EXHAUSTED_MESSAGE,
-    AgenticWorkflowError,
     agentic_answer,
 )
 from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE
@@ -494,29 +493,28 @@ def test_agentic_invalid_json_is_retried_once():
     assert result["answer"] == "Grounded answer."
 
 
-def test_agentic_fails_after_second_invalid_action_without_fallback():
+def test_agentic_degrades_after_second_invalid_action_without_fallback():
     hit = make_hit("note.md", 0, "Relevant evidence.")
     controller = FakeController(["not json", "still not json"])
 
-    with pytest.raises(
-        AgenticWorkflowError,
-        match="remained invalid after one retry",
-    ):
-        agentic_answer(
-            "Question",
-            rag=None,
-            meta_store=None,
-            search_fn=lambda query: [hit],
-            controller=controller,
-            answer_fn=lambda *args, **kwargs: pytest.fail(
-                "Classic fallback or answer generation must not run"
-            ),
-        )
+    result = agentic_answer(
+        "Question",
+        rag=None,
+        meta_store=None,
+        search_fn=lambda query: [hit],
+        controller=controller,
+        answer_fn=lambda *args, **kwargs: pytest.fail(
+            "Classic fallback or answer generation must not run"
+        ),
+    )
 
     assert len(controller.prompts) == 2
+    assert result["reason_code"] == "controller_failure"
+    assert result["workflow_error"] == "controller_failure"
+    assert result["retrieved_evidence"] == [hit]
 
 
-def test_agentic_controller_failure_keeps_wrapped_failure_behavior():
+def test_agentic_controller_provider_failure_returns_degraded_outcome():
     hit = make_hit("note.md", 0, "Relevant evidence.")
 
     class FailedController:
@@ -528,19 +526,19 @@ def test_agentic_controller_failure_keeps_wrapped_failure_behavior():
 
     controller = FailedController()
 
-    with pytest.raises(
-        AgenticWorkflowError,
-        match=r"controller call failed \(RuntimeError\)",
-    ):
-        agentic_answer(
-            "Question",
-            rag=None,
-            meta_store=None,
-            search_fn=lambda _query: [hit],
-            controller=controller,
-        )
+    result = agentic_answer(
+        "Question",
+        rag=None,
+        meta_store=None,
+        search_fn=lambda _query: [hit],
+        controller=controller,
+    )
 
     assert controller.calls == 1
+    assert result["answer"].strip()
+    assert result["reason_code"] == "controller_failure"
+    assert result["workflow_error_type"] == "RuntimeError"
+    assert result["retrieved_evidence"] == [hit]
 
 
 def test_agentic_retries_unknown_evidence_reference():

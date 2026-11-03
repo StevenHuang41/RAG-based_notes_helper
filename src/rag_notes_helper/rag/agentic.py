@@ -149,10 +149,21 @@ ANSWER_RETRY_EXHAUSTED_MESSAGE = (
     "I cannot provide a sufficiently supported answer from the notes. "
     "Please ask a more specific question."
 )
+CONTROLLER_FAILURE_MESSAGE = (
+    "I could not complete the bounded review of the retrieved note evidence. "
+    "Please try again."
+)
+RETRIEVAL_FAILURE_MESSAGE = (
+    "I could not complete the note search. Please try again."
+)
 
 
 class AgenticWorkflowError(RuntimeError):
     """Raised when the Agentic controller cannot produce a valid action."""
+
+
+class _RetrievalExecutionError(RuntimeError):
+    """Wrap a Retrieval exception so it cannot be confused with no candidates."""
 
 
 SearchFunction = Callable[[str], Sequence[dict]]
@@ -186,6 +197,7 @@ class _AgenticState(TypedDict):
     answer_review: AnswerReviewAction | None
     candidate_result: dict[str, Any] | None
     used_hybrid_search: bool
+    audit_trace: dict[str, Any]
     result: dict[str, Any] | None
 
 
@@ -476,10 +488,13 @@ def _record_search(
     query: str,
 ) -> tuple[int, list[dict], dict[str, Any] | None]:
     search_index = state["search_index"] + 1
+    trace = state["audit_trace"]
+    trace["search_attempts"] = search_index
+    trace["search_queries"].append(query)
     search_started = perf_counter()
     try:
         ranked_hits = state["search"](query)
-    except Exception:
+    except Exception as exc:
         if state["on_retrieval"] is not None:
             state["on_retrieval"]({
                 "search_index": search_index,
@@ -489,7 +504,9 @@ def _record_search(
                 ),
                 "result_count": None,
             })
-        raise
+        raise _RetrievalExecutionError(
+            f"Retrieval search {search_index} failed ({type(exc).__name__})."
+        ) from exc
 
     if state["on_retrieval"] is not None:
         state["on_retrieval"]({
@@ -508,7 +525,15 @@ def _record_search(
             search_query=query,
         )
 
-    return search_index, _deduplicate_hits(ranked_hits), stage_record
+    search_hits = _deduplicate_hits(ranked_hits)
+    trace["search_results"].append(search_hits)
+    trace["retrieved_evidence"] = _deduplicate_hits(
+        trace["retrieved_evidence"] + search_hits
+    )
+    if stage_record is not None:
+        trace["retrieval_stages"].append(stage_record)
+
+    return search_index, search_hits, stage_record
 
 
 def _initial_search_node(state: _AgenticState) -> dict[str, Any]:
@@ -620,6 +645,7 @@ def _answer_node(state: _AgenticState) -> dict[str, Any]:
         state["on_progress"]("generating", state["searches_used"])
 
     answer_attempt = state["answer_attempts"] + 1
+    state["audit_trace"]["answer_attempts"] = answer_attempt
     answer = state["answer_fn"] if state["answer_fn"] is not None else rag_answer
     answer_kwargs: dict[str, Any] = {
         "hits": selected_hits,
@@ -650,6 +676,10 @@ def _answer_node(state: _AgenticState) -> dict[str, Any]:
                 "The configured answer function does not support answer revision."
             ) from exc
         raise
+
+    generation_context = result.get("generation_context", [])
+    if isinstance(generation_context, list):
+        state["audit_trace"]["generation_context"] = generation_context
 
     return {
         "selected_hits": selected_hits,
@@ -787,6 +817,35 @@ def _build_agentic_graph():
 _AGENTIC_GRAPH = _build_agentic_graph()
 
 
+def _degraded_result(
+    trace: dict[str, Any],
+    *,
+    reason_code: Literal["controller_failure", "retrieval_failure"],
+    error: Exception,
+) -> dict[str, Any]:
+    message = (
+        CONTROLLER_FAILURE_MESSAGE
+        if reason_code == "controller_failure"
+        else RETRIEVAL_FAILURE_MESSAGE
+    )
+    root_error = error.__cause__ or error
+    return {
+        "answer": message,
+        "citations": [],
+        "generation_context": trace["generation_context"],
+        "retrieved_evidence": trace["retrieved_evidence"],
+        "search_results": trace["search_results"],
+        "search_queries": trace["search_queries"],
+        "retrieval_stages": trace["retrieval_stages"],
+        "search_attempts": trace["search_attempts"],
+        "answer_attempts": trace["answer_attempts"],
+        "reason_code": reason_code,
+        "response_origin": "deterministic",
+        "workflow_error": reason_code,
+        "workflow_error_type": type(root_error).__name__,
+    }
+
+
 def agentic_answer(
     query: str,
     *,
@@ -812,6 +871,15 @@ def agentic_answer(
             cross_encoder=cross_encoder,
         )
     )
+    audit_trace = {
+        "search_attempts": 0,
+        "answer_attempts": 0,
+        "search_queries": [],
+        "retrieval_stages": [],
+        "search_results": [],
+        "retrieved_evidence": [],
+        "generation_context": [],
+    }
     state: _AgenticState = {
         "query": query,
         "search": search,
@@ -835,9 +903,23 @@ def agentic_answer(
         "answer_review": None,
         "candidate_result": None,
         "used_hybrid_search": False,
+        "audit_trace": audit_trace,
         "result": None,
     }
-    final_state = _AGENTIC_GRAPH.invoke(state)
+    try:
+        final_state = _AGENTIC_GRAPH.invoke(state)
+    except _RetrievalExecutionError as exc:
+        return _degraded_result(
+            audit_trace,
+            reason_code="retrieval_failure",
+            error=exc,
+        )
+    except AgenticWorkflowError as exc:
+        return _degraded_result(
+            audit_trace,
+            reason_code="controller_failure",
+            error=exc,
+        )
     result = final_state["result"]
     if result is None:
         raise AgenticWorkflowError("The Agentic graph finished without a result.")

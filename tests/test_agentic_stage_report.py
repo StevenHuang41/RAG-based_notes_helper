@@ -352,3 +352,125 @@ def test_agentic_evaluation_preserves_search_stages_union_metrics_context_and_la
     assert "RETRIEVED_ONLY_NOISE" not in report
     assert "RETRIEVED_ONLY_LINE_TEN" not in report
     assert report.count("FINAL_CONTEXT_ONLY_TEXT") == 1
+
+
+def test_agentic_evaluation_preserves_structured_degraded_search_trace(
+    monkeypatch,
+    tmp_path,
+):
+    case = {
+        "id": "controller-failure-after-retrieval",
+        "category": "direct",
+        "challenge_tags": ["workflow-error"],
+        "question": "Who owns the release?",
+        "reference_answer": "Mina owns the release.",
+        "answerable": True,
+        "expected_sources": ["notes/release.md"],
+        "expected_evidence": [{
+            "source": "notes/release.md",
+            "start_line": 10,
+            "end_line": 10,
+            "text": "Mina owns the release.",
+        }],
+    }
+    settings = _settings()
+    hit = _hit(
+        "notes/release.md",
+        10,
+        10,
+        10,
+        "Mina owns the release.",
+        vector_rank=1,
+        bm25_rank=1,
+        rank=1,
+        rerank_rank=1,
+    )
+    search = _search_record(
+        1,
+        case["question"],
+        [hit],
+        [hit],
+        [hit],
+        [hit],
+    )
+
+    @contextmanager
+    def isolated_index():
+        yield settings, object(), object()
+
+    def fake_run_query(
+        _rag,
+        _meta_store,
+        *,
+        query,
+        agentic,
+        stream,
+        on_generation,
+        on_retrieval,
+    ):
+        assert agentic is True
+        on_retrieval({
+            "search_index": 1,
+            "latency_ms": 10.0,
+            "result_count": 1,
+        })
+        on_generation({
+            "call_type": "controller",
+            "phase": "retrieval_review",
+            "latency_ms": 2.0,
+        })
+        on_generation({
+            "call_type": "answer",
+            "phase": "answer_generation",
+            "latency_ms": 3.0,
+        })
+        return {
+            "answer": "I could not complete the bounded review.",
+            "citations": [],
+            "generation_context": [hit],
+            "retrieved_evidence": [hit],
+            "search_results": [[hit]],
+            "search_queries": [query],
+            "retrieval_stages": [search],
+            "reason_code": "controller_failure",
+            "response_origin": "deterministic",
+            "workflow_error": "controller_failure",
+            "answer_attempts": 1,
+        }
+
+    def fake_ragas(_cases, *, usage_recorder):
+        return [{
+            "faithfulness": None,
+            "answer_relevancy": 0.2,
+            "answer_correctness": 0.1,
+            "context_utilization": None,
+            "metric_reasons": {},
+            "metric_latencies_ms": {},
+        }]
+
+    monkeypatch.setattr(eval_runner, "load_qa_fixture", lambda: [case])
+    monkeypatch.setattr(eval_runner, "get_settings", lambda: settings)
+    monkeypatch.setattr(eval_runner, "_isolated_fixture_index", isolated_index)
+    monkeypatch.setattr("rag_notes_helper.cli.run_query", fake_run_query)
+    monkeypatch.setattr(eval_runner, "_run_ragas_isolated", fake_ragas)
+
+    run_dir = eval_runner.run_evaluation(
+        output_root=tmp_path,
+        agentic=True,
+    )
+    result = json.loads(
+        (run_dir / "results.json").read_text(encoding="utf-8")
+    )["cases"][0]
+
+    assert result["workflow_error"] == "controller_failure"
+    assert result["answer"].strip()
+    assert result["retrieved_evidence"][0]["chunk_id"] == 10
+    assert result["search_results"][0][0]["chunk_id"] == 10
+    assert result["search_queries"] == [case["question"]]
+    assert result["retrieval_stages"][0]["stages"]["vector"][
+        "returned_count"
+    ] == 1
+    assert result["latency"]["retrieval_calls"][0]["result_count"] == 1
+    assert result["latency"]["controller_ms"] == 2.0
+    assert result["latency"]["answer_generation_ms"] == 3.0
+    assert result["generation_context"][0]["chunk_id"] == 10
