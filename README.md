@@ -161,7 +161,7 @@ one retrieval        bounded LangGraph StateGraph
 5. **Retrieval**
    - The user query is embedded with the same embedding model for Vector search.
    - BM25 searches the indexed chunk text independently of the embedding model.
-   - Vector matches below `MIN_RETRIEVAL_SCORE` are filtered; BM25 scores are not passed through that Vector-only threshold.
+   - Vector matches below `VECTOR_MIN_SCORE` are filtered. BM25 candidates below `BM25_MIN_SCORE_RATIO` times that query's highest positive BM25 score are filtered; the ratio is query-relative rather than a cross-query score comparison.
    - Reciprocal Rank Fusion combines both ranked lists into the configured fusion candidate list.
 
 6. **Workflow selection and answer generation**
@@ -484,11 +484,12 @@ Common settings:
 | `VECTOR_TOP_K` | Maximum candidates returned by Vector search | `30` |
 | `BM25_TOP_K` | Maximum candidates returned by BM25 search | `20` |
 | `FUSION_TOP_K` | Maximum candidates returned after RRF fusion | `15` |
-| `MIN_RETRIEVAL_SCORE` | Retrieval score threshold | `0.3` |
+| `VECTOR_MIN_SCORE` | Starting Vector similarity threshold in the inclusive range `[0, 1]` | `0.3` |
+| `BM25_MIN_SCORE_RATIO` | Starting query-relative BM25 threshold ratio in the inclusive range `[0, 1]` | `0.0` |
 | `CROSS_ENCODER_MODEL` | Sentence Transformers model used to rerank fused candidates | `cross-encoder/ms-marco-MiniLM-L6-v2` |
 | `STREAM` | Stream model output where supported | `true` |
 
-`TOP_K` remains accepted as a legacy alias for `FUSION_TOP_K` so existing local configuration continues to set the final candidate limit.
+`TOP_K` remains accepted as a legacy alias for `FUSION_TOP_K`, and `MIN_RETRIEVAL_SCORE` remains accepted as a legacy alias for `VECTOR_MIN_SCORE`. Existing local configuration therefore continues to work while new configuration uses the stage-specific names.
 
 ---
 

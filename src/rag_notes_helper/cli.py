@@ -121,7 +121,8 @@ def show_config():
     print(f"    VECTOR_TOP_K : {settings.vector_top_k}")
     print(f"    BM25_TOP_K   : {settings.bm25_top_k}")
     print(f"    FUSION_TOP_K : {settings.fusion_top_k}")
-    print(f"    Min Score  : {settings.min_retrieval_score}")
+    print(f"    VECTOR_MIN_SCORE      : {settings.vector_min_score}")
+    print(f"    BM25_MIN_SCORE_RATIO  : {settings.bm25_min_score_ratio}")
 
     print("\nFormat:")
     print(f"    stream     : {settings.stream}")
