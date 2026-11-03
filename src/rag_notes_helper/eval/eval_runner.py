@@ -926,7 +926,23 @@ def _record_retrieval_stages(
         normalized_record = {
             "search_id": raw_record.get("search_id"),
             "search_query": raw_record.get("search_query"),
+            "evidence_mode": raw_record.get("evidence_mode"),
             "generation_top_k": generation_top_k,
+            "effective_thresholds": (
+                raw_record.get("effective_thresholds")
+                if isinstance(raw_record.get("effective_thresholds"), dict)
+                else {}
+            ),
+            "configured_top_k": (
+                raw_record.get("configured_top_k")
+                if isinstance(raw_record.get("configured_top_k"), dict)
+                else {}
+            ),
+            "filter_diagnostics": (
+                raw_record.get("filter_diagnostics")
+                if isinstance(raw_record.get("filter_diagnostics"), dict)
+                else {}
+            ),
             "stage_summaries": summaries,
             "stages": record_stages,
         }

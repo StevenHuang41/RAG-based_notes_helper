@@ -375,8 +375,24 @@ def _render_search_queries(case: dict[str, Any]) -> list[str]:
     searches = _retrieval_searches(case)
     lines = ["#### Search query", ""]
     if searches:
-        rows = [[search.get("search_id"), search.get("search_query")] for search in searches]
-        lines.extend(_table(["Search", "Query"], rows))
+        rows = []
+        for search in searches:
+            thresholds = search.get("effective_thresholds", {}) or {}
+            rows.append([
+                search.get("search_id"),
+                search.get("search_query"),
+                thresholds.get("vector_min_score"),
+                thresholds.get("bm25_min_score_ratio"),
+            ])
+        lines.extend(_table(
+            [
+                "Search",
+                "Query",
+                "Vector threshold",
+                "BM25 threshold ratio",
+            ],
+            rows,
+        ))
     else:
         lines.append("No searches were recorded.")
     lines.append("")
