@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 import math
+from numbers import Real
 import re
 from time import perf_counter
 from typing import Any, Protocol, overload
@@ -40,6 +41,9 @@ class HybridSearchResults(Sequence[dict[str, Any]]):
     vector_top_k: int
     bm25_top_k: int
     fusion_top_k: int
+    effective_thresholds: dict[str, float | None] = field(default_factory=dict)
+    configured_top_k: dict[str, int] = field(default_factory=dict)
+    filter_diagnostics: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def __len__(self) -> int:
         return len(self.reranked_results)
@@ -81,6 +85,9 @@ class HybridSearchResults(Sequence[dict[str, Any]]):
             "search_id": search_id,
             "search_query": search_query,
             "generation_top_k": self.generation_top_k,
+            "effective_thresholds": self.effective_thresholds,
+            "configured_top_k": self.configured_top_k,
+            "filter_diagnostics": self.filter_diagnostics,
             "stages": stages,
         }
 
@@ -148,6 +155,21 @@ def _document_identity(document: dict[str, Any], index: int) -> tuple[Any, ...]:
     if "doc_id" in document and "chunk_id" in document:
         return (document["doc_id"], document["chunk_id"])
     return ("faiss", index)
+
+
+def _validate_threshold(name: str, value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"{name} must be a finite number from 0 to 1.")
+    threshold = float(value)
+    if not math.isfinite(threshold) or not 0 <= threshold <= 1:
+        raise ValueError(f"{name} must be a finite number from 0 to 1.")
+    return threshold
+
+
+def _score_bounds(scores: Sequence[float]) -> dict[str, float] | None:
+    if not scores:
+        return None
+    return {"highest": float(max(scores)), "lowest": float(min(scores))}
 
 
 def _ranked_method_results(
@@ -250,6 +272,8 @@ def retrieve(
     query: str,
     top_k: int | None = None,
     cross_encoder: CrossEncoderModel | None = None,
+    vector_min_score: float | None = None,
+    bm25_min_score_ratio: float | None = None,
 ) -> HybridSearchResults:
     """Run Vector and BM25 searches, then fuse their ranked candidates with RRF.
 
@@ -261,6 +285,20 @@ def retrieve(
     vector_top_k = settings.vector_top_k
     bm25_top_k = settings.bm25_top_k
     fusion_top_k = settings.fusion_top_k if top_k is None else top_k
+    if (vector_min_score is None) != (bm25_min_score_ratio is None):
+        raise ValueError(
+            "vector_min_score and bm25_min_score_ratio must be provided together."
+        )
+    if vector_min_score is None:
+        vector_min_score = getattr(settings, "vector_min_score", None)
+        if vector_min_score is None:
+            vector_min_score = settings.min_retrieval_score
+        bm25_min_score_ratio = getattr(settings, "bm25_min_score_ratio", 0.0)
+    vector_min_score = _validate_threshold("vector_min_score", vector_min_score)
+    bm25_min_score_ratio = _validate_threshold(
+        "bm25_min_score_ratio",
+        bm25_min_score_ratio,
+    )
 
     vector_started = perf_counter()
     model = rag.embed_model
@@ -275,10 +313,15 @@ def retrieve(
     bm25_started = perf_counter()
     records = [meta_store.get(index) for index in range(rag.index.ntotal)]  # type: ignore
 
+    observed_vector = [
+        (float(score), int(index))
+        for score, index in zip(vector_scores[0], vector_indexes_raw[0])
+        if index >= 0
+    ]
     vector_indexes: list[int] = []
     vector_score_values: list[float] = []
     for score, index in zip(vector_scores[0], vector_indexes_raw[0]):
-        if index < 0 or score < settings.min_retrieval_score:
+        if index < 0 or score < vector_min_score:
             continue
         vector_indexes.append(int(index))
         vector_score_values.append(float(score))
@@ -291,13 +334,34 @@ def retrieve(
     )
 
     bm25_score_values = _bm25_scores(query, records)
-    bm25_indexes = [
+    positive_bm25_indexes = [
         index
         for index, score in enumerate(bm25_score_values)
         if score > 0
     ]
-    bm25_indexes.sort(key=lambda index: (-bm25_score_values[index], index))
-    bm25_indexes = bm25_indexes[:bm25_top_k]
+    positive_bm25_indexes.sort(
+        key=lambda index: (-bm25_score_values[index], index)
+    )
+    observed_bm25_indexes = positive_bm25_indexes[:bm25_top_k]
+    highest_bm25_score = (
+        bm25_score_values[positive_bm25_indexes[0]]
+        if positive_bm25_indexes
+        else None
+    )
+    bm25_effective_min_score = (
+        highest_bm25_score * bm25_min_score_ratio
+        if highest_bm25_score is not None
+        else None
+    )
+    bm25_indexes = (
+        [
+            index
+            for index in observed_bm25_indexes
+            if bm25_score_values[index] >= bm25_effective_min_score
+        ]
+        if bm25_effective_min_score is not None
+        else []
+    )
     bm25_result_scores = [bm25_score_values[index] for index in bm25_indexes]
     bm25_results = _ranked_method_results(
         indexes=bm25_indexes,
@@ -341,4 +405,52 @@ def retrieve(
         vector_top_k=vector_top_k,
         bm25_top_k=bm25_top_k,
         fusion_top_k=fusion_top_k,
+        effective_thresholds={
+            "vector_min_score": vector_min_score,
+            "bm25_min_score_ratio": bm25_min_score_ratio,
+            "bm25_effective_min_score": (
+                float(bm25_effective_min_score)
+                if bm25_effective_min_score is not None
+                else None
+            ),
+        },
+        configured_top_k={
+            "vector": vector_top_k,
+            "bm25": bm25_top_k,
+            "fusion": fusion_top_k,
+            "rerank": fusion_top_k,
+            "generation": settings.llm.max_chunks,
+        },
+        filter_diagnostics={
+            "vector": {
+                "pre_filter_count": len(observed_vector),
+                "post_filter_count": len(vector_indexes),
+                "observed_top_k_score_bounds": _score_bounds(
+                    [score for score, _index in observed_vector]
+                ),
+                "highest_excluded_score": max(
+                    (
+                        score
+                        for score, _index in observed_vector
+                        if score < vector_min_score
+                    ),
+                    default=None,
+                ),
+            },
+            "bm25": {
+                "pre_filter_count": len(observed_bm25_indexes),
+                "post_filter_count": len(bm25_indexes),
+                "observed_top_k_score_bounds": _score_bounds(
+                    [bm25_score_values[index] for index in observed_bm25_indexes]
+                ),
+                "highest_excluded_score": max(
+                    (
+                        bm25_score_values[index]
+                        for index in observed_bm25_indexes
+                        if index not in bm25_indexes
+                    ),
+                    default=None,
+                ),
+            },
+        },
     )

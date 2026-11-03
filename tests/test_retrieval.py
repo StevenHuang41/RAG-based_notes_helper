@@ -54,6 +54,159 @@ def test_retrieve_filters_by_score(monkeypatch, mock_meta_store):
     assert results[0]["vector_score"] > 0.5
 
 
+def test_retrieve_applies_explicit_vector_threshold_and_reports_diagnostics(
+    monkeypatch,
+):
+    records = [
+        {"doc_id": "high", "chunk_id": 0, "text": "high"},
+        {"doc_id": "low", "chunk_id": 0, "text": "low"},
+    ]
+
+    class MetaStore:
+        def get(self, index):
+            return dict(records[index])
+
+    index = faiss.IndexFlatIP(2)
+    index.add(np.array([[0.9, 0.0], [0.4, 0.0]], dtype="float32"))
+    model = MagicMock()
+    model.encode.return_value = np.array([[1.0, 0.0]], dtype="float32")
+    monkeypatch.setattr(RagIndex, "embed_model", PropertyMock(return_value=model))
+    monkeypatch.setattr(
+        "rag_notes_helper.rag.retrieval.get_settings",
+        lambda: SimpleNamespace(
+            vector_top_k=2,
+            bm25_top_k=2,
+            fusion_top_k=2,
+            min_retrieval_score=0.2,
+            bm25_min_score_ratio=0.0,
+            llm=SimpleNamespace(max_chunks=1),
+        ),
+    )
+
+    result = retrieve(
+        RagIndex(index),
+        MetaStore(),
+        query="absent",
+        vector_min_score=0.5,
+        bm25_min_score_ratio=0.0,
+        cross_encoder=SimpleNamespace(predict=lambda pairs: [1.0] * len(pairs)),
+    )
+
+    assert [item["doc_id"] for item in result.vector_results] == ["high"]
+    assert result.effective_thresholds == {
+        "vector_min_score": 0.5,
+        "bm25_min_score_ratio": 0.0,
+        "bm25_effective_min_score": None,
+    }
+    vector_diagnostics = result.filter_diagnostics["vector"]
+    assert vector_diagnostics["pre_filter_count"] == 2
+    assert vector_diagnostics["post_filter_count"] == 1
+    assert vector_diagnostics["observed_top_k_score_bounds"] == pytest.approx(
+        {"highest": 0.9, "lowest": 0.4}
+    )
+    assert vector_diagnostics["highest_excluded_score"] == pytest.approx(0.4)
+
+
+def test_bm25_threshold_is_relative_to_each_query_high_score(monkeypatch):
+    records = [
+        {"doc_id": "strong", "chunk_id": 0, "text": "rare rare rare ownership"},
+        {"doc_id": "weak", "chunk_id": 0, "text": "rare summary"},
+        {"doc_id": "none", "chunk_id": 0, "text": "unrelated"},
+    ]
+
+    class MetaStore:
+        def get(self, index):
+            return dict(records[index])
+
+    index = faiss.IndexFlatIP(2)
+    index.add(np.zeros((3, 2), dtype="float32"))
+    model = MagicMock()
+    model.encode.return_value = np.array([[1.0, 0.0]], dtype="float32")
+    monkeypatch.setattr(RagIndex, "embed_model", PropertyMock(return_value=model))
+    monkeypatch.setattr(
+        "rag_notes_helper.rag.retrieval.get_settings",
+        lambda: SimpleNamespace(
+            vector_top_k=3,
+            bm25_top_k=3,
+            fusion_top_k=3,
+            min_retrieval_score=0.0,
+            bm25_min_score_ratio=0.0,
+            llm=SimpleNamespace(max_chunks=2),
+        ),
+    )
+    cross_encoder = SimpleNamespace(predict=lambda pairs: [1.0] * len(pairs))
+
+    first = retrieve(
+        RagIndex(index),
+        MetaStore(),
+        query="rare",
+        vector_min_score=1.0,
+        bm25_min_score_ratio=0.8,
+        cross_encoder=cross_encoder,
+    )
+    scaled = retrieve(
+        RagIndex(index),
+        MetaStore(),
+        query="rare rare rare",
+        vector_min_score=1.0,
+        bm25_min_score_ratio=0.8,
+        cross_encoder=cross_encoder,
+    )
+
+    assert [item["doc_id"] for item in first.bm25_results] == ["strong"]
+    assert [item["doc_id"] for item in scaled.bm25_results] == ["strong"]
+    assert scaled.bm25_results[0]["bm25_score"] == pytest.approx(
+        first.bm25_results[0]["bm25_score"] * 3
+    )
+    assert first.filter_diagnostics["bm25"]["pre_filter_count"] == 2
+    assert first.filter_diagnostics["bm25"]["post_filter_count"] == 1
+    assert first.filter_diagnostics["bm25"]["highest_excluded_score"] == (
+        pytest.approx(0.5022939549)
+    )
+
+
+@pytest.mark.parametrize(
+    ("vector_min_score", "bm25_min_score_ratio"),
+    [
+        (-0.1, 0.0),
+        (1.1, 0.0),
+        (float("nan"), 0.0),
+        (float("inf"), 0.0),
+        (0.0, -0.1),
+        (0.0, 1.1),
+        (0.0, float("nan")),
+        (0.0, float("inf")),
+        (0.0, None),
+        (None, 0.0),
+    ],
+)
+def test_invalid_threshold_requests_fail_before_retrieval(
+    monkeypatch,
+    vector_min_score,
+    bm25_min_score_ratio,
+):
+    monkeypatch.setattr(
+        "rag_notes_helper.rag.retrieval.get_settings",
+        lambda: SimpleNamespace(
+            vector_top_k=2,
+            bm25_top_k=2,
+            fusion_top_k=2,
+            min_retrieval_score=0.2,
+            bm25_min_score_ratio=0.0,
+            llm=SimpleNamespace(max_chunks=1),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="finite number|provided together"):
+        retrieve(
+            object(),
+            object(),
+            query="query",
+            vector_min_score=vector_min_score,
+            bm25_min_score_ratio=bm25_min_score_ratio,
+        )
+
+
 def test_hybrid_retrieval_keeps_method_ranks_and_fuses_shared_candidates(monkeypatch):
     records = [
         {"doc_id": "d0", "chunk_id": 0, "source": "notes/0.md", "text": "project summary", "start_line": 1, "end_line": 1},
@@ -266,6 +419,13 @@ def test_hybrid_retrieval_returns_no_candidates_when_both_methods_miss(monkeypat
     assert result.bm25_results == []
     assert result.fused_results == []
     assert list(result) == []
+    assert result.effective_thresholds["bm25_effective_min_score"] is None
+    assert result.filter_diagnostics["bm25"] == {
+        "pre_filter_count": 0,
+        "post_filter_count": 0,
+        "observed_top_k_score_bounds": None,
+        "highest_excluded_score": None,
+    }
 
 
 def test_hybrid_retrieval_defaults_do_not_couple_candidates_to_generation_limit(tmp_path):
@@ -283,7 +443,28 @@ def test_hybrid_retrieval_defaults_do_not_couple_candidates_to_generation_limit(
     assert settings.vector_top_k == 30
     assert settings.bm25_top_k == 20
     assert settings.fusion_top_k == 15
+    assert settings.vector_min_score == 0.2
+    assert settings.bm25_min_score_ratio == 0.0
+    assert settings.min_retrieval_score == settings.vector_min_score
     assert settings.llm.max_chunks == 5
+
+
+def test_retrieval_starting_thresholds_load_from_environment(monkeypatch, tmp_path):
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir()
+    monkeypatch.setenv("VECTOR_MIN_SCORE", "0.35")
+    monkeypatch.setenv("BM25_MIN_SCORE_RATIO", "0.45")
+
+    settings = Settings(
+        _env_file=None,
+        llm=LLMSettings(provider="ollama", model="llama3", max_chunks=5),
+        notes_dir=notes_dir,
+        storage_dir=tmp_path / "storage",
+        logs_dir=tmp_path / "logs",
+    )
+
+    assert settings.vector_min_score == 0.35
+    assert settings.bm25_min_score_ratio == 0.45
 
 
 def test_legacy_top_k_environment_setting_maps_to_fusion_limit(monkeypatch, tmp_path):
@@ -406,4 +587,22 @@ def test_classic_and_agentic_workflows_use_the_shared_hybrid_search(monkeypatch)
         set(stage["stages"]) == {"vector", "bm25", "rrf", "reranked"}
         for stage in agentic_result["retrieval_stages"]
     )
+    classic_thresholds = classic["retrieval_stages"][0]["effective_thresholds"]
+    assert classic_thresholds["vector_min_score"] == 0.5
+    assert classic_thresholds["bm25_min_score_ratio"] == 0.0
+    assert classic_thresholds["bm25_effective_min_score"] == 0.0
+    assert agentic_result["retrieval_stages"][0]["effective_thresholds"] == (
+        classic["retrieval_stages"][0]["effective_thresholds"]
+    )
+    assert classic["retrieval_stages"][0]["configured_top_k"] == {
+        "vector": 2,
+        "bm25": 2,
+        "fusion": 2,
+        "rerank": 2,
+        "generation": 5,
+    }
+    assert set(classic["retrieval_stages"][0]["filter_diagnostics"]) == {
+        "vector",
+        "bm25",
+    }
 
