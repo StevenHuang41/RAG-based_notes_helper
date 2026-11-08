@@ -206,6 +206,9 @@ CONTROLLER_FAILURE_MESSAGE = (
 RETRIEVAL_FAILURE_MESSAGE = (
     "I could not complete the note search. Please try again."
 )
+NO_RETRIEVAL_RESULTS_MESSAGE = (
+    "No note chunks were retrieved for this query. Please try rephrasing it."
+)
 
 
 class AgenticWorkflowError(RuntimeError):
@@ -282,6 +285,7 @@ class _AgenticState(TypedDict):
     search_index: int
     searches_used: int
     max_search_attempts: int
+    generation_top_k: int
     search_queries: list[str]
     retrieval_stages: list[dict[str, Any]]
     search_results: list[list[dict]]
@@ -1001,12 +1005,32 @@ def _initial_search_node(state: _AgenticState) -> dict[str, Any]:
         "retrieval_stages": retrieval_stages,
         "search_results": [search_hits],
         "hits": active_hits,
+        "selected_hits": search_hits[:state["generation_top_k"]],
         "used_hybrid_search": state["used_hybrid_search"] or stage_record is not None,
     }
 
 
-def _route_after_initial_search(state: _AgenticState) -> Literal["controller"]:
-    return "controller"
+def _route_after_initial_search(
+    state: _AgenticState,
+) -> Literal["answer", "no_retrieval_results"]:
+    return "answer" if state["hits"] else "no_retrieval_results"
+
+
+def _no_retrieval_results_node(state: _AgenticState) -> dict[str, Any]:
+    _emit_progress_event(
+        state,
+        "terminal",
+        outcome="no_retrieval_results",
+    )
+    result = _trace_result(state, {
+        "answer": NO_RETRIEVAL_RESULTS_MESSAGE,
+        "citations": [],
+        "generation_context": [],
+        "answer_attempts": 0,
+        "reason_code": "no_retrieval_results",
+        "response_origin": "deterministic",
+    })
+    return {"result": result}
 
 
 def _controller_node(state: _AgenticState) -> dict[str, Any]:
@@ -1105,11 +1129,15 @@ def _focused_search_node(state: _AgenticState) -> dict[str, Any]:
 
 def _answer_node(state: _AgenticState) -> dict[str, Any]:
     action = state["action"]
-    if not isinstance(action, AnswerAction):
+    if action is not None and not isinstance(action, AnswerAction):
         raise AgenticWorkflowError("The Agentic graph expected an answer action.")
 
-    selected_hits = state["selected_hits"]
+    selected_hits = list(state["selected_hits"])
     if not selected_hits:
+        if action is None:
+            raise AgenticWorkflowError(
+                "The Agentic graph has no selected evidence for Answer generation."
+            )
         hits_by_reference = {
             (hit["source"], hit["chunk_id"]): hit
             for hit in state["hits"]
@@ -1199,6 +1227,8 @@ def _answer_review_node(state: _AgenticState) -> dict[str, Any]:
         "answer_review_started",
         answer_attempt=state["answer_attempts"],
     )
+    if state["on_progress"] is not None:
+        state["on_progress"]("reviewing", state["searches_used"])
     generation_context = candidate_result.get("generation_context")
     if not isinstance(generation_context, list):
         # Injected answer functions used by offline callers may omit this
@@ -1407,13 +1437,17 @@ def _build_agentic_graph():
     graph.add_node("expand_evidence", _expand_evidence_node)
     graph.add_node("accept_answer", _accept_answer_node)
     graph.add_node("answer_exhausted", _answer_exhausted_node)
+    graph.add_node("no_retrieval_results", _no_retrieval_results_node)
     graph.add_node("abstain", _abstain_node)
     graph.add_node("clarify", _clarify_node)
     graph.add_edge(START, "initial_search")
     graph.add_conditional_edges(
         "initial_search",
         _route_after_initial_search,
-        {"controller": "controller", "abstain": "abstain"},
+        {
+            "answer": "answer",
+            "no_retrieval_results": "no_retrieval_results",
+        },
     )
     graph.add_conditional_edges(
         "controller",
@@ -1445,6 +1479,7 @@ def _build_agentic_graph():
     graph.add_edge("answer_exhausted", END)
     graph.add_edge("abstain", END)
     graph.add_edge("clarify", END)
+    graph.add_edge("no_retrieval_results", END)
     return graph.compile(checkpointer=None)
 
 
@@ -1534,6 +1569,7 @@ def agentic_answer(
         "search_index": 0,
         "searches_used": 0,
         "max_search_attempts": max_search_attempts,
+        "generation_top_k": settings.llm.max_chunks,
         "search_queries": [],
         "retrieval_stages": [],
         "search_results": [],

@@ -43,6 +43,168 @@ def search_action(
     })
 
 
+def test_agentic_direct_06_generates_from_shared_top_k_before_answer_review(
+    monkeypatch,
+):
+    hits = [
+        make_hit(
+            "delivery_timeline.md",
+            8,
+            "The public launch target remains 2026-06-01.",
+        ),
+        make_hit(
+            "delivery_timeline.md",
+            9,
+            "The next council checkpoint is 2026-05-28. The coordinator "
+            "will bring the marketing review outcome and the remaining "
+            "recurring-event test evidence to that meeting.",
+        ),
+        make_hit("delivery_timeline.md", 10, "The draft pilot starts in April."),
+    ]
+    hits[0].update({"start_line": 8, "end_line": 8})
+    hits[1].update({"start_line": 12, "end_line": 12})
+    hits[2].update({"start_line": 13, "end_line": 13})
+    query = (
+        "In timeline version 3.2, what date is the next launch council "
+        "checkpoint?"
+    )
+    expected_answer = "The next launch council checkpoint is 2026-05-28."
+    events = []
+    progress = []
+    progress_events = []
+    settings = SimpleNamespace(
+        agentic_max_search_attempts=3,
+        agentic_max_answer_attempts=3,
+        llm=SimpleNamespace(max_chunks=2),
+    )
+    monkeypatch.setattr(agentic_module, "get_settings", lambda: settings)
+
+    class RecordingController:
+        provider_name = "fixture"
+        model = "fixture-controller"
+
+        def __init__(self):
+            self.prompts = []
+
+        def generate_raw(self, prompt):
+            events.append("answer_review")
+            self.prompts.append(prompt)
+            return action_json({"action": "accept"})
+
+    controller = RecordingController()
+    answer_calls = []
+    generation_context = [
+        {
+            "source": hit["source"],
+            "chunk_id": hit["chunk_id"],
+            "start_line": hit.get("start_line"),
+            "end_line": hit.get("end_line"),
+            "text": hit["text"],
+            "prompt_block": f"file:{hit['source']}\n{hit['text']}",
+        }
+        for hit in hits[:2]
+    ]
+
+    def search(query):
+        events.append("search")
+        assert query == (
+            "In timeline version 3.2, what date is the next launch council "
+            "checkpoint?"
+        )
+        return hits
+
+    def answer(query, *, hits, stream):
+        events.append("answer")
+        answer_calls.append((query, hits, stream))
+        return {
+            "answer": expected_answer,
+            "citations": [],
+            "generation_context": generation_context,
+        }
+
+    result = agentic_answer(
+        query,
+        rag=None,
+        meta_store=None,
+        search_fn=search,
+        controller=controller,
+        answer_fn=answer,
+        on_progress=lambda stage, count: progress.append((stage, count)),
+        on_progress_event=progress_events.append,
+    )
+
+    assert events == ["search", "answer", "answer_review"]
+    assert answer_calls == [
+        (query, hits[:2], False),
+    ]
+    review_payload = json.loads(controller.prompts[0][-1]["content"])
+    assert review_payload["generation_context"] == generation_context
+    assert review_payload["generation_context"][1]["text"] == (
+        "The next council checkpoint is 2026-05-28. The coordinator "
+        "will bring the marketing review outcome and the remaining "
+        "recurring-event test evidence to that meeting."
+    )
+    assert review_payload["candidate_answer"] == expected_answer
+    assert result["answer"] == expected_answer
+    assert result["generation_context"] == generation_context
+    assert result["answer_attempts"] == 1
+    assert [event.event for event in progress_events] == [
+        "workflow_started",
+        "search_started",
+        "search_completed",
+        "answer_started",
+        "answer_review_started",
+        "answer_review_decided",
+        "terminal",
+    ]
+    assert progress == [
+        ("searching", 1),
+        ("generating", 1),
+        ("reviewing", 1),
+    ]
+
+
+def test_agentic_empty_initial_search_is_retrieval_empty_and_skips_models():
+    def unexpected_provider_call(*_args, **_kwargs):
+        pytest.fail("empty Retrieval must not call Answer or controller")
+
+    class UnexpectedController:
+        provider_name = "fixture"
+
+        def generate_raw(self, _prompt):
+            unexpected_provider_call()
+
+    events = []
+    progress = []
+    progress_events = []
+    result = agentic_answer(
+        "Question without retrieved candidates",
+        rag=None,
+        meta_store=None,
+        search_fn=lambda query: events.append(("search", query)) or [],
+        controller=UnexpectedController(),
+        answer_fn=unexpected_provider_call,
+        on_progress=lambda stage, count: progress.append((stage, count)),
+        on_progress_event=progress_events.append,
+    )
+
+    assert result["reason_code"] == "no_retrieval_results"
+    assert result["response_origin"] == "deterministic"
+    assert result["search_attempts"] == 1
+    assert result["answer_attempts"] == 0
+    assert result["search_queries"] == ["Question without retrieved candidates"]
+    assert result["search_results"] == [[]]
+    assert result["generation_context"] == []
+    assert events == [("search", "Question without retrieved candidates")]
+    assert progress == [("searching", 1)]
+    assert [event.event for event in progress_events] == [
+        "workflow_started",
+        "search_started",
+        "search_completed",
+        "terminal",
+    ]
+
+
 class FakeController:
     def __init__(self, responses: list[str]):
         self.responses = list(responses)
@@ -86,7 +248,7 @@ def test_generate_raw_preserves_json_without_display_wrapping():
     assert llm.generate([], line_width=20) != raw_json
 
 
-def test_agentic_ollama_uses_phase_specific_action_schemas():
+def test_agentic_ollama_answer_review_uses_answer_review_schema():
     hit = make_hit("plan.md", 0, "The project starts in April.")
 
     class RecordingOllamaController:
@@ -94,13 +256,7 @@ def test_agentic_ollama_uses_phase_specific_action_schemas():
 
         def __init__(self):
             self.calls = []
-            self.responses = [
-                action_json({
-                    "action": "answer",
-                    "evidence": [{"source": "plan.md", "chunk_id": 0}],
-                }),
-                action_json({"action": "accept"}),
-            ]
+            self.responses = [action_json({"action": "accept"})]
 
         def generate_raw(self, prompt, **options):
             self.calls.append((prompt, options))
@@ -120,41 +276,22 @@ def test_agentic_ollama_uses_phase_specific_action_schemas():
     )
 
     assert result["answer"] == "The project starts in April."
-    assert len(controller.calls) == 2
-    controller_schema = json.loads(
+    assert len(controller.calls) == 1
+    review_schema = json.loads(
         controller.calls[0][0][1]["content"]
     )["action_schema"]
-    review_schema = json.loads(
-        controller.calls[1][0][1]["content"]
-    )["action_schema"]
-    assert controller_schema != review_schema
     assert controller.calls[0][1] == {
-        "think": False,
-        "format": controller_schema,
-    }
-    assert controller.calls[1][1] == {
         "think": False,
         "format": review_schema,
     }
 
 
-def test_agentic_answer_uses_original_query_and_selected_evidence():
+def test_agentic_answer_uses_original_query_and_ranked_generation_context():
     hit_a = make_hit("plan.md", 0, "The project starts in April.")
     hit_b = make_hit("budget.md", 1, "The project budget is 20,000.")
     calls = []
     answer_calls = []
-    controller = FakeController(
-        [
-            action_json(
-                {
-                    "action": "answer",
-                    "evidence": [
-                        {"source": "budget.md", "chunk_id": 1},
-                    ],
-                }
-            )
-        ]
-    )
+    controller = FakeController([action_json({"action": "accept"})])
 
     def search(query):
         calls.append(query)
@@ -175,7 +312,7 @@ def test_agentic_answer_uses_original_query_and_selected_evidence():
 
     assert calls == ["What is the project budget?"]
     assert answer_calls == [
-        ("What is the project budget?", [hit_b], False),
+        ("What is the project budget?", [hit_a, hit_b], False),
     ]
     assert result["answer"] == "The budget is 20,000."
     assert result["citations"] == ["budget.md"]
@@ -183,12 +320,7 @@ def test_agentic_answer_uses_original_query_and_selected_evidence():
 
 def test_agentic_controller_receives_history_as_intent_context_only():
     hit = make_hit("plan.md", 0, "The project starts in April.")
-    controller = FakeController([
-        action_json({
-            "action": "answer",
-            "evidence": [{"source": "plan.md", "chunk_id": 0}],
-        })
-    ])
+    controller = FakeController([action_json({"action": "accept"})])
     history = [("When does it start?", "The project starts in April.")]
 
     agentic_answer(
@@ -204,24 +336,12 @@ def test_agentic_controller_receives_history_as_intent_context_only():
         conversation_history=history,
     )
 
-    initial_prompt = controller.prompts[0]
-    payload = json.loads(initial_prompt[-1]["content"])
-    assert payload["conversation_history"] == [{
+    review_prompt = controller.prompts[0]
+    review_payload = json.loads(review_prompt[-1]["content"])
+    assert review_payload["conversation_history"] == [{
         "user": "When does it start?",
         "assistant": "The project starts in April.",
     }]
-    assert "never evidence" in initial_prompt[0]["content"].lower()
-    assert payload["evidence"] == [{
-        "source": "plan.md",
-        "chunk_id": 0,
-        "score": 0.9,
-        "text": "The project starts in April.",
-    }]
-    review_prompt = controller.prompts[1]
-    review_payload = json.loads(review_prompt[-1]["content"])
-    assert review_payload["conversation_history"] == payload[
-        "conversation_history"
-    ]
     assert "never evidence" in review_prompt[0]["content"].lower()
     assert review_payload["generation_context"][0]["text"] == (
         "The project starts in April."
@@ -236,12 +356,7 @@ def test_agentic_controller_receives_history_as_intent_context_only():
 
 def test_agentic_default_answer_receives_history_as_non_evidence(monkeypatch):
     hit = make_hit("plan.md", 0, "The project starts in April.")
-    controller = FakeController([
-        action_json({
-            "action": "answer",
-            "evidence": [{"source": "plan.md", "chunk_id": 0}],
-        })
-    ])
+    controller = FakeController([action_json({"action": "accept"})])
     history = [("When does it start?", "The project starts in April.")]
     answer_calls = []
 
@@ -269,16 +384,15 @@ def test_agentic_default_answer_receives_history_as_non_evidence(monkeypatch):
 
 def test_agentic_controller_trims_oldest_turn_against_full_prompt(monkeypatch):
     hit = make_hit("plan.md", 0, "The project starts in April.")
-    controller = FakeController([
-        action_json({
-            "action": "answer",
-            "evidence": [{"source": "plan.md", "chunk_id": 0}],
-        })
-    ])
+    controller = FakeController([action_json({"action": "accept"})])
     settings = SimpleNamespace(
         agentic_max_search_attempts=3,
         agentic_max_answer_attempts=3,
-        llm=SimpleNamespace(context_window_tokens=14000, max_tokens=1024),
+        llm=SimpleNamespace(
+            context_window_tokens=14000,
+            max_tokens=1024,
+            max_chunks=5,
+        ),
     )
     monkeypatch.setattr(agentic_module, "get_settings", lambda: settings)
     history = [
@@ -312,12 +426,7 @@ def test_agentic_controller_trims_oldest_turn_against_full_prompt(monkeypatch):
 
 def test_agentic_calls_keep_search_and_evidence_state_isolated_per_query():
     def run_query(query: str, hit: dict) -> tuple[dict, FakeController, list]:
-        controller = FakeController([
-            action_json({
-                "action": "answer",
-                "evidence": [{"source": hit["source"], "chunk_id": hit["chunk_id"]}],
-            })
-        ])
+        controller = FakeController([action_json({"action": "accept"})])
         progress = []
         result = agentic_answer(
             query,
@@ -345,46 +454,36 @@ def test_agentic_calls_keep_search_and_evidence_state_isolated_per_query():
     second_prompt = json.loads(second_controller.prompts[0][1]["content"])
     assert second_prompt["question"] == "second question"
     assert second_prompt["searches_used"] == 1
-    assert second_prompt["evidence"] == [
+    assert second_prompt["generation_context"] == [
         {
             "source": "second.md",
             "chunk_id": 0,
-            "score": 0.9,
             "text": "Second query evidence.",
+            "score": 0.9,
         }
     ]
+    assert second_prompt["candidate_pool"] == [{
+        "source": "second.md",
+        "chunk_id": 0,
+        "text": "Second query evidence.",
+        "in_generation_context": True,
+    }]
     assert first_result["search_results"] == [[first_hit]]
     assert second_result["search_results"] == [[second_hit]]
     assert second_result["search_queries"] == ["second question"]
     assert first_progress == [
         ("searching", 1),
-        ("reviewing", 1),
         ("generating", 1),
+        ("reviewing", 1),
     ]
     assert second_progress == first_progress
 
 
-def test_agentic_reranks_selected_evidence_for_the_original_question():
+def test_agentic_first_answer_preserves_the_retrieval_rank_order():
     lower_ranked = make_hit("summary.md", 0, "A general project summary.")
     higher_ranked = make_hit("ownership.md", 1, "Mina Chen owns the project.")
-    controller = FakeController([
-        action_json({
-            "action": "answer",
-            "evidence": [
-                {"source": lower_ranked["source"], "chunk_id": lower_ranked["chunk_id"]},
-                {"source": higher_ranked["source"], "chunk_id": higher_ranked["chunk_id"]},
-            ],
-        })
-    ])
+    controller = FakeController([action_json({"action": "accept"})])
     answer_calls = []
-
-    class FakeCrossEncoder:
-        def predict(self, pairs):
-            assert pairs == [
-                ("Who owns the project?", lower_ranked["text"]),
-                ("Who owns the project?", higher_ranked["text"]),
-            ]
-            return [0.1, 0.95]
 
     def answer(query, *, hits, stream):
         answer_calls.append((query, hits, stream))
@@ -397,26 +496,20 @@ def test_agentic_reranks_selected_evidence_for_the_original_question():
         search_fn=lambda _query: [lower_ranked, higher_ranked],
         controller=controller,
         answer_fn=answer,
-        cross_encoder=FakeCrossEncoder(),
     )
 
     assert answer_calls == [
-        ("Who owns the project?", [higher_ranked | {"reranker_score": 0.95, "rerank_rank": 1}, lower_ranked | {"reranker_score": 0.1, "rerank_rank": 2}], False),
+        ("Who owns the project?", [lower_ranked, higher_ranked], False),
     ]
     assert result["answer"] == "Mina Chen owns the project."
 
 
-def test_agentic_answer_ignores_extra_text_on_evidence_references():
+def test_agentic_answer_review_ignores_extra_action_fields():
     hit = make_hit("product_overview.md", 1, "Product owner: Lena Ortiz.")
     controller = FakeController([
         action_json({
-            "action": "answer",
+            "action": "accept",
             "explanation": "Selected the matching product role.",
-            "evidence": [{
-                "source": hit["source"],
-                "chunk_id": hit["chunk_id"],
-                "text": hit["text"],
-            }],
         })
     ])
 
@@ -478,7 +571,7 @@ def test_agentic_reports_each_search_and_controller_latency(monkeypatch):
     ]
     assert [call["latency_ms"] for call in generation_calls] == [20.0, 15.0, 25.0]
     assert [call["phase"] for call in generation_calls] == [
-        "retrieval_review",
+        "answer_review",
         "retrieval_review",
         "answer_review",
     ]
@@ -496,7 +589,7 @@ def test_agentic_answer_refines_search_and_deduplicates_evidence():
     answer_calls = []
     controller = FakeController(
         [
-                search_action("project budget"),
+            search_action("project budget"),
             action_json(
                 {
                     "action": "answer",
@@ -532,7 +625,7 @@ def test_agentic_answer_refines_search_and_deduplicates_evidence():
         "Summarize the project plan and budget.",
         "project budget",
     ]
-    assert answer_calls == [[first_hit, second_hit]]
+    assert answer_calls == [[first_hit], [first_hit, second_hit]]
     assert result["answer"] == "Two phases; 20,000 budget."
     assert result["search_results"] == [
         [first_hit],
@@ -554,7 +647,8 @@ def test_agentic_answer_reports_progress_for_each_search_and_decision(monkeypatc
         "get_settings",
         lambda: SimpleNamespace(
             agentic_max_search_attempts=2,
-            agentic_max_answer_attempts=1,
+            agentic_max_answer_attempts=2,
+            llm=SimpleNamespace(max_chunks=5),
         ),
     )
     controller = FakeController(
@@ -609,17 +703,20 @@ def test_agentic_answer_reports_progress_for_each_search_and_decision(monkeypatc
 
     assert progress == [
         ("searching", 1),
+        ("generating", 1),
         ("reviewing", 1),
         ("searching", 2),
         ("reviewing", 2),
         ("generating", 2),
+        ("reviewing", 2),
     ]
     assert [event.event for event in progress_events] == [
         "workflow_started",
         "search_started",
         "search_completed",
-        "controller_started",
-        "action_selected",
+        "answer_started",
+        "answer_review_started",
+        "answer_review_decided",
         "search_started",
         "search_completed",
         "controller_started",
@@ -653,7 +750,7 @@ def test_agentic_answer_reports_progress_for_each_search_and_decision(monkeypatc
     ] == ["search", "answer", "accept"]
     assert all(
         event.max_search_attempts == 2
-        and event.max_answer_attempts == 1
+        and event.max_answer_attempts == 2
         for event in progress_events
     )
     assert progress_events[-1].outcome == "answered"
@@ -663,7 +760,8 @@ def test_agentic_uses_configured_total_attempt_budgets(monkeypatch):
     hit = make_hit("note.md", 0, "Grounded evidence.")
     settings = SimpleNamespace(
         agentic_max_search_attempts=2,
-        agentic_max_answer_attempts=1,
+        agentic_max_answer_attempts=3,
+        llm=SimpleNamespace(max_chunks=5),
     )
     monkeypatch.setattr(agentic_module, "get_settings", lambda: settings)
     search_queries = []
@@ -674,7 +772,6 @@ def test_agentic_uses_configured_total_attempt_budgets(monkeypatch):
             "action": "answer",
             "evidence": [{"source": "note.md", "chunk_id": 0}],
         }),
-        action_json({"action": "accept"}),
     ])
 
     result = agentic_answer(
@@ -691,12 +788,12 @@ def test_agentic_uses_configured_total_attempt_budgets(monkeypatch):
 
     assert search_queries == ["original question", "follow-up"]
     assert result["search_attempts"] == 2
-    assert result["answer_attempts"] == 1
+    assert result["answer_attempts"] == 2
     initial_controller_request = json.loads(controller.prompts[0][1]["content"])
     exhausted_search_request = json.loads(controller.prompts[1][1]["content"])
     retried_search_request = json.loads(controller.prompts[2][1]["content"])
     assert initial_controller_request["searches_remaining"] == 1
-    assert initial_controller_request["answer_attempts_remaining"] == 1
+    assert initial_controller_request["answer_attempts_remaining"] == 2
     assert exhausted_search_request["searches_remaining"] == 0
     assert retried_search_request["searches_remaining"] == 0
     assert "validation_feedback" in retried_search_request
@@ -709,13 +806,10 @@ def test_answer_review_search_requires_a_later_configured_answer_attempt(
     settings = SimpleNamespace(
         agentic_max_search_attempts=3,
         agentic_max_answer_attempts=1,
+        llm=SimpleNamespace(max_chunks=5),
     )
     monkeypatch.setattr(agentic_module, "get_settings", lambda: settings)
     controller = FakeController([
-        action_json({
-            "action": "answer",
-            "evidence": [{"source": "note.md", "chunk_id": 0}],
-        }),
         search_action("look for more evidence"),
         action_json({"action": "accept"}),
     ])
@@ -748,13 +842,10 @@ def test_configured_answer_budget_counts_the_first_generation(monkeypatch):
     settings = SimpleNamespace(
         agentic_max_search_attempts=3,
         agentic_max_answer_attempts=2,
+        llm=SimpleNamespace(max_chunks=5),
     )
     monkeypatch.setattr(agentic_module, "get_settings", lambda: settings)
     controller = FakeController([
-        action_json({
-            "action": "answer",
-            "evidence": [{"source": "note.md", "chunk_id": 0}],
-        }),
         action_json({"action": "revise", "feedback": "Improve the first answer."}),
         action_json({"action": "revise", "feedback": "Improve the second answer."}),
     ])
@@ -781,68 +872,12 @@ def test_configured_answer_budget_counts_the_first_generation(monkeypatch):
     assert result["answer"] == ANSWER_RETRY_EXHAUSTED_MESSAGE
 
 
-def test_agentic_empty_search_can_abstain_after_controller_review():
-    progress = []
-    controller = FakeController([action_json({"action": "abstain"})])
-
-    result = agentic_answer(
-        "Question without note evidence",
-        rag=None,
-        meta_store=None,
-        search_fn=lambda query: [],
-        controller=controller,
-        on_progress=lambda stage, search_count: progress.append(
-            (stage, search_count)
-        ),
-    )
-
-    assert result["answer"] == ABSTENTION_MESSAGE
-    assert result["reason_code"] == "insufficient_evidence"
-    assert result["response_origin"] == "controller"
-    assert progress == [
-        ("searching", 1),
-        ("reviewing", 1),
-        ("abstaining", 1),
-    ]
-
-
-def test_agentic_empty_initial_search_uses_controller_without_answer():
-    def unexpected_answer(*args, **kwargs):
-        pytest.fail("answer generation should not run for empty retrieval")
-    controller = FakeController([action_json({"action": "abstain"})])
-
-    result = agentic_answer(
-        "Question without note evidence",
-        rag=None,
-        meta_store=None,
-        search_fn=lambda query: [],
-        controller=controller,
-        answer_fn=unexpected_answer,
-    )
-
-    assert result == {
-        "answer": ABSTENTION_MESSAGE,
-        "citations": [],
-        "retrieved_evidence": [],
-        "search_results": [[]],
-        "search_queries": ["Question without note evidence"],
-        "search_attempts": 1,
-        "reason_code": "insufficient_evidence",
-        "response_origin": "controller",
-    }
-
-
 def test_agentic_invalid_json_is_retried_once():
     hit = make_hit("note.md", 0, "Relevant evidence.")
     controller = FakeController(
         [
             "not json",
-            action_json(
-                {
-                    "action": "answer",
-                    "evidence": [{"source": "note.md", "chunk_id": 0}],
-                }
-            ),
+            action_json({"action": "accept"}),
         ]
     )
 
@@ -858,7 +893,7 @@ def test_agentic_invalid_json_is_retried_once():
         },
     )
 
-    assert len(controller.prompts) == 3
+    assert len(controller.prompts) == 2
     assert "validation_feedback" in controller.prompts[1][1]["content"]
     assert result["answer"] == "Grounded answer."
 
@@ -873,15 +908,18 @@ def test_agentic_degrades_after_second_invalid_action_without_fallback():
         meta_store=None,
         search_fn=lambda query: [hit],
         controller=controller,
-        answer_fn=lambda *args, **kwargs: pytest.fail(
-            "Classic fallback or answer generation must not run"
-        ),
+        answer_fn=lambda *_args, **_kwargs: {
+            "answer": "Buffered candidate.",
+            "citations": [],
+        },
     )
 
     assert len(controller.prompts) == 2
     assert result["reason_code"] == "controller_failure"
     assert result["workflow_error"] == "controller_failure"
     assert result["retrieved_evidence"] == [hit]
+    assert result["answer_attempts"] == 1
+    assert result["answer"] != "Buffered candidate."
 
 
 def test_agentic_controller_provider_failure_returns_degraded_outcome():
@@ -902,6 +940,10 @@ def test_agentic_controller_provider_failure_returns_degraded_outcome():
         meta_store=None,
         search_fn=lambda _query: [hit],
         controller=controller,
+        answer_fn=lambda _query, *, hits, stream: {
+            "answer": "Buffered candidate.",
+            "citations": [],
+        },
     )
 
     assert controller.calls == 1
@@ -915,18 +957,11 @@ def test_agentic_retries_unknown_evidence_reference():
     hit = make_hit("note.md", 0, "Relevant evidence.")
     controller = FakeController(
         [
-            action_json(
-                {
-                    "action": "answer",
-                    "evidence": [{"source": "other.md", "chunk_id": 0}],
-                }
-            ),
-            action_json(
-                {
-                    "action": "answer",
-                    "evidence": [{"source": "note.md", "chunk_id": 0}],
-                }
-            ),
+            action_json({
+                "action": "expand_evidence",
+                "evidence": [{"source": "other.md", "chunk_id": 0}],
+            }),
+            action_json({"action": "accept"}),
         ]
     )
 
@@ -939,11 +974,12 @@ def test_agentic_retries_unknown_evidence_reference():
         answer_fn=lambda query, *, hits, stream: {
             "answer": "Grounded answer.",
             "citations": [],
+            "generation_context": hits,
         },
     )
 
-    assert len(controller.prompts) == 3
-    assert "not returned by search_notes" in controller.prompts[1][1]["content"]
+    assert len(controller.prompts) == 2
+    assert "current candidate pool" in controller.prompts[1][1]["content"]
     assert result["answer"] == "Grounded answer."
     assert result["reason_code"] == "answered"
     assert result["response_origin"] == "answer_model"
@@ -971,9 +1007,10 @@ def test_agentic_searches_at_most_three_times_then_can_abstain():
         meta_store=None,
         search_fn=search,
         controller=controller,
-        answer_fn=lambda *args, **kwargs: pytest.fail(
-            "abstention must not call final answer generation"
-        ),
+        answer_fn=lambda *_args, **_kwargs: {
+            "answer": "Rejected candidate.",
+            "citations": [],
+        },
     )
 
     assert calls == ["original question", "second search", "third search"]
@@ -989,16 +1026,13 @@ def test_agentic_searches_at_most_three_times_then_can_abstain():
         "search_attempts": 3,
         "reason_code": "insufficient_evidence",
         "response_origin": "controller",
+        "answer_attempts": 1,
     }
 
 
 def test_agentic_revises_answer_at_most_three_attempts_then_accepts():
     hit = make_hit("note.md", 0, "The owner is Mina.")
     controller = FakeController([
-        action_json({
-            "action": "answer",
-            "evidence": [{"source": "note.md", "chunk_id": 0}],
-        }),
         action_json({"action": "revise", "feedback": "Name the owner."}),
         action_json({"action": "revise", "feedback": "Be direct."}),
         action_json({"action": "accept"}),
@@ -1060,13 +1094,6 @@ def test_answer_review_can_expand_context_and_sees_the_exact_generation_limit(
     monkeypatch.setattr(answer_module, "get_llm", lambda: answer_model)
     controller = FakeController([
         action_json({
-            "action": "answer",
-            "evidence": [
-                {"source": hit["source"], "chunk_id": hit["chunk_id"]}
-                for hit in hits
-            ],
-        }),
-        action_json({
             "action": "expand_evidence",
             "evidence": [{"source": "third.md", "chunk_id": 2}],
         }),
@@ -1082,7 +1109,7 @@ def test_answer_review_can_expand_context_and_sees_the_exact_generation_limit(
         controller=controller,
     )
 
-    first_review = json.loads(controller.prompts[1][1]["content"])
+    first_review = json.loads(controller.prompts[0][1]["content"])
     assert first_review["generation_context"] == [
         {
             "source": "first.md",
@@ -1110,7 +1137,7 @@ def test_answer_review_can_expand_context_and_sees_the_exact_generation_limit(
         }
         for hit in hits
     ]
-    second_review = json.loads(controller.prompts[2][1]["content"])
+    second_review = json.loads(controller.prompts[1][1]["content"])
     assert [item["source"] for item in second_review["generation_context"]] == [
         "third.md",
         "first.md",
@@ -1128,13 +1155,10 @@ def test_answer_review_evidence_expansion_requires_an_answer_attempt(monkeypatch
     settings = SimpleNamespace(
         agentic_max_search_attempts=3,
         agentic_max_answer_attempts=1,
+        llm=SimpleNamespace(max_chunks=5),
     )
     monkeypatch.setattr(agentic_module, "get_settings", lambda: settings)
     controller = FakeController([
-        action_json({
-            "action": "answer",
-            "evidence": [{"source": "used.md", "chunk_id": 0}],
-        }),
         action_json({
             "action": "expand_evidence",
             "evidence": [{"source": "unused.md", "chunk_id": 1}],
@@ -1176,10 +1200,6 @@ def test_answer_review_rejects_evidence_outside_the_candidate_pool():
     hit = make_hit("used.md", 0, "Current answer evidence.")
     controller = FakeController([
         action_json({
-            "action": "answer",
-            "evidence": [{"source": "used.md", "chunk_id": 0}],
-        }),
-        action_json({
             "action": "expand_evidence",
             "evidence": [{"source": "missing.md", "chunk_id": 1}],
         }),
@@ -1212,10 +1232,6 @@ def test_answer_review_rejects_evidence_outside_the_candidate_pool():
 def test_agentic_returns_specific_insufficiency_after_three_answer_attempts():
     hit = make_hit("note.md", 0, "Partial evidence.")
     controller = FakeController([
-        action_json({
-            "action": "answer",
-            "evidence": [{"source": "note.md", "chunk_id": 0}],
-        }),
         action_json({"action": "revise", "feedback": "Try again."}),
         action_json({"action": "revise", "feedback": "Still incomplete."}),
         action_json({"action": "revise", "feedback": "Still unsupported."}),
@@ -1252,10 +1268,6 @@ def test_agentic_returns_specific_insufficiency_after_three_answer_attempts():
 def test_agentic_retries_invalid_answer_review_once():
     hit = make_hit("note.md", 0, "Grounded evidence.")
     controller = FakeController([
-        action_json({
-            "action": "answer",
-            "evidence": [{"source": "note.md", "chunk_id": 0}],
-        }),
         "not valid review json",
         action_json({"action": "accept"}),
     ])
@@ -1280,10 +1292,6 @@ def test_agentic_retries_invalid_answer_review_once():
 def test_agentic_answer_review_can_abstain():
     hit = make_hit("note.md", 0, "Partial evidence.")
     controller = FakeController([
-        action_json({
-            "action": "answer",
-            "evidence": [{"source": "note.md", "chunk_id": 0}],
-        }),
         action_json({"action": "abstain"}),
     ])
 

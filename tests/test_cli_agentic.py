@@ -183,7 +183,10 @@ def test_classic_and_agentic_share_initial_search_and_answer_generation(
     assert len(classic["generation_context"]) == 1
     assert len(answer_prompts) == 2
     assert answer_prompts[0] == answer_prompts[1]
-    assert len(controller_prompts) == 2
+    assert len(controller_prompts) == 1
+    assert "candidate_answer" in json.loads(
+        controller_prompts[0][-1]["content"]
+    )
 
 
 def test_one_shot_reports_agentic_workflow_error(monkeypatch, capsys):
