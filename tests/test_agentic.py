@@ -544,10 +544,19 @@ def test_agentic_answer_refines_search_and_deduplicates_evidence():
     ]
 
 
-def test_agentic_answer_reports_progress_for_each_search_and_decision():
+def test_agentic_answer_reports_progress_for_each_search_and_decision(monkeypatch):
     first_hit = make_hit("plan.md", 0, "The project has two phases.")
     second_hit = make_hit("budget.md", 0, "The budget is 20,000.")
     progress = []
+    progress_events = []
+    monkeypatch.setattr(
+        agentic_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            agentic_max_search_attempts=2,
+            agentic_max_answer_attempts=1,
+        ),
+    )
     controller = FakeController(
         [
             search_action("project budget"),
@@ -562,9 +571,28 @@ def test_agentic_answer_reports_progress_for_each_search_and_decision():
             ),
         ]
     )
+    original_generate_raw = controller.generate_raw
+
+    def generate_raw(prompt):
+        assert progress_events[-1].event in {
+            "controller_started",
+            "answer_review_started",
+        }
+        return original_generate_raw(prompt)
+
+    controller.generate_raw = generate_raw
 
     def search(query, **_kwargs):
+        assert progress_events[-1].event == "search_started"
+        assert progress_events[-1].search_query == query
         return [first_hit] if query == "original question" else [second_hit]
+
+    def answer(query, *, hits, stream):
+        assert progress_events[-1].event == "answer_started"
+        return {
+            "answer": "Two phases; 20,000 budget.",
+            "citations": [],
+        }
 
     agentic_answer(
         "original question",
@@ -572,10 +600,8 @@ def test_agentic_answer_reports_progress_for_each_search_and_decision():
         meta_store=None,
         search_fn=search,
         controller=controller,
-        answer_fn=lambda query, *, hits, stream: {
-            "answer": "Two phases; 20,000 budget.",
-            "citations": [],
-        },
+        answer_fn=answer,
+        on_progress_event=progress_events.append,
         on_progress=lambda stage, search_count: progress.append(
             (stage, search_count)
         ),
@@ -588,6 +614,49 @@ def test_agentic_answer_reports_progress_for_each_search_and_decision():
         ("reviewing", 2),
         ("generating", 2),
     ]
+    assert [event.event for event in progress_events] == [
+        "workflow_started",
+        "search_started",
+        "search_completed",
+        "controller_started",
+        "action_selected",
+        "search_started",
+        "search_completed",
+        "controller_started",
+        "action_selected",
+        "answer_started",
+        "answer_review_started",
+        "answer_review_decided",
+        "terminal",
+    ]
+    assert [
+        (
+            event.search_attempt,
+            event.search_query,
+            event.search_action,
+        )
+        for event in progress_events
+        if event.event == "search_started"
+    ] == [
+        (1, "original question", "initial"),
+        (2, "project budget", "extend"),
+    ]
+    assert [
+        (event.search_attempt, event.result_count)
+        for event in progress_events
+        if event.event == "search_completed"
+    ] == [(1, 1), (2, 1)]
+    assert [
+        event.decision
+        for event in progress_events
+        if event.event in {"action_selected", "answer_review_decided"}
+    ] == ["search", "answer", "accept"]
+    assert all(
+        event.max_search_attempts == 2
+        and event.max_answer_attempts == 1
+        for event in progress_events
+    )
+    assert progress_events[-1].outcome == "answered"
 
 
 def test_agentic_uses_configured_total_attempt_budgets(monkeypatch):

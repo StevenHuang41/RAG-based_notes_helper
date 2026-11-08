@@ -7,7 +7,7 @@ import pytest
 from rag_notes_helper import cli
 from rag_notes_helper.rag import agentic as agentic_module
 from rag_notes_helper.rag import answer as answer_module
-from rag_notes_helper.rag.agentic import AgenticWorkflowError
+from rag_notes_helper.rag.agentic import AgenticProgress, AgenticWorkflowError
 
 
 def test_parser_accepts_agentic_one_shot_flag():
@@ -63,6 +63,7 @@ def test_run_onetime_dispatches_to_agentic_workflow(monkeypatch):
 
     def fake_agentic_answer(
         query, *, rag, meta_store, stream=False, on_progress=None,
+        on_progress_event=None,
         conversation_history=(),
     ):
         calls.append((query, rag, meta_store, tuple(conversation_history)))
@@ -227,6 +228,7 @@ def test_agentic_repl_uses_selected_workflow_for_initial_and_followup_queries(
 
     def fake_agentic_answer(
         query, *, rag, meta_store, stream=False, on_progress=None,
+        on_progress_event=None,
         conversation_history=(),
     ):
         calls.append((query, rag, meta_store, stream, list(conversation_history)))
@@ -273,7 +275,7 @@ def test_agentic_repl_keeps_only_five_prior_turns_and_starts_fresh(
     calls = []
 
     def fake_run_query(
-        rag, meta_store, *, query, agentic, stream, on_progress,
+        rag, meta_store, *, query, agentic, stream, on_progress_event,
         conversation_history=(),
     ):
         calls.append((query, list(conversation_history)))
@@ -318,6 +320,7 @@ def test_agentic_repl_reports_invalid_action_and_accepts_next_query(
 
     def fake_agentic_answer(
         query, *, rag, meta_store, stream=False, on_progress=None,
+        on_progress_event=None,
         conversation_history=(),
     ):
         calls.append(query)
@@ -398,18 +401,87 @@ def test_agentic_one_shot_renders_safe_progress_only_on_terminal_stderr(
     monkeypatch, capsys
 ):
     note_text = "PRIVATE NOTE TEXT"
+    private_prompt = "PRIVATE CONTROLLER PROMPT"
+    rejected_answer = "REJECTED CANDIDATE ANSWER"
     stderr = _TerminalStream(terminal=True)
 
     def fake_agentic_answer(
-        query, *, rag, meta_store, stream=False, on_progress=None
+        query, *, rag, meta_store, stream=False, on_progress_event=None
     ):
-        assert on_progress is not None
-        for stage, search_count in [
-            ("searching", 1),
-            ("reviewing", 1),
-            ("generating", 1),
+        assert on_progress_event is not None
+        for event in [
+            AgenticProgress(
+                event="workflow_started",
+                max_search_attempts=2,
+                max_answer_attempts=1,
+            ),
+            AgenticProgress(
+                event="search_started",
+                max_search_attempts=2,
+                max_answer_attempts=1,
+                search_attempt=1,
+                search_action="initial",
+                search_query="focused search terms",
+            ),
+            AgenticProgress(
+                event="search_completed",
+                max_search_attempts=2,
+                max_answer_attempts=1,
+                search_attempt=1,
+                result_count=2,
+            ),
+            AgenticProgress(
+                event="controller_started",
+                max_search_attempts=2,
+                max_answer_attempts=1,
+            ),
+            AgenticProgress(
+                event="action_selected",
+                max_search_attempts=2,
+                max_answer_attempts=1,
+                decision="answer",
+            ),
+            AgenticProgress(
+                event="answer_started",
+                max_search_attempts=2,
+                max_answer_attempts=1,
+                answer_attempt=1,
+            ),
+            AgenticProgress(
+                event="answer_review_started",
+                max_search_attempts=2,
+                max_answer_attempts=1,
+                answer_attempt=1,
+            ),
+            AgenticProgress(
+                event="answer_review_decided",
+                max_search_attempts=2,
+                max_answer_attempts=1,
+                answer_attempt=1,
+                decision="accept",
+            ),
+            AgenticProgress(
+                event="terminal",
+                max_search_attempts=2,
+                max_answer_attempts=1,
+                outcome="answered",
+            ),
         ]:
-            on_progress(stage, search_count)
+            on_progress_event(event)
+            if event.event == "controller_started":
+                assert stderr.getvalue().splitlines()[-1] == (
+                    "[Agentic] Controller is reviewing evidence"
+                )
+            elif event.event == "answer_started":
+                assert stderr.getvalue().splitlines()[-1] == (
+                    f"[Agentic] Generating answer {event.answer_attempt}/1"
+                )
+            elif event.event == "answer_review_started":
+                assert stderr.getvalue().splitlines()[-1] == (
+                    f"[Agentic] Reviewing answer {event.answer_attempt}/1"
+                )
+        assert private_prompt not in repr(event)
+        assert rejected_answer not in repr(event)
         return {
             "answer": "Grounded answer.",
             "citations": [],
@@ -429,12 +501,20 @@ def test_agentic_one_shot_renders_safe_progress_only_on_terminal_stderr(
 
     assert capsys.readouterr().out == "Grounded answer.\n"
     assert stderr.getvalue().splitlines() == [
-        "[Agentic] Searching notes (1/3)",
-        "[Agentic] Reviewing evidence",
-        "[Agentic] Generating answer",
+        "[Agentic] Limits: Search 2, Answer 1",
+        "[Agentic] Read-only Search 1/2 (initial): focused search terms",
+        "[Agentic] Read-only Search 1/2 returned 2 chunks",
+        "[Agentic] Controller is reviewing evidence",
+        "[Agentic] Selected action: generate answer",
+        "[Agentic] Generating answer 1/1",
+        "[Agentic] Reviewing answer 1/1",
+        "[Agentic] Answer review: accept",
+        "[Agentic] Outcome: answered",
     ]
     assert note_text not in stderr.getvalue()
     assert "Question containing private details" not in stderr.getvalue()
+    assert private_prompt not in stderr.getvalue()
+    assert rejected_answer not in stderr.getvalue()
 
 
 def test_agentic_one_shot_suppresses_progress_when_stderr_is_redirected(
@@ -443,10 +523,26 @@ def test_agentic_one_shot_suppresses_progress_when_stderr_is_redirected(
     stderr = _TerminalStream(terminal=False)
 
     def fake_agentic_answer(
-        query, *, rag, meta_store, stream=False, on_progress=None
+        query, *, rag, meta_store, stream=False, on_progress_event=None
     ):
-        on_progress("searching", 1)
-        on_progress("abstaining", 1)
+        on_progress_event(
+            AgenticProgress(
+                event="search_started",
+                max_search_attempts=3,
+                max_answer_attempts=3,
+                search_attempt=1,
+                search_action="initial",
+                search_query=query,
+            )
+        )
+        on_progress_event(
+            AgenticProgress(
+                event="terminal",
+                max_search_attempts=3,
+                max_answer_attempts=3,
+                outcome="insufficient_evidence",
+            )
+        )
         return {"answer": "I cannot find the answers in the notes.", "citations": []}
 
     monkeypatch.setattr(cli.sys, "stderr", stderr)
@@ -477,11 +573,168 @@ def test_agentic_repl_renders_progress_for_each_query(monkeypatch):
     queries = iter(["Question one", "Question two", ":q"])
 
     def fake_agentic_answer(
-        query, *, rag, meta_store, stream=False, on_progress=None,
+        query, *, rag, meta_store, stream=False, on_progress_event=None,
         conversation_history=(),
     ):
-        on_progress("searching", 1)
-        on_progress("abstaining", 1)
+        if query == "Question one":
+            events = [
+                AgenticProgress(
+                    event="workflow_started",
+                    max_search_attempts=3,
+                    max_answer_attempts=4,
+                ),
+                AgenticProgress(
+                    event="search_started",
+                    max_search_attempts=3,
+                    max_answer_attempts=4,
+                    search_attempt=1,
+                    search_action="initial",
+                    search_query="first selected query",
+                ),
+                AgenticProgress(
+                    event="search_completed",
+                    max_search_attempts=3,
+                    max_answer_attempts=4,
+                    search_attempt=1,
+                    result_count=3,
+                ),
+                AgenticProgress(
+                    event="controller_started",
+                    max_search_attempts=3,
+                    max_answer_attempts=4,
+                ),
+                AgenticProgress(
+                    event="action_selected",
+                    max_search_attempts=3,
+                    max_answer_attempts=4,
+                    decision="search",
+                ),
+                AgenticProgress(
+                    event="search_started",
+                    max_search_attempts=3,
+                    max_answer_attempts=4,
+                    search_attempt=2,
+                    search_action="extend",
+                    search_query="controller-selected query",
+                ),
+                AgenticProgress(
+                    event="search_completed",
+                    max_search_attempts=3,
+                    max_answer_attempts=4,
+                    search_attempt=2,
+                    result_count=1,
+                ),
+                AgenticProgress(
+                    event="controller_started",
+                    max_search_attempts=3,
+                    max_answer_attempts=4,
+                ),
+                AgenticProgress(
+                    event="action_selected",
+                    max_search_attempts=3,
+                    max_answer_attempts=4,
+                    decision="answer",
+                ),
+                AgenticProgress(
+                    event="answer_started",
+                    max_search_attempts=3,
+                    max_answer_attempts=4,
+                    answer_attempt=1,
+                ),
+                AgenticProgress(
+                    event="answer_review_started",
+                    max_search_attempts=3,
+                    max_answer_attempts=4,
+                    answer_attempt=1,
+                ),
+                AgenticProgress(
+                    event="answer_review_decided",
+                    max_search_attempts=3,
+                    max_answer_attempts=4,
+                    answer_attempt=1,
+                    decision="revise",
+                ),
+                AgenticProgress(
+                    event="answer_started",
+                    max_search_attempts=3,
+                    max_answer_attempts=4,
+                    answer_attempt=2,
+                ),
+                AgenticProgress(
+                    event="answer_review_started",
+                    max_search_attempts=3,
+                    max_answer_attempts=4,
+                    answer_attempt=2,
+                ),
+                AgenticProgress(
+                    event="answer_review_decided",
+                    max_search_attempts=3,
+                    max_answer_attempts=4,
+                    answer_attempt=2,
+                    decision="search",
+                ),
+                AgenticProgress(
+                    event="search_started",
+                    max_search_attempts=3,
+                    max_answer_attempts=4,
+                    search_attempt=3,
+                    search_action="replace",
+                    search_query="review-selected query",
+                ),
+                AgenticProgress(
+                    event="search_completed",
+                    max_search_attempts=3,
+                    max_answer_attempts=4,
+                    search_attempt=3,
+                    result_count=2,
+                ),
+                AgenticProgress(
+                    event="controller_started",
+                    max_search_attempts=3,
+                    max_answer_attempts=4,
+                ),
+                AgenticProgress(
+                    event="action_selected",
+                    max_search_attempts=3,
+                    max_answer_attempts=4,
+                    decision="clarify",
+                ),
+                AgenticProgress(
+                    event="clarification_requested",
+                    max_search_attempts=3,
+                    max_answer_attempts=4,
+                ),
+                AgenticProgress(
+                    event="terminal",
+                    max_search_attempts=3,
+                    max_answer_attempts=4,
+                    outcome="needs_clarification",
+                ),
+            ]
+        else:
+            events = [
+                AgenticProgress(
+                    event="clarification_requested",
+                    max_search_attempts=3,
+                    max_answer_attempts=4,
+                ),
+                AgenticProgress(
+                    event="terminal",
+                    max_search_attempts=3,
+                    max_answer_attempts=4,
+                    outcome="needs_clarification",
+                ),
+            ]
+        for event in events:
+            on_progress_event(event)
+            if event.event == "answer_started":
+                assert stderr.getvalue().splitlines()[-1] == (
+                    f"[Agentic] Generating answer {event.answer_attempt}/4"
+                )
+            elif event.event == "answer_review_started":
+                assert stderr.getvalue().splitlines()[-1] == (
+                    f"[Agentic] Reviewing answer {event.answer_attempt}/4"
+                )
         return {
             "answer": f"Answer for {query}",
             "citations": [],
@@ -498,10 +751,29 @@ def test_agentic_repl_renders_progress_for_each_query(monkeypatch):
 
     assert answers == ["Answer for Question one", "Answer for Question two"]
     assert stderr.getvalue().splitlines() == [
-        "[Agentic] Searching notes (1/3)",
-        "[Agentic] Insufficient evidence; abstaining",
-        "[Agentic] Searching notes (1/3)",
-        "[Agentic] Insufficient evidence; abstaining",
+        "[Agentic] Limits: Search 3, Answer 4",
+        "[Agentic] Read-only Search 1/3 (initial): first selected query",
+        "[Agentic] Read-only Search 1/3 returned 3 chunks",
+        "[Agentic] Controller is reviewing evidence",
+        "[Agentic] Selected read-only action: adaptive Search",
+        "[Agentic] Read-only Search 2/3 (adaptive extend): controller-selected query",
+        "[Agentic] Read-only Search 2/3 returned 1 chunks",
+        "[Agentic] Controller is reviewing evidence",
+        "[Agentic] Selected action: generate answer",
+        "[Agentic] Generating answer 1/4",
+        "[Agentic] Reviewing answer 1/4",
+        "[Agentic] Answer review: revise",
+        "[Agentic] Generating answer 2/4",
+        "[Agentic] Reviewing answer 2/4",
+        "[Agentic] Answer review: search",
+        "[Agentic] Read-only Search 3/3 (adaptive replace): review-selected query",
+        "[Agentic] Read-only Search 3/3 returned 2 chunks",
+        "[Agentic] Controller is reviewing evidence",
+        "[Agentic] Selected action: clarify",
+        "[Agentic] Asking for clarification",
+        "[Agentic] Outcome: needs_clarification",
+        "[Agentic] Asking for clarification",
+        "[Agentic] Outcome: needs_clarification",
     ]
     assert "PRIVATE NOTE TEXT" not in stderr.getvalue()
 

@@ -1,5 +1,6 @@
 import json
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from functools import partial
 from time import perf_counter
 from typing import Annotated, Any, Literal, TypeAlias, TypedDict
@@ -220,6 +221,37 @@ AnswerFunction = Callable[..., dict[str, Any]]
 UsageFunction = Callable[[dict[str, Any]], None]
 ProgressStage = Literal["searching", "reviewing", "generating", "abstaining"]
 ProgressFunction = Callable[[ProgressStage, int], None]
+ProgressEventName = Literal[
+    "workflow_started",
+    "search_started",
+    "search_completed",
+    "controller_started",
+    "action_selected",
+    "answer_started",
+    "answer_review_started",
+    "answer_review_decided",
+    "clarification_requested",
+    "terminal",
+]
+
+
+@dataclass(frozen=True)
+class AgenticProgress:
+    """A safe, observable Agentic workflow update for interactive clients."""
+
+    event: ProgressEventName
+    max_search_attempts: int
+    max_answer_attempts: int
+    search_attempt: int | None = None
+    search_query: str | None = None
+    search_action: str | None = None
+    result_count: int | None = None
+    answer_attempt: int | None = None
+    decision: str | None = None
+    outcome: str | None = None
+
+
+ProgressEventFunction = Callable[[AgenticProgress], None]
 RetrievalFunction = Callable[[dict[str, Any]], None]
 
 
@@ -245,6 +277,7 @@ class _AgenticState(TypedDict):
     stream: bool
     on_generation: UsageFunction | None
     on_progress: ProgressFunction | None
+    on_progress_event: ProgressEventFunction | None
     on_retrieval: RetrievalFunction | None
     search_index: int
     searches_used: int
@@ -265,6 +298,24 @@ class _AgenticState(TypedDict):
     # also records attempts and results from nodes that fail before committing.
     audit_trace: _AgenticAuditTrace
     result: dict[str, Any] | None
+
+
+def _emit_progress_event(
+    state: _AgenticState,
+    event: ProgressEventName,
+    **details: Any,
+) -> None:
+    callback = state["on_progress_event"]
+    if callback is None:
+        return
+    callback(
+        AgenticProgress(
+            event=event,
+            max_search_attempts=state["max_search_attempts"],
+            max_answer_attempts=state["max_answer_attempts"],
+            **details,
+        )
+    )
 
 
 def search_notes(
@@ -919,12 +970,25 @@ def _record_search(
 
 
 def _initial_search_node(state: _AgenticState) -> dict[str, Any]:
+    _emit_progress_event(
+        state,
+        "search_started",
+        search_attempt=1,
+        search_query=state["query"],
+        search_action="initial",
+    )
     if state["on_progress"] is not None:
         state["on_progress"]("searching", 1)
 
     search_index, search_hits, active_hits, stage_record = _record_search(
         state,
         state["query"],
+    )
+    _emit_progress_event(
+        state,
+        "search_completed",
+        search_attempt=search_index,
+        result_count=len(search_hits),
     )
     retrieval_stages = state["retrieval_stages"]
     if stage_record is not None:
@@ -946,6 +1010,7 @@ def _route_after_initial_search(state: _AgenticState) -> Literal["controller"]:
 
 
 def _controller_node(state: _AgenticState) -> dict[str, Any]:
+    _emit_progress_event(state, "controller_started")
     if state["on_progress"] is not None:
         state["on_progress"]("reviewing", state["searches_used"])
 
@@ -966,6 +1031,11 @@ def _controller_node(state: _AgenticState) -> dict[str, Any]:
         retrieval_stages=state["retrieval_stages"],
         on_generation=state["on_generation"],
         conversation_history=state["conversation_history"],
+    )
+    _emit_progress_event(
+        state,
+        "action_selected",
+        decision=action.action,
     )
     return {"controller": controller, "action": action}
 
@@ -991,6 +1061,13 @@ def _focused_search_node(state: _AgenticState) -> dict[str, Any]:
         raise AgenticWorkflowError("The Agentic graph expected a search action.")
 
     next_search_count = state["searches_used"] + 1
+    _emit_progress_event(
+        state,
+        "search_started",
+        search_attempt=next_search_count,
+        search_query=action.query,
+        search_action=action.evidence_mode,
+    )
     if state["on_progress"] is not None:
         state["on_progress"]("searching", next_search_count)
 
@@ -1000,6 +1077,12 @@ def _focused_search_node(state: _AgenticState) -> dict[str, Any]:
         vector_min_score=action.vector_min_score,
         bm25_min_score_ratio=action.bm25_min_score_ratio,
         evidence_mode=action.evidence_mode,
+    )
+    _emit_progress_event(
+        state,
+        "search_completed",
+        search_attempt=search_index,
+        result_count=len(search_hits),
     )
     retrieval_stages = state["retrieval_stages"]
     if stage_record is not None:
@@ -1045,10 +1128,15 @@ def _answer_node(state: _AgenticState) -> dict[str, Any]:
                 cross_encoder=state["cross_encoder"],
             )
 
+    answer_attempt = state["answer_attempts"] + 1
+    _emit_progress_event(
+        state,
+        "answer_started",
+        answer_attempt=answer_attempt,
+    )
     if state["on_progress"] is not None:
         state["on_progress"]("generating", state["searches_used"])
 
-    answer_attempt = state["answer_attempts"] + 1
     state["audit_trace"]["answer_attempts"] = answer_attempt
     answer = state["answer_fn"] if state["answer_fn"] is not None else rag_answer
     answer_kwargs: dict[str, Any] = {
@@ -1106,6 +1194,11 @@ def _answer_review_node(state: _AgenticState) -> dict[str, Any]:
     controller = state["controller"]
     if controller is None:
         controller = get_llm()
+    _emit_progress_event(
+        state,
+        "answer_review_started",
+        answer_attempt=state["answer_attempts"],
+    )
     generation_context = candidate_result.get("generation_context")
     if not isinstance(generation_context, list):
         # Injected answer functions used by offline callers may omit this
@@ -1123,6 +1216,12 @@ def _answer_review_node(state: _AgenticState) -> dict[str, Any]:
         max_answer_attempts=state["max_answer_attempts"],
         on_generation=state["on_generation"],
         conversation_history=state["conversation_history"],
+    )
+    _emit_progress_event(
+        state,
+        "answer_review_decided",
+        answer_attempt=state["answer_attempts"],
+        decision=review.action,
     )
     update: dict[str, Any] = {
         "controller": controller,
@@ -1235,6 +1334,11 @@ def _accept_answer_node(state: _AgenticState) -> dict[str, Any]:
         else "answered"
     )
     accepted_result["response_origin"] = "answer_model"
+    _emit_progress_event(
+        state,
+        "terminal",
+        outcome=accepted_result["reason_code"],
+    )
     return {"result": _trace_result(state, accepted_result)}
 
 
@@ -1247,10 +1351,20 @@ def _answer_exhausted_node(state: _AgenticState) -> dict[str, Any]:
         "reason_code": "answer_attempts_exhausted",
         "response_origin": "deterministic",
     })
+    _emit_progress_event(
+        state,
+        "terminal",
+        outcome=candidate_result["reason_code"],
+    )
     return {"result": _trace_result(state, candidate_result)}
 
 
 def _abstain_node(state: _AgenticState) -> dict[str, Any]:
+    _emit_progress_event(
+        state,
+        "terminal",
+        outcome="insufficient_evidence",
+    )
     if state["on_progress"] is not None:
         state["on_progress"]("abstaining", state["searches_used"])
 
@@ -1267,6 +1381,12 @@ def _clarify_node(state: _AgenticState) -> dict[str, Any]:
     action = state["action"]
     if not isinstance(action, ClarifyAction):
         raise AgenticWorkflowError("The Agentic graph expected a clarify action.")
+    _emit_progress_event(state, "clarification_requested")
+    _emit_progress_event(
+        state,
+        "terminal",
+        outcome="needs_clarification",
+    )
     result = _trace_result(state, {
         "answer": action.message,
         "citations": [],
@@ -1371,6 +1491,7 @@ def agentic_answer(
     answer_fn: AnswerFunction | None = None,
     on_generation: UsageFunction | None = None,
     on_progress: ProgressFunction | None = None,
+    on_progress_event: ProgressEventFunction | None = None,
     on_retrieval: RetrievalFunction | None = None,
     cross_encoder: CrossEncoderModel | None = None,
     conversation_history: Sequence[ConversationTurn] = (),
@@ -1408,6 +1529,7 @@ def agentic_answer(
         "stream": stream,
         "on_generation": on_generation,
         "on_progress": on_progress,
+        "on_progress_event": on_progress_event,
         "on_retrieval": on_retrieval,
         "search_index": 0,
         "searches_used": 0,
@@ -1427,15 +1549,26 @@ def agentic_answer(
         "audit_trace": audit_trace,
         "result": None,
     }
+    _emit_progress_event(state, "workflow_started")
     try:
         final_state = _AGENTIC_GRAPH.invoke(state)
     except _RetrievalExecutionError as exc:
+        _emit_progress_event(
+            state,
+            "terminal",
+            outcome="retrieval_failure",
+        )
         return _degraded_result(
             audit_trace,
             reason_code="retrieval_failure",
             error=exc,
         )
     except AgenticWorkflowError as exc:
+        _emit_progress_event(
+            state,
+            "terminal",
+            outcome="controller_failure",
+        )
         return _degraded_result(
             audit_trace,
             reason_code="controller_failure",

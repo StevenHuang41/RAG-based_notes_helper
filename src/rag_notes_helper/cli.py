@@ -26,9 +26,10 @@ from rag_notes_helper.rag.retrieval import (
 )
 from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE, rag_answer
 from rag_notes_helper.rag.agentic import (
-    MAX_SEARCHES,
+    AgenticProgress,
     AgenticWorkflowError,
-    ProgressStage,
+    ProgressEventFunction,
+    ProgressFunction,
     RETRIEVAL_FAILURE_MESSAGE,
     agentic_answer,
 )
@@ -49,18 +50,84 @@ class EvaluationUnavailableError(RuntimeError):
     """Raised when a source-checkout-only evaluation command is unavailable."""
 
 
-def _render_agentic_progress(stage: ProgressStage, search_count: int) -> None:
+def _safe_progress_query(query: str) -> str:
+    printable = "".join(
+        character if character.isprintable() else " " for character in query
+    )
+    normalized = " ".join(printable.split())
+    if len(normalized) > 120:
+        return normalized[:117] + "..."
+    return normalized
+
+
+def _render_agentic_progress(progress: AgenticProgress) -> None:
     if not sys.stderr.isatty():
         return
 
-    if stage == "searching":
-        message = f"Searching notes ({search_count}/{MAX_SEARCHES})"
-    elif stage == "reviewing":
-        message = "Reviewing evidence"
-    elif stage == "generating":
-        message = "Generating answer"
+    if progress.event == "workflow_started":
+        message = (
+            "Limits: Search "
+            f"{progress.max_search_attempts}, Answer {progress.max_answer_attempts}"
+        )
+    elif progress.event == "search_started":
+        action = (
+            "initial"
+            if progress.search_action == "initial"
+            else f"adaptive {progress.search_action}"
+        )
+        message = (
+            f"Read-only Search {progress.search_attempt}/"
+            f"{progress.max_search_attempts} "
+            f"({action}): {_safe_progress_query(progress.search_query or '')}"
+        )
+    elif progress.event == "search_completed":
+        message = (
+            f"Read-only Search {progress.search_attempt}/"
+            f"{progress.max_search_attempts} "
+            f"returned {progress.result_count} chunks"
+        )
+    elif progress.event == "controller_started":
+        message = "Controller is reviewing evidence"
+    elif progress.event == "action_selected":
+        action_names = {
+            "search": "adaptive Search",
+            "answer": "generate answer",
+            "clarify": "clarify",
+            "abstain": "abstain",
+        }
+        if progress.decision == "search":
+            message = "Selected read-only action: adaptive Search"
+        else:
+            message = (
+                "Selected action: "
+                f"{action_names.get(progress.decision, 'continue')}"
+            )
+    elif progress.event == "answer_started":
+        message = (
+            f"Generating answer {progress.answer_attempt}/"
+            f"{progress.max_answer_attempts}"
+        )
+    elif progress.event == "answer_review_started":
+        message = (
+            f"Reviewing answer {progress.answer_attempt}/"
+            f"{progress.max_answer_attempts}"
+        )
+    elif progress.event == "answer_review_decided":
+        decision_names = {
+            "accept": "accept",
+            "revise": "revise",
+            "expand_evidence": "expand evidence",
+            "search": "search",
+            "clarify": "clarify",
+            "abstain": "abstain",
+        }
+        message = f"Answer review: {decision_names.get(progress.decision, 'complete')}"
+    elif progress.event == "clarification_requested":
+        message = "Asking for clarification"
+    elif progress.event == "terminal":
+        message = f"Outcome: {progress.outcome}"
     else:
-        message = "Insufficient evidence; abstaining"
+        return
 
     print(f"[Agentic] {message}", file=sys.stderr, flush=True)
 
@@ -196,7 +263,7 @@ def run_onetime(
         meta_store,
         query=query,
         agentic=agentic,
-        on_progress=_render_agentic_progress if agentic else None,
+        on_progress_event=_render_agentic_progress if agentic else None,
     )
 
     display_ansewr(result["answer"])
@@ -213,7 +280,8 @@ def run_query(
     agentic: bool = False,
     stream: bool = False,
     on_generation: Callable[[dict[str, Any]], None] | None = None,
-    on_progress: Callable[[ProgressStage, int], None] | None = None,
+    on_progress: ProgressFunction | None = None,
+    on_progress_event: ProgressEventFunction | None = None,
     on_retrieval: Callable[[dict[str, Any]], None] | None = None,
     cross_encoder: CrossEncoderModel | None = None,
     conversation_history: Sequence[ConversationTurn] = (),
@@ -240,6 +308,8 @@ def run_query(
             kwargs["on_generation"] = on_generation
         if on_progress is not None:
             kwargs["on_progress"] = on_progress
+        if on_progress_event is not None:
+            kwargs["on_progress_event"] = on_progress_event
         if on_retrieval is not None:
             kwargs["on_retrieval"] = on_retrieval
         if cross_encoder is not None:
@@ -428,7 +498,9 @@ def repl(
                     "query": query,
                     "agentic": agentic,
                     "stream": stream_response,
-                    "on_progress": _render_agentic_progress if agentic else None,
+                    "on_progress_event": (
+                        _render_agentic_progress if agentic else None
+                    ),
                 }
                 if agentic and conversation_history:
                     query_kwargs["conversation_history"] = tuple(
