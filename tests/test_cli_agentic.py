@@ -1,9 +1,12 @@
+import json
 import sys
 from io import StringIO
 
 import pytest
 
 from rag_notes_helper import cli
+from rag_notes_helper.rag import agentic as agentic_module
+from rag_notes_helper.rag import answer as answer_module
 from rag_notes_helper.rag.agentic import AgenticWorkflowError
 
 
@@ -79,6 +82,106 @@ def test_run_onetime_dispatches_to_agentic_workflow(monkeypatch):
 
     assert calls == [("Question", "index", "metadata")]
     assert displayed == ["Agentic answer."]
+
+
+def test_classic_and_agentic_share_initial_search_and_answer_generation(
+    monkeypatch,
+):
+    query = "Who owns the review?"
+    hits = [
+        {
+            "source": "notes/review.md",
+            "chunk_id": 0,
+            "score": 0.9,
+            "text": "Mina owns the review.",
+        },
+        {
+            "source": "notes/archive.md",
+            "chunk_id": 1,
+            "score": 0.7,
+            "text": "The former owner was Aria.",
+        },
+    ]
+    retrieval_calls = []
+    answer_prompts = []
+    controller_prompts = []
+
+    def classic_retrieve(
+        rag,
+        meta_store,
+        *,
+        query,
+        cross_encoder=None,
+        vector_min_score=None,
+        bm25_min_score_ratio=None,
+    ):
+        retrieval_calls.append((
+            "classic",
+            query,
+            (cross_encoder, vector_min_score, bm25_min_score_ratio),
+        ))
+        return hits
+
+    def agentic_retrieve(
+        rag,
+        meta_store,
+        *,
+        query,
+        cross_encoder=None,
+        vector_min_score=None,
+        bm25_min_score_ratio=None,
+    ):
+        retrieval_calls.append((
+            "agentic",
+            query,
+            (cross_encoder, vector_min_score, bm25_min_score_ratio),
+        ))
+        return hits
+
+    class AnswerSettings:
+        line_width = 80
+
+        class LLM:
+            max_chunks = 1
+
+        llm = LLM()
+
+    class AnswerModel:
+        def generate(self, prompt, line_width):
+            answer_prompts.append(prompt)
+            return "Mina owns the review."
+
+    class Controller:
+        provider_name = "fixture"
+
+        def generate_raw(self, prompt):
+            controller_prompts.append(prompt)
+            payload = json.loads(prompt[-1]["content"])
+            if "candidate_answer" in payload:
+                return json.dumps({"action": "accept"})
+            return json.dumps({
+                "action": "answer",
+                "evidence": [{"source": hits[0]["source"], "chunk_id": 0}],
+            })
+
+    monkeypatch.setattr(cli, "retrieve", classic_retrieve)
+    monkeypatch.setattr(agentic_module, "retrieve", agentic_retrieve)
+    monkeypatch.setattr(answer_module, "get_settings", AnswerSettings)
+    monkeypatch.setattr(answer_module, "get_llm", AnswerModel)
+    monkeypatch.setattr(agentic_module, "get_llm", Controller)
+
+    classic = cli.run_query("index", "metadata", query=query)
+    agentic = cli.run_query("index", "metadata", query=query, agentic=True)
+
+    assert [call[1] for call in retrieval_calls] == [query, query]
+    assert [call[0] for call in retrieval_calls] == ["classic", "agentic"]
+    assert retrieval_calls[0][2] == retrieval_calls[1][2] == (None, None, None)
+    assert classic["answer"] == agentic["answer"] == "Mina owns the review."
+    assert classic["generation_context"] == agentic["generation_context"]
+    assert len(classic["generation_context"]) == 1
+    assert len(answer_prompts) == 2
+    assert answer_prompts[0] == answer_prompts[1]
+    assert len(controller_prompts) == 2
 
 
 def test_one_shot_reports_agentic_workflow_error(monkeypatch, capsys):
