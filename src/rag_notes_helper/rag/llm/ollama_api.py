@@ -14,7 +14,7 @@ class OllamaLLM(BaseLLM):
         self.base_url = base_url.rstrip("/")
 
 
-    def _get_payload(self, prompt, *, stream=False, think=None):
+    def _get_payload(self, prompt, *, stream=False, think=None, format=None):
         payload = {
             "model": self.model,
             "messages": prompt,
@@ -26,18 +26,45 @@ class OllamaLLM(BaseLLM):
         }
         if think is not None:
             payload["think"] = think
+        if format is not None:
+            payload["format"] = format
         return payload
 
 
     def _generate(self, prompt: list[dict[str, Any]], **kws) -> str:
-        payload = self._get_payload(prompt, think=kws.get("think"))
+        requested_format = kws.get("format")
+        payload = self._get_payload(
+            prompt,
+            think=kws.get("think"),
+            format=requested_format,
+        )
 
         response = requests.post(
             f"{self.base_url}/api/chat",
             json=payload,
             timeout=120,
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            status_code = getattr(exc.response, "status_code", None)
+            if not isinstance(requested_format, dict) or status_code not in {
+                400,
+                422,
+            }:
+                raise
+
+            payload = self._get_payload(
+                prompt,
+                think=kws.get("think"),
+                format="json",
+            )
+            response = requests.post(
+                f"{self.base_url}/api/chat",
+                json=payload,
+                timeout=120,
+            )
+            response.raise_for_status()
 
         payload = response.json()
         self._capture_usage(payload)
