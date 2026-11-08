@@ -518,6 +518,29 @@ def _render_ragas_diagnostics(case: dict[str, Any]) -> list[str]:
     ]
 
 
+def _render_workflow_outcome(case: dict[str, Any]) -> list[str]:
+    return [
+        "",
+        "#### Workflow outcome",
+        "",
+        *_table(
+            ["Field", "Value"],
+            [
+                ["Terminal reason", case.get("reason_code")],
+                ["Response origin", case.get("response_origin")],
+                ["Workflow error", case.get("workflow_error")],
+                [
+                    "Controller failure category",
+                    case.get("controller_failure_category"),
+                ],
+                ["Search attempts", case.get("search_attempts")],
+                ["Answer attempts", case.get("answer_attempts")],
+            ],
+        ),
+        "",
+    ]
+
+
 def _render_execution_audit(case: dict[str, Any]) -> list[str]:
     return [
         "",
@@ -593,6 +616,7 @@ def _render_agentic_query_details(
     max_answer_chunks: Any,
 ) -> list[str]:
     lines = _query_header(case, max_answer_chunks)
+    lines.extend(_render_workflow_outcome(case))
     latency = case.get("latency", {}) or {}
     generation_calls = (case.get("generation_usage", {}) or {}).get("calls", [])
     retrieval_controller_calls = [
@@ -697,6 +721,45 @@ def _render_query_details(
     return lines
 
 
+def _render_workflow_outcome_summary(
+    workflow_summary: dict[str, Any],
+) -> list[str]:
+    outcome_counts = workflow_summary.get("outcome_counts", {}) or {}
+    bounded_outcomes = outcome_counts.get("bounded_outcomes", {}) or {}
+    errors = outcome_counts.get("workflow_errors", {}) or {}
+    insufficient_by_origin = (
+        outcome_counts.get("insufficient_evidence_by_origin", {}) or {}
+    )
+    if not bounded_outcomes and not errors and not insufficient_by_origin:
+        return []
+
+    rows = []
+    for reason, count in sorted(bounded_outcomes.items()):
+        if reason == "insufficient_evidence" and insufficient_by_origin:
+            continue
+        rows.append(["Bounded outcome", reason, "—", count])
+    for origin, count in sorted(insufficient_by_origin.items()):
+        rows.append([
+            "Bounded outcome",
+            "insufficient_evidence",
+            origin,
+            count,
+        ])
+    for reason, count in sorted(errors.items()):
+        rows.append(["Workflow error", reason, "—", count])
+
+    return [
+        "",
+        "## Workflow outcomes",
+        "",
+        *_table(
+            ["Outcome class", "Terminal reason", "Response origin", "Cases"],
+            rows,
+        ),
+        "",
+    ]
+
+
 def _readme_report(results: dict[str, Any]) -> str:
     metadata = results.get("run_metadata", {}) or {}
     summary = results.get("summary", {}) or {}
@@ -724,6 +787,8 @@ def _readme_report(results: dict[str, Any]) -> str:
         ("Sampling seed", metadata.get("seed") if metadata.get("seed") is not None else "Not set"),
     )]))
     lines.extend(["", "## Fixture coverage", "", f"- **Cases:** {summary.get('case_count', len(results.get('cases', [])))}", "- **Selected case IDs:** " + _markdown_cell(", ".join(metadata.get("selected_case_ids", []))), ""])
+    if workflow == "agentic":
+        lines.extend(_render_workflow_outcome_summary(workflow_summary))
     lines.extend(["", "## Overall metrics", "", "### Retrieval metrics", ""])
     lines.extend(_table(["Metric", "Score"], [[label, (workflow_summary.get("final_context_metrics", {}) or {}).get(name)] for label, name in (("Recall", "recall"), ("Precision", "precision"), ("NDCG", "ndcg"))]))
     lines.extend(["", "### Ragas diagnostics", ""])
