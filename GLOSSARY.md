@@ -113,6 +113,9 @@ A subset of prepared evaluation cases selected for one run; it is not a claim th
 **Structured outcome**:
 The non-empty query result plus stable reason code, response origin, and optional workflow-error category. Normal bounded outcomes and degraded workflow-error outcomes remain distinguishable even when both provide user-facing text.
 
+**Retrieval-empty outcome**:
+A bounded result indicating that Retrieval returned no candidate chunks. It describes the observed search coverage; it does not establish that the query is ambiguous, that the notes corpus lacks an answer, or that an index is healthy.
+
 **Evaluation run status**:
 Whether the evaluation process completed artifact generation or failed. It is independent from the workflow outcome of the selected query cases.
 

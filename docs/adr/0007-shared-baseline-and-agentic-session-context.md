@@ -18,15 +18,20 @@ interaction and could blur the boundary between conversation and note evidence.
 
 - Use the same deterministic query validation and original-query first Search
   for Classic and Agentic. Do not add a separate pre-search semantic router only
-  to Agentic. Agentic may clarify after its controller inspects the initial
-  search and available conversation context.
+  to Agentic. For a non-empty initial candidate pool, Agentic sends the shared
+  ranked Generation top-k directly to Answer generation; clarification can
+  happen during post-generation Answer review. An empty initial candidate pool
+  returns a deterministic Retrieval-empty outcome without inferring ambiguity
+  or corpus absence.
 - Keep the Hybrid Retrieval pipeline, starting thresholds, Cross-encoder,
   answer model, shared answer-generation prompt, and Generation top-k equal in
   both modes. The shared answer prompt may allow flexible organization and
   formatting, but both modes remain grounded only in the supplied note context.
+  Agentic's first Answer context uses the same ordered top-k baseline as
+  Classic, without a pre-generation evidence-selection call.
 - Classic remains one Search followed by one Answer generation. Agentic adds
-  bounded controller decisions, adaptive Search, and answer review. These extra
-  calls are part of Agentic's measured runtime cost.
+  bounded post-generation controller decisions, adaptive Search, and Answer
+  review. These extra calls are part of Agentic's measured runtime cost.
 - Keep the LangGraph state fresh for each query. Agentic REPL may supply an
   in-memory window of at most five user/assistant pairs to help interpret
   follow-ups. Clear the window when the REPL ends. Conversation history is
@@ -35,7 +40,9 @@ interaction and could blur the boundary between conversation and note evidence.
 - Require the answer reviewer to assess the exact ordered context passed to the
   candidate's generation call. It distinguishes answer-quality revisions using
   the same context from evidence recovery using additional candidate chunks or
-  a new Search.
+  a new Search. Clarify only when the query itself is ambiguous or materially
+  underspecified; absent or irrelevant evidence alone is not a clarification
+  request.
 - Make Retrieval and Answer total-attempt budgets independently configurable.
   Defaults are three attempts, including the initial call, with an allowed
   range of one through five. New variables are implemented in Settings and
@@ -57,6 +64,10 @@ The Agentic path will use more model calls and may still fail to improve quality
 The reviewer is a model-based check, not an independent correctness guarantee.
 Evaluation results must be used to assess whether the added calls provide
 enough benefit.
+
+An ambiguous or unanswerable query with a non-empty candidate pool incurs an
+Answer generation call before review can clarify or abstain. Include that
+latency and token use in the Agentic workflow cost.
 
 This decision amends ADR-0005's fixed three-attempt maximums into configurable
 total-attempt limits whose defaults remain three. ADR-0005 continues to govern
