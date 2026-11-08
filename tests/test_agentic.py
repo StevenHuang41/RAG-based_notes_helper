@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from rag_notes_helper.rag import agentic as agentic_module
+from rag_notes_helper.rag import answer as answer_module
 from rag_notes_helper.rag.agentic import (
     ANSWER_RETRY_EXHAUSTED_MESSAGE,
     agentic_answer,
@@ -222,10 +223,14 @@ def test_agentic_controller_receives_history_as_intent_context_only():
         "conversation_history"
     ]
     assert "never evidence" in review_prompt[0]["content"].lower()
-    assert review_payload["evidence"] == [{
+    assert review_payload["generation_context"][0]["text"] == (
+        "The project starts in April."
+    )
+    assert review_payload["candidate_pool"] == [{
         "source": "plan.md",
         "chunk_id": 0,
         "text": "The project starts in April.",
+        "in_generation_context": True,
     }]
 
 
@@ -956,6 +961,183 @@ def test_agentic_revises_answer_at_most_three_attempts_then_accepts():
     ]
     assert result["answer"] == "Mina."
     assert result["answer_attempts"] == 3
+
+
+def test_answer_review_can_expand_context_and_sees_the_exact_generation_limit(
+    monkeypatch,
+):
+    hits = [
+        make_hit("first.md", 0, "First candidate evidence."),
+        make_hit("second.md", 1, "Second candidate evidence."),
+        make_hit("third.md", 2, "Third candidate evidence."),
+    ]
+    settings = SimpleNamespace(
+        agentic_max_search_attempts=3,
+        agentic_max_answer_attempts=3,
+        llm=SimpleNamespace(max_chunks=2),
+        line_width=80,
+    )
+    monkeypatch.setattr(agentic_module, "get_settings", lambda: settings)
+    monkeypatch.setattr(answer_module, "get_settings", lambda: settings)
+
+    class AnswerModel:
+        def __init__(self):
+            self.responses = ["Rejected candidate.", "Approved candidate."]
+
+        def generate(self, _prompt, **_kwargs):
+            return self.responses.pop(0)
+
+    answer_model = AnswerModel()
+    monkeypatch.setattr(answer_module, "get_llm", lambda: answer_model)
+    controller = FakeController([
+        action_json({
+            "action": "answer",
+            "evidence": [
+                {"source": hit["source"], "chunk_id": hit["chunk_id"]}
+                for hit in hits
+            ],
+        }),
+        action_json({
+            "action": "expand_evidence",
+            "evidence": [{"source": "third.md", "chunk_id": 2}],
+        }),
+        action_json({"action": "accept"}),
+    ])
+    search_queries = []
+
+    result = agentic_answer(
+        "Question",
+        rag=None,
+        meta_store=None,
+        search_fn=lambda query, **_kwargs: search_queries.append(query) or hits,
+        controller=controller,
+    )
+
+    first_review = json.loads(controller.prompts[1][1]["content"])
+    assert first_review["generation_context"] == [
+        {
+            "source": "first.md",
+            "chunk_id": 0,
+            "start_line": None,
+            "end_line": None,
+            "text": "First candidate evidence.",
+            "prompt_block": "file:first.md\nFirst candidate evidence.",
+        },
+        {
+            "source": "second.md",
+            "chunk_id": 1,
+            "start_line": None,
+            "end_line": None,
+            "text": "Second candidate evidence.",
+            "prompt_block": "file:second.md\nSecond candidate evidence.",
+        },
+    ]
+    assert first_review["candidate_pool"] == [
+        {
+            "source": hit["source"],
+            "chunk_id": hit["chunk_id"],
+            "text": hit["text"],
+            "in_generation_context": hit["source"] != "third.md",
+        }
+        for hit in hits
+    ]
+    second_review = json.loads(controller.prompts[2][1]["content"])
+    assert [item["source"] for item in second_review["generation_context"]] == [
+        "third.md",
+        "first.md",
+    ]
+    assert search_queries == ["Question"]
+    assert result["answer"] == "Approved candidate."
+    assert result["answer_attempts"] == 2
+
+
+def test_answer_review_evidence_expansion_requires_an_answer_attempt(monkeypatch):
+    hits = [
+        make_hit("used.md", 0, "Current answer evidence."),
+        make_hit("unused.md", 1, "Additional evidence."),
+    ]
+    settings = SimpleNamespace(
+        agentic_max_search_attempts=3,
+        agentic_max_answer_attempts=1,
+    )
+    monkeypatch.setattr(agentic_module, "get_settings", lambda: settings)
+    controller = FakeController([
+        action_json({
+            "action": "answer",
+            "evidence": [{"source": "used.md", "chunk_id": 0}],
+        }),
+        action_json({
+            "action": "expand_evidence",
+            "evidence": [{"source": "unused.md", "chunk_id": 1}],
+        }),
+        action_json({
+            "action": "expand_evidence",
+            "evidence": [{"source": "unused.md", "chunk_id": 1}],
+        }),
+    ])
+    answer_calls = []
+    search_queries = []
+
+    result = agentic_answer(
+        "Question",
+        rag=None,
+        meta_store=None,
+        search_fn=lambda query, **_kwargs: search_queries.append(query) or hits,
+        controller=controller,
+        answer_fn=lambda _query, *, hits, stream: (
+            answer_calls.append(hits)
+            or {
+                "answer": "Rejected candidate.",
+                "citations": [],
+                "generation_context": hits,
+            }
+        ),
+    )
+
+    retry_prompt = json.loads(controller.prompts[-1][1]["content"])
+    assert len(answer_calls) == 1
+    assert search_queries == ["Question"]
+    assert "No Answer attempts remain" in retry_prompt["validation_feedback"]
+    assert result["reason_code"] == "controller_failure"
+    assert result["answer"] != "Rejected candidate."
+    assert result["answer_attempts"] == 1
+
+
+def test_answer_review_rejects_evidence_outside_the_candidate_pool():
+    hit = make_hit("used.md", 0, "Current answer evidence.")
+    controller = FakeController([
+        action_json({
+            "action": "answer",
+            "evidence": [{"source": "used.md", "chunk_id": 0}],
+        }),
+        action_json({
+            "action": "expand_evidence",
+            "evidence": [{"source": "missing.md", "chunk_id": 1}],
+        }),
+        action_json({"action": "accept"}),
+    ])
+    answer_calls = []
+
+    result = agentic_answer(
+        "Question",
+        rag=None,
+        meta_store=None,
+        search_fn=lambda _query, **_kwargs: [hit],
+        controller=controller,
+        answer_fn=lambda _query, *, hits, stream: (
+            answer_calls.append(hits)
+            or {
+                "answer": "Grounded candidate.",
+                "citations": [],
+                "generation_context": hits,
+            }
+        ),
+    )
+
+    retry_prompt = json.loads(controller.prompts[-1][1]["content"])
+    assert len(answer_calls) == 1
+    assert "current candidate pool" in retry_prompt["validation_feedback"]
+    assert result["answer"] == "Grounded candidate."
 
 
 def test_agentic_returns_specific_insufficiency_after_three_answer_attempts():
