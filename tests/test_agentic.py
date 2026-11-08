@@ -1149,7 +1149,7 @@ def test_answer_review_can_expand_context_and_sees_the_exact_generation_limit(
     assert result["answer_attempts"] == 2
 
 
-def test_answer_review_evidence_expansion_requires_an_answer_attempt(monkeypatch):
+def test_answer_review_evidence_expansion_at_answer_cap_returns_exhausted(monkeypatch):
     hits = [
         make_hit("used.md", 0, "Current answer evidence."),
         make_hit("unused.md", 1, "Additional evidence."),
@@ -1189,12 +1189,15 @@ def test_answer_review_evidence_expansion_requires_an_answer_attempt(monkeypatch
         ),
     )
 
-    retry_prompt = json.loads(controller.prompts[-1][1]["content"])
+    assert len(controller.prompts) == 1
     assert len(answer_calls) == 1
     assert search_queries == ["Question"]
-    assert "No Answer attempts remain" in retry_prompt["validation_feedback"]
-    assert result["reason_code"] == "controller_failure"
+    assert result["reason_code"] == "answer_attempts_exhausted"
+    assert result["answer_retry_exhausted"] is True
+    assert result["response_origin"] == "deterministic"
+    assert result["answer"] == ANSWER_RETRY_EXHAUSTED_MESSAGE
     assert result["answer"] != "Rejected candidate."
+    assert "Rejected candidate." not in repr(result)
     assert result["answer_attempts"] == 1
 
 

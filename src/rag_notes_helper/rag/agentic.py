@@ -807,10 +807,9 @@ def _answer_review_validation_error(
 ) -> str | None:
     if isinstance(action, ExpandEvidenceAction):
         if answer_attempt >= max_answer_attempts:
-            return (
-                "No Answer attempts remain to use additional evidence. "
-                "Accept, clarify, or abstain."
-            )
+            # The final reviewed candidate cannot consume more evidence; the
+            # graph routes this action to the bounded exhaustion outcome.
+            return None
         pool_references = {
             (hit["source"], hit["chunk_id"])
             for hit in candidate_pool
