@@ -84,25 +84,56 @@ def test_generate_raw_preserves_json_without_display_wrapping():
     assert llm.generate([], line_width=20) != raw_json
 
 
-def test_ollama_controller_disables_thinking_for_structured_actions():
-    received_options = []
+def test_agentic_ollama_uses_phase_specific_action_schemas():
+    hit = make_hit("plan.md", 0, "The project starts in April.")
 
-    class OllamaController:
+    class RecordingOllamaController:
         provider_name = "ollama"
 
-        def generate_raw(self, prompt, **options):
-            received_options.append(options)
-            return action_json({"action": "abstain"})
+        def __init__(self):
+            self.calls = []
+            self.responses = [
+                action_json({
+                    "action": "answer",
+                    "evidence": [{"source": "plan.md", "chunk_id": 0}],
+                }),
+                action_json({"action": "accept"}),
+            ]
 
-    action = agentic_module._request_action(
-        controller=OllamaController(),
-        query="What is not documented?",
-        hits=[],
-        searches_used=0,
+        def generate_raw(self, prompt, **options):
+            self.calls.append((prompt, options))
+            return self.responses.pop(0)
+
+    controller = RecordingOllamaController()
+    result = agentic_answer(
+        "When does the project start?",
+        rag=None,
+        meta_store=None,
+        search_fn=lambda _query: [hit],
+        controller=controller,
+        answer_fn=lambda _query, *, hits, stream: {
+            "answer": hits[0]["text"],
+            "citations": [],
+        },
     )
 
-    assert action.action == "abstain"
-    assert received_options == [{"think": False}]
+    assert result["answer"] == "The project starts in April."
+    assert len(controller.calls) == 2
+    controller_schema = json.loads(
+        controller.calls[0][0][1]["content"]
+    )["action_schema"]
+    review_schema = json.loads(
+        controller.calls[1][0][1]["content"]
+    )["action_schema"]
+    assert controller_schema != review_schema
+    assert controller.calls[0][1] == {
+        "think": False,
+        "format": controller_schema,
+    }
+    assert controller.calls[1][1] == {
+        "think": False,
+        "format": review_schema,
+    }
 
 
 def test_agentic_answer_uses_original_query_and_selected_evidence():
