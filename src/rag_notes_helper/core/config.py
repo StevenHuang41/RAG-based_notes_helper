@@ -31,6 +31,7 @@ class LLMSettings(BaseSettings):
 
     max_chunks: int = Field(5, gt=0, le=50)
     max_tokens: int = Field(1024, gt=0)
+    context_window_tokens: int = Field(8192, gt=0)
     temperature: float = Field(0.3, gt=0, le=1)
 
     eval_provider: LLMProvider | None = None
@@ -64,6 +65,15 @@ class LLMSettings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_llm(self) -> LLMSettings:
+        if (
+            "context_window_tokens" in self.model_fields_set
+            and self.context_window_tokens <= self.max_tokens
+        ):
+            raise ValueError(
+                "LLM_CONTEXT_WINDOW_TOKENS must be greater than LLM_MAX_TOKENS "
+                "when explicitly configured, to reserve room for the output budget."
+            )
+
         if self.provider != "ollama" and not self.api_key:
             raise ValueError(f"API Key is required for {self.provider}")
 

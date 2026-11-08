@@ -62,9 +62,10 @@ def test_run_onetime_dispatches_to_agentic_workflow(monkeypatch):
     displayed = []
 
     def fake_agentic_answer(
-        query, *, rag, meta_store, stream=False, on_progress=None
+        query, *, rag, meta_store, stream=False, on_progress=None,
+        conversation_history=(),
     ):
-        calls.append((query, rag, meta_store))
+        calls.append((query, rag, meta_store, tuple(conversation_history)))
         return answer
 
     monkeypatch.setattr(cli, "agentic_answer", fake_agentic_answer)
@@ -80,7 +81,7 @@ def test_run_onetime_dispatches_to_agentic_workflow(monkeypatch):
         agentic=True,
     )
 
-    assert calls == [("Question", "index", "metadata")]
+    assert calls == [("Question", "index", "metadata", ())]
     assert displayed == ["Agentic answer."]
 
 
@@ -225,9 +226,10 @@ def test_agentic_repl_uses_selected_workflow_for_initial_and_followup_queries(
     displayed = []
 
     def fake_agentic_answer(
-        query, *, rag, meta_store, stream=False, on_progress=None
+        query, *, rag, meta_store, stream=False, on_progress=None,
+        conversation_history=(),
     ):
-        calls.append((query, rag, meta_store, stream))
+        calls.append((query, rag, meta_store, stream, list(conversation_history)))
         return {"answer": f"answer for {query}", "citations": []}
 
     monkeypatch.setattr(
@@ -248,13 +250,55 @@ def test_agentic_repl_uses_selected_workflow_for_initial_and_followup_queries(
     cli.main()
 
     assert calls == [
-        ("initial question", "index", meta_store, False),
-        ("follow-up question", "index", meta_store, False),
+        ("initial question", "index", meta_store, False, []),
+        ("follow-up question", "index", meta_store, False, []),
     ]
     assert displayed == [
         "answer for initial question",
         "answer for follow-up question",
     ]
+
+
+def test_agentic_repl_keeps_only_five_prior_turns_and_starts_fresh(
+    monkeypatch,
+):
+    class DummySettings:
+        stream = False
+
+    class DummyMetaStore:
+        def close(self):
+            pass
+
+    queries = iter([*(f"question {i}" for i in range(7)), ":q"])
+    calls = []
+
+    def fake_run_query(
+        rag, meta_store, *, query, agentic, stream, on_progress,
+        conversation_history=(),
+    ):
+        calls.append((query, list(conversation_history)))
+        return {"answer": f"answer {query}", "citations": []}
+
+    monkeypatch.setattr(cli, "get_settings", lambda: DummySettings())
+    monkeypatch.setattr(cli, "run_query", fake_run_query)
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(queries))
+    monkeypatch.setattr(cli, "display_ansewr", lambda _answer: None)
+
+    cli.repl("index", DummyMetaStore(), agentic=True)
+
+    assert calls[0] == ("question 0", [])
+    assert calls[5][1] == [
+        (f"question {i}", f"answer question {i}") for i in range(5)
+    ]
+    assert calls[6][1] == [
+        (f"question {i}", f"answer question {i}") for i in range(1, 6)
+    ]
+
+    calls.clear()
+    queries = iter(["new session question", ":q"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(queries))
+    cli.repl("index", DummyMetaStore(), agentic=True)
+    assert calls == [("new session question", [])]
 
 
 def test_agentic_repl_reports_invalid_action_and_accepts_next_query(
@@ -273,7 +317,8 @@ def test_agentic_repl_reports_invalid_action_and_accepts_next_query(
     calls = []
 
     def fake_agentic_answer(
-        query, *, rag, meta_store, stream=False, on_progress=None
+        query, *, rag, meta_store, stream=False, on_progress=None,
+        conversation_history=(),
     ):
         calls.append(query)
         if query == "bad action":
@@ -432,7 +477,8 @@ def test_agentic_repl_renders_progress_for_each_query(monkeypatch):
     queries = iter(["Question one", "Question two", ":q"])
 
     def fake_agentic_answer(
-        query, *, rag, meta_store, stream=False, on_progress=None
+        query, *, rag, meta_store, stream=False, on_progress=None,
+        conversation_history=(),
     ):
         on_progress("searching", 1)
         on_progress("abstaining", 1)

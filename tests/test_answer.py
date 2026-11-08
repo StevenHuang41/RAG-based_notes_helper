@@ -5,6 +5,7 @@ import pytest
 from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.rag import answer as answer_module
 from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE, rag_answer
+from rag_notes_helper.rag.prompt_context import estimate_prompt_tokens
 from rag_notes_helper.rag.retrieval import HybridSearchResults
 
 
@@ -124,6 +125,71 @@ def test_rag_answer_returns_the_ordered_context_used_by_the_prompt(monkeypatch):
         "file:notes/second.md\nLaunch date: 2026-07-14."
     ) in prompt_content
     assert "This candidate is outside the answer limit." not in prompt_content
+
+
+def test_rag_answer_labels_history_as_non_evidence(monkeypatch, mock_hits):
+    prompts = []
+
+    class PromptLLM:
+        def generate(self, prompt, line_width):
+            prompts.append(prompt)
+            return "The project starts in April."
+
+    monkeypatch.setattr(
+        "rag_notes_helper.rag.answer.get_llm",
+        lambda: PromptLLM(),
+    )
+
+    rag_answer(
+        "When does it start?",
+        hits=mock_hits,
+        conversation_history=[("When does it start?", "In April.")],
+    )
+
+    prompt = prompts[0]
+    assert "Conversation history (intent context only; not evidence)" in (
+        prompt[1]["content"]
+    )
+    assert "When does it start?" in prompt[1]["content"]
+    assert "In April." in prompt[1]["content"]
+    assert "Use only the provided Context for factual claims" in prompt[0]["content"]
+
+
+def test_rag_answer_trims_oldest_history_pair_to_context_budget(
+    monkeypatch, mock_hits
+):
+    prompts = []
+
+    class PromptLLM:
+        def generate(self, prompt, line_width):
+            prompts.append(prompt)
+            return "answer"
+
+    class TinyContextSettings:
+        line_width = 80
+        llm = type("LLM", (), {
+            "max_chunks": 5,
+            "max_tokens": 20,
+            "context_window_tokens": 2000,
+        })()
+
+    monkeypatch.setattr(answer_module, "get_settings", lambda: TinyContextSettings())
+    monkeypatch.setattr(answer_module, "get_llm", lambda: PromptLLM())
+
+    rag_answer(
+        "current question",
+        hits=mock_hits,
+        conversation_history=[
+            ("old question " + "x" * 1800, "old answer " + "y" * 1800),
+            ("recent question", "recent answer"),
+        ],
+    )
+
+    prompt_content = prompts[0][1]["content"]
+    assert "old question" not in prompt_content
+    assert "recent question" in prompt_content
+    assert "recent answer" in prompt_content
+    assert estimate_prompt_tokens(prompts[0]) + 20 <= 2000
 
 
 def test_rag_answer_sends_only_top_reranked_evidence_and_preserves_scores(

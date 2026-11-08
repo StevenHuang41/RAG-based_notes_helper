@@ -10,6 +10,7 @@ from rag_notes_helper.rag.agentic import (
 )
 from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE
 from rag_notes_helper.rag.llm.base import BaseLLM
+from rag_notes_helper.rag.prompt_context import estimate_prompt_tokens
 
 
 def make_hit(source: str, chunk_id: int, text: str, score: float = 0.9) -> dict:
@@ -177,6 +178,131 @@ def test_agentic_answer_uses_original_query_and_selected_evidence():
     ]
     assert result["answer"] == "The budget is 20,000."
     assert result["citations"] == ["budget.md"]
+
+
+def test_agentic_controller_receives_history_as_intent_context_only():
+    hit = make_hit("plan.md", 0, "The project starts in April.")
+    controller = FakeController([
+        action_json({
+            "action": "answer",
+            "evidence": [{"source": "plan.md", "chunk_id": 0}],
+        })
+    ])
+    history = [("When does it start?", "The project starts in April.")]
+
+    agentic_answer(
+        "What is the project start date?",
+        rag=None,
+        meta_store=None,
+        search_fn=lambda _query: [hit],
+        controller=controller,
+        answer_fn=lambda _query, *, hits, stream: {
+            "answer": hits[0]["text"],
+            "citations": [],
+        },
+        conversation_history=history,
+    )
+
+    initial_prompt = controller.prompts[0]
+    payload = json.loads(initial_prompt[-1]["content"])
+    assert payload["conversation_history"] == [{
+        "user": "When does it start?",
+        "assistant": "The project starts in April.",
+    }]
+    assert "never evidence" in initial_prompt[0]["content"].lower()
+    assert payload["evidence"] == [{
+        "source": "plan.md",
+        "chunk_id": 0,
+        "score": 0.9,
+        "text": "The project starts in April.",
+    }]
+    review_prompt = controller.prompts[1]
+    review_payload = json.loads(review_prompt[-1]["content"])
+    assert review_payload["conversation_history"] == payload[
+        "conversation_history"
+    ]
+    assert "never evidence" in review_prompt[0]["content"].lower()
+    assert review_payload["evidence"] == [{
+        "source": "plan.md",
+        "chunk_id": 0,
+        "text": "The project starts in April.",
+    }]
+
+
+def test_agentic_default_answer_receives_history_as_non_evidence(monkeypatch):
+    hit = make_hit("plan.md", 0, "The project starts in April.")
+    controller = FakeController([
+        action_json({
+            "action": "answer",
+            "evidence": [{"source": "plan.md", "chunk_id": 0}],
+        })
+    ])
+    history = [("When does it start?", "The project starts in April.")]
+    answer_calls = []
+
+    def fake_rag_answer(
+        query, *, hits, stream, conversation_history=(), **_kwargs
+    ):
+        answer_calls.append((query, hits, stream, conversation_history))
+        return {"answer": "The project starts in April.", "citations": []}
+
+    monkeypatch.setattr(agentic_module, "rag_answer", fake_rag_answer)
+
+    agentic_answer(
+        "When does it start?",
+        rag=None,
+        meta_store=None,
+        search_fn=lambda _query: [hit],
+        controller=controller,
+        conversation_history=history,
+    )
+
+    assert answer_calls == [
+        ("When does it start?", [hit], False, tuple(history)),
+    ]
+
+
+def test_agentic_controller_trims_oldest_turn_against_full_prompt(monkeypatch):
+    hit = make_hit("plan.md", 0, "The project starts in April.")
+    controller = FakeController([
+        action_json({
+            "action": "answer",
+            "evidence": [{"source": "plan.md", "chunk_id": 0}],
+        })
+    ])
+    settings = SimpleNamespace(
+        agentic_max_search_attempts=3,
+        agentic_max_answer_attempts=3,
+        llm=SimpleNamespace(context_window_tokens=14000, max_tokens=1024),
+    )
+    monkeypatch.setattr(agentic_module, "get_settings", lambda: settings)
+    history = [
+        ("old question " + "x" * 7000, "old answer " + "y" * 7000),
+        ("recent question", "recent answer"),
+    ]
+
+    agentic_answer(
+        "What is the project start date?",
+        rag=None,
+        meta_store=None,
+        search_fn=lambda _query: [hit],
+        controller=controller,
+        answer_fn=lambda _query, *, hits, stream: {
+            "answer": hits[0]["text"],
+            "citations": [],
+        },
+        conversation_history=history,
+    )
+
+    prompt = controller.prompts[0]
+    payload = json.loads(prompt[-1]["content"])
+    assert payload["conversation_history"] == [{
+        "user": "recent question",
+        "assistant": "recent answer",
+    }]
+    assert estimate_prompt_tokens(prompt) + settings.llm.max_tokens <= (
+        settings.llm.context_window_tokens
+    )
 
 
 def test_agentic_calls_keep_search_and_evidence_state_isolated_per_query():

@@ -2,7 +2,7 @@ import argparse
 import importlib
 import sys
 from time import perf_counter
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, Literal
 from pydantic import ValidationError
@@ -15,6 +15,10 @@ from rag_notes_helper.rag.index import (
     rebuild_index,
 )
 from rag_notes_helper.rag.meta_store import MetaStore
+from rag_notes_helper.rag.prompt_context import (
+    ConversationTurn,
+    MAX_CONVERSATION_TURNS,
+)
 from rag_notes_helper.rag.retrieval import (
     CrossEncoderModel,
     HybridSearchResults,
@@ -212,6 +216,7 @@ def run_query(
     on_progress: Callable[[ProgressStage, int], None] | None = None,
     on_retrieval: Callable[[dict[str, Any]], None] | None = None,
     cross_encoder: CrossEncoderModel | None = None,
+    conversation_history: Sequence[ConversationTurn] = (),
 ) -> dict[str, Any]:
     if not query.strip():
         return {
@@ -239,6 +244,10 @@ def run_query(
             kwargs["on_retrieval"] = on_retrieval
         if cross_encoder is not None:
             kwargs["cross_encoder"] = cross_encoder
+        if conversation_history:
+            kwargs["conversation_history"] = tuple(
+                conversation_history[-MAX_CONVERSATION_TURNS:]
+            )
         return agentic_answer(query, **kwargs)
 
     retrieval_started = perf_counter()
@@ -319,6 +328,7 @@ def repl(
     rag = rag or load_or_build_index()
     meta_store = meta_store or MetaStore()
     stream_response: bool = get_settings().stream
+    conversation_history: list[ConversationTurn] = []
 
     print(
         "\nRAG-based Notes Helper\n"
@@ -414,14 +424,17 @@ def repl(
             logger.info((f"query: {query[:20]}{' ...' if len(query) > 20 else ''}"))
 
             try:
-                result = run_query(
-                    rag,
-                    meta_store,
-                    query=query,
-                    agentic=agentic,
-                    stream=stream_response,
-                    on_progress=_render_agentic_progress if agentic else None,
-                )
+                query_kwargs: dict[str, Any] = {
+                    "query": query,
+                    "agentic": agentic,
+                    "stream": stream_response,
+                    "on_progress": _render_agentic_progress if agentic else None,
+                }
+                if agentic and conversation_history:
+                    query_kwargs["conversation_history"] = tuple(
+                        conversation_history
+                    )
+                result = run_query(rag, meta_store, **query_kwargs)
             except AgenticWorkflowError as exc:
                 logger.error(f"Agentic workflow error: {exc}")
                 print(f"\nAgentic workflow error: {exc}", file=sys.stderr)
@@ -430,11 +443,16 @@ def repl(
 
             display_ansewr(result["answer"])
 
+            if agentic:
+                conversation_history.append((query, str(result["answer"])))
+                del conversation_history[:-MAX_CONVERSATION_TURNS]
+
             if citations and result["citations"]:
                 show_citations(result, show_full=True)
 
             print()
     finally :
+        conversation_history.clear()
         meta_store.close()
 
 

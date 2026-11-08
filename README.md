@@ -328,7 +328,7 @@ uv run rag-app --repl --agentic
 uv run rag-app --repl --agentic "What changed before launch?"
 ```
 
-Each query starts with fresh Agentic state; conversation memory is not enabled. Agentic answers are buffered until evidence review accepts them, even when REPL streaming is enabled.
+Each query starts with fresh Agentic state and performs a new Retrieval. The Agentic REPL keeps up to five recent user/assistant turns in memory for resolving intent; prompts label them as conversational context, never evidence. This history is cleared when the REPL exits. One-shot queries and evaluation cases start with empty history. Agentic answers are buffered until evidence review accepts them, even when REPL streaming is enabled.
 
 ### Remote MCP search
 
@@ -483,7 +483,8 @@ Common settings:
 | `LLM_EVAL_MODEL` | Optional Ragas judge model; defaults to `LLM_MODEL`; set with `LLM_EVAL_PROVIDER` | provider-specific model name |
 | `LLM_EVAL_API_KEY` | Optional judge key; required for a different remote judge provider | `your-evaluation-provider-api-key` |
 | `LLM_MAX_CHUNKS` | Maximum retrieved chunks sent to LLM | `5` |
-| `LLM_MAX_TOKENS` | Generation token budget | `1024` |
+| `LLM_MAX_TOKENS` | Maximum output tokens reserved for each generation | `1024` |
+| `LLM_CONTEXT_WINDOW_TOKENS` | Total model context budget for serialized prompt plus reserved output tokens | `8192` |
 | `LLM_TEMPERATURE` | Generation temperature | `0.1` |
 | `CHUNK_SIZE` | Chunk size for ingestion | `800` |
 | `CHUNK_OVERLAP` | Chunk overlap | `200` |
@@ -498,6 +499,8 @@ Common settings:
 | `STREAM` | Stream model output where supported | `true` |
 
 `TOP_K` remains accepted as a legacy alias for `FUSION_TOP_K`, and `MIN_RETRIEVAL_SCORE` remains accepted as a legacy alias for `VECTOR_MIN_SCORE`. Existing local configuration therefore continues to work while new configuration uses the stage-specific names.
+
+Set `LLM_CONTEXT_WINDOW_TOKENS` to the selected model's total context capacity. The application estimates prompt size conservatively from the fully serialized messages, trims the oldest complete REPL turns until they fit, and reserves `LLM_MAX_TOKENS` for the model response. The estimate avoids adding a provider-specific tokenizer dependency, so the configured context value should match the model's advertised capacity.
 
 ---
 
@@ -532,7 +535,7 @@ ghcr.io/stevenhuang41/rag-based-notes-helper:latest
 
 ## Limitations
 
-- Agentic retrieval is limited to one query at a time; conversation memory is not yet implemented. Search and Answer attempt limits are configurable, defaulting to three each.
+- Agentic retrieval and conversation history are scoped to one query and one REPL session. Search and Answer attempt limits are configurable, defaulting to three each.
 - Retrieval quality depends on note quality, chunk size, and embedding model choice.
 - Runtime artifacts such as FAISS indexes and logs are local by default; evaluation reports are local to the source checkout.
 - API-based LLM providers require valid credentials in `.env`.
@@ -542,7 +545,7 @@ ghcr.io/stevenhuang41/rag-based-notes-helper:latest
 ## Future Work
 
 - Evaluate whether a graph framework is justified if the bounded Python agent loop grows more complex.
-- Add conversation memory so follow-up questions can reuse prior context while still grounding final answers in retrieved notes.
+- Evaluate provider-specific prompt tokenizers for tighter context-budget estimates without weakening the conservative fallback.
 - Add an optional web UI for browsing sources, retrieved chunks, answers, and citations.
 - Improve deployment examples for local Ollama and remote LLM providers.
 

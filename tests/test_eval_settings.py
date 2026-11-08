@@ -22,6 +22,31 @@ def test_unset_eval_pair_inherits_generation_provider_and_model():
     assert settings.effective_eval_provider == "ollama"
     assert settings.effective_eval_model == "llama3.1"
     assert settings.effective_eval_api_key_str is None
+    assert settings.context_window_tokens == 8192
+
+
+def test_context_window_must_reserve_the_output_token_budget():
+    with pytest.raises(ValidationError, match="LLM_CONTEXT_WINDOW_TOKENS"):
+        make_settings(context_window_tokens=1024, max_tokens=1024)
+
+
+def test_legacy_output_budget_does_not_require_a_new_context_setting():
+    settings = make_settings(max_tokens=8192)
+
+    assert settings.max_tokens == 8192
+    assert settings.context_window_tokens == 8192
+
+
+def test_legacy_output_budget_env_loads_without_context_window_setting(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("LLM_MODEL", "llama3.1")
+    monkeypatch.setenv("LLM_MAX_TOKENS", "8192")
+    monkeypatch.delenv("LLM_CONTEXT_WINDOW_TOKENS", raising=False)
+
+    settings = LLMSettings(_env_file=None)
+
+    assert settings.max_tokens == 8192
+    assert settings.context_window_tokens == 8192
 
 
 @pytest.mark.parametrize("setting", ["eval_provider", "eval_model"])
