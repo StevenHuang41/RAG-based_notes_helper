@@ -9,8 +9,12 @@ A fixed query workflow that retrieves note chunks once and generates an answer f
 _Avoid_: Original RAG, legacy RAG
 
 **Agentic RAG**:
-A per-query workflow in which an agent plans note exploration, may retrieve repeatedly based on evidence sufficiency, and synthesizes a final answer. It uses indexed local notes as its evidence source and retains no state across separate queries.
+A bounded workflow in which a controller evaluates retrieved note evidence, may request additional searches, and reviews a generated answer before returning it. Recent conversation turns may clarify a follow-up query, but they are not evidence; factual claims remain grounded in notes retrieved for the current query.
 _Avoid_: Agent mode, conversational agent
+
+**Conversation history**:
+Recent user and assistant turns that help interpret follow-up questions. It can clarify intent but is not a source of factual evidence.
+_Avoid_: Long-term memory, retrieved evidence
 
 **Evidence-grounded answer**:
 An answer whose factual claims are supported by retrieved note evidence; when evidence is insufficient, the system abstains.
@@ -21,7 +25,7 @@ One candidate answer generation followed by an evidence-grounded Answer review.
 _Avoid_: Answer retry
 
 **Answer review**:
-A per-query controller decision that accepts a candidate answer, requests a revision, reopens Retrieval with a validated adaptive search, asks for clarification, or abstains based on the selected note evidence and remaining budgets.
+A controller evaluation of a candidate answer's relevance, completeness, and support against the exact Answer generation context. It may accept, request a revision with the same evidence, request additional evidence, ask for clarification, or abstain.
 _Avoid_: Ragas judge, answer grading
 
 ## Retrieval

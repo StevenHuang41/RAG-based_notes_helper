@@ -71,7 +71,7 @@ def test_report_uses_final_context_metrics_and_concise_audit_tables(tmp_path):
     write_readme(report_path, results)
     report = report_path.read_text(encoding="utf-8")
 
-    assert "Final context evidence metrics" in report
+    assert "### Retrieval metrics" in report
     assert "| Recall | 0.5000 |" in report
     assert "| direct | 1 | 0.5000 | 0.2500 | 0.4000 | 0.9000 | — | 0.8000 | — | 12.0000 |" in report
     assert "Answerability outcomes" not in report
@@ -93,3 +93,35 @@ def test_report_uses_final_context_metrics_and_concise_audit_tables(tmp_path):
     assert "**Answer Relevancy** checks whether the answer addresses the question" in report
     assert "**Answer Correctness** checks the answer against the expected answer" in report
     assert "**Context Utilization** checks whether the final Answer generation context is useful for the answer" in report
+
+
+def test_overall_retrieval_metrics_keep_rows_when_values_are_unavailable(
+    tmp_path,
+):
+    for workflow in ("classic", "agentic"):
+        results = {
+            "run_metadata": {"workflow": workflow},
+            "summary": {
+                "workflows": {
+                    workflow: {
+                        "final_context_metrics": {
+                            "recall": None,
+                            "precision": None,
+                            "ndcg": None,
+                        },
+                    },
+                },
+            },
+            "cases": [],
+        }
+
+        report_path = tmp_path / f"{workflow}.md"
+        write_readme(report_path, results)
+        report = report_path.read_text(encoding="utf-8")
+        retrieval_section = report.split("### Retrieval metrics\n", 1)[1].split(
+            "### Ragas diagnostics", 1
+        )[0]
+
+        assert "| Recall | — |" in retrieval_section
+        assert "| Precision | — |" in retrieval_section
+        assert "| NDCG | — |" in retrieval_section

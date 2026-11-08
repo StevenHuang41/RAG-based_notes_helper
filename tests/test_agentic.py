@@ -443,6 +443,8 @@ def test_agentic_empty_search_can_abstain_after_controller_review():
     )
 
     assert result["answer"] == ABSTENTION_MESSAGE
+    assert result["reason_code"] == "insufficient_evidence"
+    assert result["response_origin"] == "controller"
     assert progress == [
         ("searching", 1),
         ("reviewing", 1),
@@ -471,6 +473,8 @@ def test_agentic_empty_initial_search_uses_controller_without_answer():
         "search_results": [[]],
         "search_queries": ["Question without note evidence"],
         "search_attempts": 1,
+        "reason_code": "insufficient_evidence",
+        "response_origin": "controller",
     }
 
 
@@ -587,6 +591,8 @@ def test_agentic_retries_unknown_evidence_reference():
     assert len(controller.prompts) == 3
     assert "not returned by search_notes" in controller.prompts[1][1]["content"]
     assert result["answer"] == "Grounded answer."
+    assert result["reason_code"] == "answered"
+    assert result["response_origin"] == "answer_model"
 
 
 def test_agentic_searches_at_most_three_times_then_can_abstain():
@@ -627,6 +633,8 @@ def test_agentic_searches_at_most_three_times_then_can_abstain():
         "search_results": [[hit], [hit], [hit]],
         "search_queries": ["original question", "second search", "third search"],
         "search_attempts": 3,
+        "reason_code": "insufficient_evidence",
+        "response_origin": "controller",
     }
 
 

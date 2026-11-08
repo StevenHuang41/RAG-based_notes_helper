@@ -23,7 +23,7 @@ class FixtureEmbeddingModel:
         return np.ones((len(texts), 4), dtype=np.float32)
 
 
-def test_exhausted_answer_attempts_remain_judgeable_when_context_exists():
+def test_exhausted_answer_attempts_are_not_judgeable():
     fields = eval_runner._answerability_fields(
         {"answerable": False},
         "Please ask a more specific question.",
@@ -33,11 +33,13 @@ def test_exhausted_answer_attempts_remain_judgeable_when_context_exists():
         **fields,
         "answer": "Please ask a more specific question.",
         "answer_contexts": ["Rejected candidate context."],
+        "reference_answer": "Expected answer.",
+        "response_origin": "deterministic",
     }
 
     assert fields["abstained"] is True
     assert fields["answerability_correct"] is True
-    assert eval_runner._ragas_metric_is_eligible(case, "faithfulness") is True
+    assert eval_runner._ragas_metric_is_eligible(case, "faithfulness") is False
 
 
 class FixtureAnswerModel:
@@ -214,7 +216,7 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert (run_dir / "README.md").is_file()
     assert not (run_dir / "summary.json").exists()
     results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
-    assert results["schema_version"] == 8
+    assert results["schema_version"] == 9
     assert results["run_status"] == "completed"
     assert results["workflow_outcome"] == "completed"
     assert results["workflow_error_count"] == 0
@@ -979,6 +981,36 @@ def test_whitespace_answer_is_unavailable_and_not_ragas_eligible(
     )
 
 
+def test_ragas_requires_final_model_answer_and_reference_answer():
+    generated_case = {
+        "answer": "The owner is Mina.",
+        "response_origin": "answer_model",
+        "reference_answer": "Mina owns the review.",
+        "answer_contexts": ["Mina owns the review."],
+    }
+    deterministic_case = {
+        **generated_case,
+        "response_origin": "deterministic",
+    }
+    no_reference_case = {
+        **generated_case,
+        "reference_answer": "  ",
+    }
+
+    assert all(
+        eval_runner._ragas_metric_is_eligible(generated_case, metric)
+        for metric in eval_runner.METRIC_NAMES
+    )
+    assert not any(
+        eval_runner._ragas_metric_is_eligible(deterministic_case, metric)
+        for metric in eval_runner.METRIC_NAMES
+    )
+    assert not any(
+        eval_runner._ragas_metric_is_eligible(no_reference_case, metric)
+        for metric in eval_runner.METRIC_NAMES
+    )
+
+
 @pytest.mark.parametrize(
     "sample,message",
     [(0, "positive integer"), (-1, "positive integer"), (51, "fixture size")],
@@ -1010,6 +1042,7 @@ def test_ragas_metrics_skip_context_dependent_scores_when_retrieval_is_empty(
             "expected_answerable": True,
             "question": "What is the approved date?",
             "answer": "I cannot find the answer in the notes.",
+            "response_origin": "answer_model",
             "contexts": [],
             "answer_contexts": [],
             "reference_answer": "2026-06-01",
@@ -1019,6 +1052,7 @@ def test_ragas_metrics_skip_context_dependent_scores_when_retrieval_is_empty(
             "expected_answerable": True,
             "question": "Who owns QA?",
             "answer": "Priya owns QA.",
+            "response_origin": "answer_model",
             "contexts": ["Priya owns QA verification."],
             "answer_contexts": ["Priya owns QA verification."],
             "reference_answer": "Priya Shah owns QA verification.",
@@ -1037,6 +1071,7 @@ def test_ragas_metrics_skip_context_dependent_scores_when_retrieval_is_empty(
             "expected_answerable": False,
             "question": "What is the private launch code?",
             "answer": "I cannot find the answer in the notes.",
+            "response_origin": "answer_model",
             "contexts": [],
             "answer_contexts": [],
             "reference_answer": "",
@@ -1078,7 +1113,7 @@ def test_ragas_metrics_skip_context_dependent_scores_when_retrieval_is_empty(
         ["faithfulness"],
         ["answer_correctness"],
     ]
-    assert [len(batch["rows"]) for batch in batches_seen] == [3, 1, 1, 3]
+    assert [len(batch["rows"]) for batch in batches_seen] == [2, 1, 1, 2]
     assert scores[0]["answer_relevancy"] == 0.5
     assert scores[0]["answer_correctness"] == 0.5
     assert "context_utilization" not in scores[0]
@@ -1096,11 +1131,12 @@ def test_ragas_metrics_skip_context_dependent_scores_when_retrieval_is_empty(
     }
     assert scores[1]["context_utilization"] == 0.5
     assert scores[1]["faithfulness"] == 0.5
-    assert scores[3]["answer_relevancy"] == 0.5
-    assert scores[3]["answer_correctness"] == 0.5
-    assert "no final generation context" in scores[3]["metric_reasons"][
-        "faithfulness"
-    ]
+    assert "answer_relevancy" not in scores[3]
+    assert "answer_correctness" not in scores[3]
+    assert all(
+        "no reference answer" in reason
+        for reason in scores[3]["metric_reasons"].values()
+    )
     assert [call["row_index"] for call in judge_calls if call["metric"] == "context_utilization"] == [1]
     assert [call["row_index"] for call in judge_calls if call["metric"] == "faithfulness"] == [1]
 
@@ -1704,6 +1740,8 @@ def test_run_evaluation_uses_final_answer_context_for_context_utilization(
     def fake_run_query(*_args, **_kwargs):
         return {
             "answer": "Only the selected chunk.",
+            "reason_code": "answered",
+            "response_origin": "answer_model",
             "citations": [selected_hit],
             "retrieved_evidence": [selected_hit, rejected_hit],
             "search_results": [[selected_hit, rejected_hit]],
@@ -1748,7 +1786,7 @@ def test_run_evaluation_uses_final_answer_context_for_context_utilization(
     }]
 
 
-def test_run_evaluation_judges_applicable_mixed_outcomes_and_separates_errors(
+def test_run_evaluation_judges_only_generated_answers_with_references(
     monkeypatch,
     tmp_path,
 ):
@@ -1840,7 +1878,9 @@ def test_run_evaluation_judges_applicable_mixed_outcomes_and_separates_errors(
             "retrieval_stages": [],
             "generation_context": [context_hit] if has_context else [],
             "reason_code": reason_code,
-            "response_origin": "deterministic" if reason_code else "model",
+            "response_origin": (
+                "answer_model" if answer == "Grounded answer." else "deterministic"
+            ),
         }
         if workflow_error:
             result["workflow_error"] = workflow_error
@@ -1889,22 +1929,27 @@ def test_run_evaluation_judges_applicable_mixed_outcomes_and_separates_errors(
         ["faithfulness"],
         ["answer_correctness"],
     ]
-    assert [len(batch["rows"]) for batch in batches_seen] == [4, 1, 1, 4]
-    for case_id in records:
-        assert records[case_id]["generation_metrics"]["answer_relevancy"] is not None
-        assert records[case_id]["generation_metrics"]["answer_correctness"] is not None
+    assert [len(batch["rows"]) for batch in batches_seen] == [1, 1, 1, 1]
+    assert records["normal"]["generation_metrics"]["answer_relevancy"] == 0.9
+    assert records["normal"]["generation_metrics"]["answer_correctness"] == 0.9
+    assert records["normal"]["generation_metrics"]["faithfulness"] == 0.9
+    assert records["normal"]["retrieval_metrics"]["context_utilization"] == 0.9
     for case_id in ("abstention", "clarification", "retrieval-failure"):
         record = records[case_id]
+        assert record["generation_metrics"]["answer_relevancy"] is None
+        assert record["generation_metrics"]["answer_correctness"] is None
+        assert record["metric_reasons"]["answer_relevancy"].startswith("Skipped")
+        assert record["metric_reasons"]["answer_correctness"].startswith("Skipped")
         assert record["generation_metrics"]["faithfulness"] is None
         assert record["retrieval_metrics"]["context_utilization"] is None
-        assert record["metric_reasons"]["faithfulness"].startswith("Unavailable")
+        assert record["metric_reasons"]["faithfulness"].startswith("Skipped")
         assert record["metric_reasons"]["context_utilization"].startswith(
-            "Unavailable"
+            "Skipped"
         )
     assert summary["generation_metrics"]["answer_relevancy"] == 0.9
     assert summary["generation_metrics"]["answer_correctness"] == 0.9
-    assert summary["workflow_error_ragas_metrics"]["answer_relevancy"] == 0.1
-    assert summary["workflow_error_ragas_metrics"]["answer_correctness"] == 0.1
+    assert "workflow_error_ragas_metrics" not in summary
+    assert "Workflow-error Ragas diagnostics" not in report
     assert results["workflow_reliability"] == {
         "successful_cases": 3,
         "selected_cases": 4,

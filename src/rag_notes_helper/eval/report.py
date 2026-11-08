@@ -724,21 +724,10 @@ def _readme_report(results: dict[str, Any]) -> str:
         ("Sampling seed", metadata.get("seed") if metadata.get("seed") is not None else "Not set"),
     )]))
     lines.extend(["", "## Fixture coverage", "", f"- **Cases:** {summary.get('case_count', len(results.get('cases', [])))}", "- **Selected case IDs:** " + _markdown_cell(", ".join(metadata.get("selected_case_ids", []))), ""])
-    lines.extend(["", "## Overall metrics", "", "### Final context evidence metrics", ""])
+    lines.extend(["", "## Overall metrics", "", "### Retrieval metrics", ""])
     lines.extend(_table(["Metric", "Score"], [[label, (workflow_summary.get("final_context_metrics", {}) or {}).get(name)] for label, name in (("Recall", "recall"), ("Precision", "precision"), ("NDCG", "ndcg"))]))
     lines.extend(["", "### Ragas diagnostics", ""])
     lines.extend(_table(["Metric", "Score"], [[label, (workflow_summary.get(source, {}) or {}).get(metric)] for label, metric, source in RAGAS_METRICS]))
-    lines.extend(["", "### Workflow-error Ragas diagnostics", ""])
-    workflow_error_metrics = workflow_summary.get(
-        "workflow_error_ragas_metrics", {}
-    ) or {}
-    lines.extend(_table(
-        ["Metric", "Score"],
-        [
-            [label, workflow_error_metrics.get(metric)]
-            for label, metric, _source in RAGAS_METRICS
-        ],
-    ))
     lines.extend(["", "### Latency", ""])
     cases = [
         case

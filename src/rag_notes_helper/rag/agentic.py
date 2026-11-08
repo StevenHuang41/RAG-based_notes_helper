@@ -1024,7 +1024,14 @@ def _accept_answer_node(state: _AgenticState) -> dict[str, Any]:
     candidate_result = state["candidate_result"]
     if candidate_result is None:
         raise AgenticWorkflowError("The Agentic graph has no accepted answer.")
-    return {"result": _trace_result(state, candidate_result)}
+    accepted_result = dict(candidate_result)
+    accepted_result["reason_code"] = (
+        "insufficient_evidence"
+        if accepted_result.get("answer") == ABSTENTION_MESSAGE
+        else "answered"
+    )
+    accepted_result["response_origin"] = "answer_model"
+    return {"result": _trace_result(state, accepted_result)}
 
 
 def _answer_exhausted_node(state: _AgenticState) -> dict[str, Any]:
@@ -1046,6 +1053,8 @@ def _abstain_node(state: _AgenticState) -> dict[str, Any]:
     result = _trace_result(state, {
         "answer": ABSTENTION_MESSAGE,
         "citations": [],
+        "reason_code": "insufficient_evidence",
+        "response_origin": "controller",
     })
     return {"result": result}
 
