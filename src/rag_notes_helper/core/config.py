@@ -142,6 +142,10 @@ class Settings(BaseSettings):
     )
     cross_encoder_model: str = Field(DEFAULT_CROSS_ENCODER_MODEL, min_length=1)
 
+    # Agentic total-attempt budgets, including each initial attempt.
+    agentic_max_search_attempts: int = Field(3, ge=1, le=5)
+    agentic_max_answer_attempts: int = Field(3, ge=1, le=5)
+
     # format
     stream: bool = True
     line_width: int = 80

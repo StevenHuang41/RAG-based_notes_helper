@@ -34,7 +34,6 @@ from rag_notes_helper.eval.retrieval_metrics import (
 )
 from rag_notes_helper.eval.report import write_readme
 from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE
-from rag_notes_helper.rag.agentic import MAX_ANSWER_ATTEMPTS, MAX_SEARCHES
 from rag_notes_helper.rag.index import (
     RagIndex,
     build_and_save_rag_from_isolated_corpus,
@@ -1744,8 +1743,12 @@ def run_evaluation(
                 "top_k": settings.top_k,
                 "min_retrieval_score": settings.min_retrieval_score,
                 "max_answer_chunks": settings.llm.max_chunks,
-                "agentic_max_searches": MAX_SEARCHES,
-                "agentic_max_answer_attempts": MAX_ANSWER_ATTEMPTS,
+                "agentic_max_searches": getattr(
+                    settings, "agentic_max_search_attempts", 3
+                ),
+                "agentic_max_answer_attempts": getattr(
+                    settings, "agentic_max_answer_attempts", 3
+                ),
             }
             workflow_results: dict[Workflow, list[dict[str, Any]]] = {}
             judge_usage_by_workflow: dict[Workflow, list[dict[str, Any]]] = {}

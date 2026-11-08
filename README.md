@@ -77,7 +77,7 @@ This project keeps knowledge external and inspectable. Notes are chunked, embedd
   - OpenRouter
   - Ollama for local inference
 - Grounds answers in retrieved context.
-- Offers an opt-in Agentic RAG workflow with up to three Search attempts and three evidence-reviewed Answer attempts per query.
+- Offers an opt-in Agentic RAG workflow with independently configurable Search and evidence-reviewed Answer attempt limits (defaults: three each; allowed range: one through five).
 - Supports optional citation output for source visibility.
 - Supports streaming responses in REPL mode.
 
@@ -167,8 +167,8 @@ one retrieval        bounded LangGraph StateGraph
 6. **Workflow selection and answer generation**
    - Classic RAG sends one retrieval result to answer generation.
    - Agentic RAG uses a LangGraph StateGraph to ask the configured LLM for Pydantic-validated JSON actions after inspecting retrieved chunks and filtering diagnostics. The initial search uses the original question and configured starting thresholds. A later search supplies a nonblank rewritten query, validated Vector and query-relative BM25 thresholds, and a `replace` or `extend` evidence mode. It may adapt thresholds but cannot change configured top-k values, the RRF constant, models, or generation limits.
-   - Each Agentic query has independent hard limits of three Retrieval searches and three Answer generations, both including the first attempt. Controller calls and validation retries do not consume either budget. `replace` starts a new active candidate pool; `extend` deduplicates old and new fused candidates before reranking the combined pool against the original question. Every executed Search and its thresholds remain available for audit.
-   - Agentic RAG buffers each candidate answer and asks the controller to accept it, request a focused revision, reopen Retrieval, ask the user to clarify, or abstain based on selected evidence and remaining budgets. A third rejected candidate returns deterministic `answer_attempts_exhausted` text without exposing the candidate. Agentic mode therefore does not stream unreviewed candidate text, while Classic streaming remains available.
+   - Each Agentic query has independent configurable total-attempt limits for Retrieval searches and Answer generations. Both defaults are three, allowed values range from one through five, and each limit includes the initial attempt. Controller calls and validation retries do not consume either budget. A Search requested during answer review requires both a Search attempt and a later Answer attempt to remain. `replace` starts a new active candidate pool; `extend` deduplicates old and new fused candidates before reranking the combined pool against the original question. Every executed Search and its thresholds remain available for audit.
+   - Agentic RAG buffers each candidate answer and asks the controller to accept it, request a focused revision, reopen Retrieval, ask the user to clarify, or abstain based on selected evidence and remaining budgets. A candidate rejected at the configured Answer limit returns deterministic `answer_attempts_exhausted` text without exposing the candidate. Agentic mode therefore does not stream unreviewed candidate text, while Classic streaming remains available.
    - Every query returns a structured non-empty outcome. Stable reason codes distinguish `invalid_query`, `needs_clarification`, `no_evidence_after_searches`, `insufficient_evidence`, `answer_attempts_exhausted`, `controller_failure`, and `retrieval_failure`; response-origin and workflow-error fields distinguish deterministic degraded responses from normal bounded results.
    - Classic RAG returns deterministic insufficient-evidence text without Answer generation when its single Retrieval search returns no chunks. Agentic RAG may use remaining capacity for a safe rewritten search, or ask for clarification when no safe rewrite exists; it abstains when bounded recovery cannot find sufficient evidence.
    - Retrieved chunks are inserted into the LLM prompt as context.
@@ -493,6 +493,8 @@ Common settings:
 | `VECTOR_MIN_SCORE` | Starting Vector similarity threshold in `[0, 1]`; later Agentic searches may adapt it | `0.3` |
 | `BM25_MIN_SCORE_RATIO` | Starting query-relative BM25 threshold ratio in `[0, 1]`; later Agentic searches may adapt it | `0.0` |
 | `CROSS_ENCODER_MODEL` | Sentence Transformers model used to rerank fused candidates | `cross-encoder/ms-marco-MiniLM-L6-v2` |
+| `AGENTIC_MAX_SEARCH_ATTEMPTS` | Maximum total Retrieval searches per Agentic query, including the original search | `3` (range `1`–`5`) |
+| `AGENTIC_MAX_ANSWER_ATTEMPTS` | Maximum total Answer generations per Agentic query, including the first generation | `3` (range `1`–`5`) |
 | `STREAM` | Stream model output where supported | `true` |
 
 `TOP_K` remains accepted as a legacy alias for `FUSION_TOP_K`, and `MIN_RETRIEVAL_SCORE` remains accepted as a legacy alias for `VECTOR_MIN_SCORE`. Existing local configuration therefore continues to work while new configuration uses the stage-specific names.
@@ -530,7 +532,7 @@ ghcr.io/stevenhuang41/rag-based-notes-helper:latest
 
 ## Limitations
 
-- Agentic retrieval is limited to one query at a time; conversation memory is not yet implemented. Each query is capped at three Search attempts and three Answer attempts.
+- Agentic retrieval is limited to one query at a time; conversation memory is not yet implemented. Search and Answer attempt limits are configurable, defaulting to three each.
 - Retrieval quality depends on note quality, chunk size, and embedding model choice.
 - Runtime artifacts such as FAISS indexes and logs are local by default; evaluation reports are local to the source checkout.
 - API-based LLM providers require valid credentials in `.env`.

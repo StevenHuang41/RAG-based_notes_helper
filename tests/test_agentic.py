@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -425,6 +426,128 @@ def test_agentic_answer_reports_progress_for_each_search_and_decision():
         ("reviewing", 2),
         ("generating", 2),
     ]
+
+
+def test_agentic_uses_configured_total_attempt_budgets(monkeypatch):
+    hit = make_hit("note.md", 0, "Grounded evidence.")
+    settings = SimpleNamespace(
+        agentic_max_search_attempts=2,
+        agentic_max_answer_attempts=1,
+    )
+    monkeypatch.setattr(agentic_module, "get_settings", lambda: settings)
+    search_queries = []
+    controller = FakeController([
+        search_action("follow-up"),
+        search_action("must-not-run"),
+        action_json({
+            "action": "answer",
+            "evidence": [{"source": "note.md", "chunk_id": 0}],
+        }),
+        action_json({"action": "accept"}),
+    ])
+
+    result = agentic_answer(
+        "original question",
+        rag=None,
+        meta_store=None,
+        search_fn=lambda query, **_kwargs: search_queries.append(query) or [hit],
+        controller=controller,
+        answer_fn=lambda _query, *, hits, stream: {
+            "answer": "Grounded answer.",
+            "citations": [],
+        },
+    )
+
+    assert search_queries == ["original question", "follow-up"]
+    assert result["search_attempts"] == 2
+    assert result["answer_attempts"] == 1
+    initial_controller_request = json.loads(controller.prompts[0][1]["content"])
+    exhausted_search_request = json.loads(controller.prompts[1][1]["content"])
+    retried_search_request = json.loads(controller.prompts[2][1]["content"])
+    assert initial_controller_request["searches_remaining"] == 1
+    assert initial_controller_request["answer_attempts_remaining"] == 1
+    assert exhausted_search_request["searches_remaining"] == 0
+    assert retried_search_request["searches_remaining"] == 0
+    assert "validation_feedback" in retried_search_request
+
+
+def test_answer_review_search_requires_a_later_configured_answer_attempt(
+    monkeypatch,
+):
+    hit = make_hit("note.md", 0, "Grounded evidence.")
+    settings = SimpleNamespace(
+        agentic_max_search_attempts=3,
+        agentic_max_answer_attempts=1,
+    )
+    monkeypatch.setattr(agentic_module, "get_settings", lambda: settings)
+    controller = FakeController([
+        action_json({
+            "action": "answer",
+            "evidence": [{"source": "note.md", "chunk_id": 0}],
+        }),
+        search_action("look for more evidence"),
+        action_json({"action": "accept"}),
+    ])
+    search_queries = []
+    answer_calls = []
+
+    result = agentic_answer(
+        "original question",
+        rag=None,
+        meta_store=None,
+        search_fn=lambda query, **_kwargs: search_queries.append(query) or [hit],
+        controller=controller,
+        answer_fn=lambda _query, *, hits, stream: answer_calls.append(hits) or {
+            "answer": "Grounded answer.",
+            "citations": [],
+        },
+    )
+
+    assert search_queries == ["original question"]
+    assert len(answer_calls) == 1
+    assert result["search_attempts"] == 1
+    assert result["answer_attempts"] == 1
+    review_retry = json.loads(controller.prompts[-1][1]["content"])
+    assert "validation_feedback" in review_retry
+    assert "No Answer attempts remain" in review_retry["validation_feedback"]
+
+
+def test_configured_answer_budget_counts_the_first_generation(monkeypatch):
+    hit = make_hit("note.md", 0, "Grounded evidence.")
+    settings = SimpleNamespace(
+        agentic_max_search_attempts=3,
+        agentic_max_answer_attempts=2,
+    )
+    monkeypatch.setattr(agentic_module, "get_settings", lambda: settings)
+    controller = FakeController([
+        action_json({
+            "action": "answer",
+            "evidence": [{"source": "note.md", "chunk_id": 0}],
+        }),
+        action_json({"action": "revise", "feedback": "Improve the first answer."}),
+        action_json({"action": "revise", "feedback": "Improve the second answer."}),
+    ])
+    answer_calls = []
+
+    result = agentic_answer(
+        "original question",
+        rag=None,
+        meta_store=None,
+        search_fn=lambda _query, **_kwargs: [hit],
+        controller=controller,
+        answer_fn=lambda _query, *, hits, stream, revision_feedback=None: (
+            answer_calls.append(revision_feedback)
+            or {
+                "answer": "Rejected candidate.",
+                "citations": [],
+            }
+        ),
+    )
+
+    assert answer_calls == [None, "Improve the first answer."]
+    assert result["answer_attempts"] == 2
+    assert result["answer_retry_exhausted"] is True
+    assert result["answer"] == ANSWER_RETRY_EXHAUSTED_MESSAGE
 
 
 def test_agentic_empty_search_can_abstain_after_controller_review():

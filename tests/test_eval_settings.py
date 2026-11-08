@@ -111,6 +111,73 @@ def test_cross_encoder_model_loads_from_env_file(tmp_path):
     assert settings.cross_encoder_model == "fixture/custom-cross-encoder"
 
 
+def test_agentic_attempt_budgets_load_from_env_file(tmp_path):
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir()
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "AGENTIC_MAX_SEARCH_ATTEMPTS=2\n"
+        "AGENTIC_MAX_ANSWER_ATTEMPTS=4\n",
+        encoding="utf-8",
+    )
+
+    settings = Settings(
+        _env_file=env_file,
+        llm=make_settings(),
+        notes_dir=notes_dir,
+        storage_dir=tmp_path / "storage",
+        logs_dir=tmp_path / "logs",
+    )
+
+    assert settings.agentic_max_search_attempts == 2
+    assert settings.agentic_max_answer_attempts == 4
+
+
+def test_agentic_attempt_budgets_default_to_three(tmp_path):
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir()
+
+    settings = Settings(
+        _env_file=None,
+        llm=make_settings(),
+        notes_dir=notes_dir,
+        storage_dir=tmp_path / "storage",
+        logs_dir=tmp_path / "logs",
+    )
+
+    assert settings.agentic_max_search_attempts == 3
+    assert settings.agentic_max_answer_attempts == 3
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("AGENTIC_MAX_SEARCH_ATTEMPTS", 0),
+        ("AGENTIC_MAX_SEARCH_ATTEMPTS", 6),
+        ("AGENTIC_MAX_ANSWER_ATTEMPTS", 0),
+        ("AGENTIC_MAX_ANSWER_ATTEMPTS", 6),
+    ],
+)
+def test_agentic_attempt_budgets_reject_values_outside_one_to_five(
+    tmp_path,
+    name,
+    value,
+):
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir()
+    env_file = tmp_path / ".env"
+    env_file.write_text(f"{name}={value}\n", encoding="utf-8")
+
+    with pytest.raises(ValidationError):
+        Settings(
+            _env_file=env_file,
+            llm=make_settings(),
+            notes_dir=notes_dir,
+            storage_dir=tmp_path / "storage",
+            logs_dir=tmp_path / "logs",
+        )
+
+
 @pytest.mark.parametrize("provider", ["hf", "openai", "ollama", "gemini", "openrouter"])
 def test_judge_accepts_all_generation_providers(provider):
     values = {

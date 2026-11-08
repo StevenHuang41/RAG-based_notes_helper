@@ -15,6 +15,7 @@ from pydantic import (
     field_validator,
 )
 
+from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE, rag_answer
 from rag_notes_helper.rag.index import RagIndex
 from rag_notes_helper.rag.llm import get_llm
@@ -224,6 +225,7 @@ class _AgenticState(TypedDict):
     on_retrieval: RetrievalFunction | None
     search_index: int
     searches_used: int
+    max_search_attempts: int
     search_queries: list[str]
     retrieval_stages: list[dict[str, Any]]
     search_results: list[list[dict]]
@@ -231,6 +233,7 @@ class _AgenticState(TypedDict):
     action: AgenticAction | None
     selected_hits: list[dict]
     answer_attempts: int
+    max_answer_attempts: int
     revision_feedback: str | None
     answer_review: AnswerReviewAction | None
     candidate_result: dict[str, Any] | None
@@ -378,6 +381,8 @@ def _build_controller_prompt(
     hits: Sequence[dict],
     searches_used: int,
     answer_attempts: int = 0,
+    max_search_attempts: int = MAX_SEARCHES,
+    max_answer_attempts: int = MAX_ANSWER_ATTEMPTS,
     search_queries: Sequence[str] = (),
     search_results: Sequence[Sequence[dict]] = (),
     retrieval_stages: Sequence[dict[str, Any]] = (),
@@ -395,10 +400,10 @@ def _build_controller_prompt(
     user_content = {
         "question": query,
         "searches_used": searches_used,
-        "searches_remaining": max(0, MAX_SEARCHES - searches_used),
+        "searches_remaining": max(0, max_search_attempts - searches_used),
         "answer_attempts_used": answer_attempts,
         "answer_attempts_remaining": max(
-            0, MAX_ANSWER_ATTEMPTS - answer_attempts
+            0, max_answer_attempts - answer_attempts
         ),
         "evidence": evidence,
         "action_schema": json.loads(_ACTION_SCHEMA),
@@ -432,15 +437,17 @@ def _action_validation_error(
     hits: list[dict],
     searches_used: int,
     answer_attempts: int,
+    max_search_attempts: int = MAX_SEARCHES,
+    max_answer_attempts: int = MAX_ANSWER_ATTEMPTS,
 ) -> str | None:
     if isinstance(action, SearchAction):
-        if searches_used >= MAX_SEARCHES:
+        if searches_used >= max_search_attempts:
             return "No searches remain. Choose answer with known evidence or abstain."
-        if answer_attempts >= MAX_ANSWER_ATTEMPTS:
+        if answer_attempts >= max_answer_attempts:
             return "No Answer attempts remain to use new evidence."
 
     if isinstance(action, AnswerAction):
-        if answer_attempts >= MAX_ANSWER_ATTEMPTS:
+        if answer_attempts >= max_answer_attempts:
             return "No Answer attempts remain. Clarify or abstain."
         known_references = {
             (hit["source"], hit["chunk_id"])
@@ -466,6 +473,8 @@ def _request_action(
     hits: list[dict],
     searches_used: int,
     answer_attempts: int = 0,
+    max_search_attempts: int = MAX_SEARCHES,
+    max_answer_attempts: int = MAX_ANSWER_ATTEMPTS,
     search_queries: Sequence[str] = (),
     search_results: Sequence[Sequence[dict]] = (),
     retrieval_stages: Sequence[dict[str, Any]] = (),
@@ -479,6 +488,8 @@ def _request_action(
             hits=hits,
             searches_used=searches_used,
             answer_attempts=answer_attempts,
+            max_search_attempts=max_search_attempts,
+            max_answer_attempts=max_answer_attempts,
             search_queries=search_queries,
             search_results=search_results,
             retrieval_stages=retrieval_stages,
@@ -543,6 +554,8 @@ def _request_action(
             hits=hits,
             searches_used=searches_used,
             answer_attempts=answer_attempts,
+            max_search_attempts=max_search_attempts,
+            max_answer_attempts=max_answer_attempts,
         )
         if validation_feedback is None:
             return action
@@ -559,21 +572,23 @@ def _build_answer_review_prompt(
     candidate_answer: str,
     answer_attempt: int,
     searches_used: int,
+    max_search_attempts: int = MAX_SEARCHES,
+    max_answer_attempts: int = MAX_ANSWER_ATTEMPTS,
     validation_feedback: str | None = None,
 ) -> list[dict[str, str]]:
     legal_actions = ["accept", "abstain", "clarify"]
-    if answer_attempt < MAX_ANSWER_ATTEMPTS:
+    if answer_attempt < max_answer_attempts:
         legal_actions.append("revise")
-        if searches_used < MAX_SEARCHES:
+        if searches_used < max_search_attempts:
             legal_actions.append("search")
     user_content = {
         "question": query,
         "answer_attempt": answer_attempt,
         "answer_attempts_remaining": max(
-            0, MAX_ANSWER_ATTEMPTS - answer_attempt
+            0, max_answer_attempts - answer_attempt
         ),
         "searches_used": searches_used,
-        "searches_remaining": max(0, MAX_SEARCHES - searches_used),
+        "searches_remaining": max(0, max_search_attempts - searches_used),
         "legal_actions": legal_actions,
         "evidence": [
             {
@@ -602,11 +617,13 @@ def _answer_review_validation_error(
     *,
     searches_used: int,
     answer_attempt: int,
+    max_search_attempts: int = MAX_SEARCHES,
+    max_answer_attempts: int = MAX_ANSWER_ATTEMPTS,
 ) -> str | None:
     if isinstance(action, SearchAction):
-        if searches_used >= MAX_SEARCHES:
+        if searches_used >= max_search_attempts:
             return "No searches remain. Accept, clarify, or abstain."
-        if answer_attempt >= MAX_ANSWER_ATTEMPTS:
+        if answer_attempt >= max_answer_attempts:
             return (
                 "No Answer attempts remain to use new evidence. "
                 "Accept, clarify, or abstain."
@@ -622,6 +639,8 @@ def _request_answer_review(
     candidate_answer: str,
     answer_attempt: int,
     searches_used: int,
+    max_search_attempts: int = MAX_SEARCHES,
+    max_answer_attempts: int = MAX_ANSWER_ATTEMPTS,
     on_generation: UsageFunction | None = None,
 ) -> AnswerReviewAction:
     validation_feedback: str | None = None
@@ -632,6 +651,8 @@ def _request_answer_review(
             candidate_answer=candidate_answer,
             answer_attempt=answer_attempt,
             searches_used=searches_used,
+            max_search_attempts=max_search_attempts,
+            max_answer_attempts=max_answer_attempts,
             validation_feedback=validation_feedback,
         )
         generation_started = perf_counter()
@@ -691,6 +712,8 @@ def _request_answer_review(
             action,
             searches_used=searches_used,
             answer_attempt=answer_attempt,
+            max_search_attempts=max_search_attempts,
+            max_answer_attempts=max_answer_attempts,
         )
         if validation_feedback is None:
             return action
@@ -820,6 +843,8 @@ def _controller_node(state: _AgenticState) -> dict[str, Any]:
         hits=state["hits"],
         searches_used=state["searches_used"],
         answer_attempts=state["answer_attempts"],
+        max_search_attempts=state["max_search_attempts"],
+        max_answer_attempts=state["max_answer_attempts"],
         search_queries=state["search_queries"],
         search_results=state["search_results"],
         retrieval_stages=state["retrieval_stages"],
@@ -969,6 +994,8 @@ def _answer_review_node(state: _AgenticState) -> dict[str, Any]:
         candidate_answer=candidate_answer,
         answer_attempt=state["answer_attempts"],
         searches_used=state["searches_used"],
+        max_search_attempts=state["max_search_attempts"],
+        max_answer_attempts=state["max_answer_attempts"],
         on_generation=state["on_generation"],
     )
     update: dict[str, Any] = {
@@ -1002,7 +1029,7 @@ def _route_after_answer_review(
     if isinstance(review, ClarifyAction):
         return "clarify"
     if isinstance(review, ReviseAnswerAction):
-        if state["answer_attempts"] >= MAX_ANSWER_ATTEMPTS:
+        if state["answer_attempts"] >= state["max_answer_attempts"]:
             return "answer_exhausted"
         return "answer"
     raise AgenticWorkflowError("The Agentic graph has no validated answer review.")
@@ -1168,6 +1195,9 @@ def agentic_answer(
     cross_encoder: CrossEncoderModel | None = None,
 ) -> dict[str, Any]:
     """Run the bounded, per-query Agentic RAG graph."""
+    settings = get_settings()
+    max_search_attempts = settings.agentic_max_search_attempts
+    max_answer_attempts = settings.agentic_max_answer_attempts
     search = (
         search_fn
         if search_fn is not None
@@ -1199,6 +1229,7 @@ def agentic_answer(
         "on_retrieval": on_retrieval,
         "search_index": 0,
         "searches_used": 0,
+        "max_search_attempts": max_search_attempts,
         "search_queries": [],
         "retrieval_stages": [],
         "search_results": [],
@@ -1206,6 +1237,7 @@ def agentic_answer(
         "action": None,
         "selected_hits": [],
         "answer_attempts": 0,
+        "max_answer_attempts": max_answer_attempts,
         "revision_feedback": None,
         "answer_review": None,
         "candidate_result": None,

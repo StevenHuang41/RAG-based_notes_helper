@@ -718,7 +718,7 @@ def _readme_report(results: dict[str, Any]) -> str:
         ("Embedding model", metadata.get("embedding_model")), ("Retrieval top-k", metadata.get("top_k")),
         ("Cross-encoder model", metadata.get("cross_encoder_model")),
         ("Maximum answer chunks", metadata.get("max_answer_chunks")),
-        ("Agentic maximum searches", metadata.get("agentic_max_searches")),
+        ("Agentic maximum Search attempts", metadata.get("agentic_max_searches")),
         ("Agentic maximum answer attempts", metadata.get("agentic_max_answer_attempts")),
         ("Sample size", metadata.get("sample_count") if metadata.get("sample_count") is not None else "Full fixture"),
         ("Sampling seed", metadata.get("seed") if metadata.get("seed") is not None else "Not set"),

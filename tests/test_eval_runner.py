@@ -14,7 +14,6 @@ import pytest
 
 from rag_notes_helper.eval import eval_runner
 from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE
-from rag_notes_helper.rag.agentic import MAX_ANSWER_ATTEMPTS, MAX_SEARCHES
 from rag_notes_helper.rag.index import RagIndex
 
 
@@ -101,6 +100,8 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
 ):
     monkeypatch.setenv("CHUNK_SIZE", "200")
     monkeypatch.setenv("CHUNK_OVERLAP", "50")
+    monkeypatch.setenv("AGENTIC_MAX_SEARCH_ATTEMPTS", "2")
+    monkeypatch.setenv("AGENTIC_MAX_ANSWER_ATTEMPTS", "4")
 
     user_notes = Path(os.environ["NOTES_DIR"])
     user_storage = Path(os.environ["STORAGE_DIR"])
@@ -268,10 +269,10 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert results["judge_usage"] == summary["judge_usage"]
     assert results["run_metadata"]["judge_provider"] == "ollama"
     assert results["run_metadata"]["judge_model"] == "llama3.1"
-    assert results["run_metadata"]["agentic_max_searches"] == MAX_SEARCHES
+    assert results["run_metadata"]["agentic_max_searches"] == 2
     assert (
         results["run_metadata"]["agentic_max_answer_attempts"]
-        == MAX_ANSWER_ATTEMPTS
+        == 4
     )
     assert results["run_metadata"]["workflow"] == workflow
     assert results["run_metadata"]["timezone"] == "Asia/Taipei"
@@ -283,6 +284,8 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
         "## Evaluation process and metric guide"
     ) < readme.index("## Query details")
     assert "## Query details" in readme
+    assert "Agentic maximum Search attempts | 2" in readme
+    assert "Agentic maximum answer attempts | 4" in readme
     assert "Search query" in readme
     if agentic:
         assert "| Rank | Stage score |" in readme
