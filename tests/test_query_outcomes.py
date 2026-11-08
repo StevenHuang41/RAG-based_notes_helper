@@ -1023,8 +1023,17 @@ def test_agentic_can_raise_thresholds_without_changing_top_k(monkeypatch):
     }
 
 
+@pytest.mark.parametrize(
+    ("responses", "failure_category"),
+    [
+        (["not json", "still not json"], "invalid_json"),
+        (["{}", "{}"], "schema_invalid_action"),
+    ],
+)
 def test_agentic_invalid_actions_return_degraded_outcome_with_search_trace(
     monkeypatch,
+    responses,
+    failure_category,
 ):
     hit = {
         "source": "notes/launch.md",
@@ -1032,7 +1041,7 @@ def test_agentic_invalid_actions_return_degraded_outcome_with_search_trace(
         "score": 0.91,
         "text": "Mina owns the launch.",
     }
-    controller = _Controller(["not json", "still not json"])
+    controller = _Controller(responses)
     monkeypatch.setattr(agentic_module, "get_llm", lambda: controller)
     monkeypatch.setattr(
         agentic_module,
@@ -1061,6 +1070,7 @@ def test_agentic_invalid_actions_return_degraded_outcome_with_search_trace(
     assert result["reason_code"] == "controller_failure"
     assert result["response_origin"] == "deterministic"
     assert result["workflow_error"] == "controller_failure"
+    assert result["controller_failure_category"] == failure_category
     assert result["citations"] == []
     assert result["retrieved_evidence"] == [hit]
     assert result["search_results"] == [[hit]]
@@ -1068,6 +1078,8 @@ def test_agentic_invalid_actions_return_degraded_outcome_with_search_trace(
     assert result["search_attempts"] == 1
     assert result["answer_attempts"] == 1
     assert result["answer"] != "UNREVIEWED CANDIDATE"
+    assert "UNREVIEWED CANDIDATE" not in repr(result)
+    assert all(response not in repr(result) for response in responses)
 
 
 def test_agentic_invented_evidence_retries_then_returns_degraded_outcome(
@@ -1112,7 +1124,68 @@ def test_agentic_invented_evidence_retries_then_returns_degraded_outcome(
     assert result["search_attempts"] == 1
     assert result["answer_attempts"] == 1
     assert result["retrieved_evidence"] == [hit]
+    assert result["controller_failure_category"] == "invalid_evidence_reference"
     assert result["answer"] != "UNREVIEWED CANDIDATE"
+    assert "UNREVIEWED CANDIDATE" not in repr(result)
+    assert invented_action not in repr(result)
+
+
+def test_agentic_answer_review_rejects_search_when_no_answer_attempt_remains(
+    monkeypatch,
+):
+    hit = {
+        "source": "notes/launch.md",
+        "chunk_id": 4,
+        "score": 0.91,
+        "text": "Mina owns the launch.",
+    }
+    settings = SimpleNamespace(
+        agentic_max_search_attempts=3,
+        agentic_max_answer_attempts=1,
+        llm=SimpleNamespace(max_chunks=5),
+    )
+    monkeypatch.setattr(agentic_module, "get_settings", lambda: settings)
+    search_action = (
+        '{"action":"search","query":"launch owner",'
+        '"vector_min_score":0.5,"bm25_min_score_ratio":0.25,'
+        '"evidence_mode":"extend"}'
+    )
+    controller = _Controller([search_action, search_action])
+    retrieval_calls = []
+    monkeypatch.setattr(
+        agentic_module,
+        "get_llm",
+        lambda: controller,
+    )
+    monkeypatch.setattr(
+        agentic_module,
+        "retrieve",
+        lambda *_args, **_kwargs: retrieval_calls.append("search") or [hit],
+    )
+    monkeypatch.setattr(
+        agentic_module,
+        "rag_answer",
+        lambda *_args, **_kwargs: {
+            "answer": "UNREVIEWED CANDIDATE",
+            "citations": [hit],
+            "generation_context": [hit],
+        },
+    )
+
+    result = cli.run_query(
+        object(),
+        object(),
+        query="Who owns the launch?",
+        agentic=True,
+    )
+
+    assert retrieval_calls == ["search"]
+    assert result["search_attempts"] == 1
+    assert result["answer_attempts"] == 1
+    assert result["controller_failure_category"] == "out_of_budget_action"
+    assert result["answer"] != "UNREVIEWED CANDIDATE"
+    assert "UNREVIEWED CANDIDATE" not in repr(result)
+    assert search_action not in repr(result)
 
 
 def test_agentic_retrieval_exception_is_not_reported_as_empty_search(
@@ -1335,8 +1408,11 @@ def test_agentic_answer_review_failure_hides_candidate_and_retains_hybrid_trace(
     assert result["answer"] != "UNREVIEWED CANDIDATE"
     assert result["reason_code"] == "controller_failure"
     assert result["workflow_error_type"] == "RuntimeError"
+    assert result["controller_failure_category"] == "provider_failure"
     assert result["citations"] == []
     assert result["answer_attempts"] == 1
+    assert "controller unavailable" not in repr(result)
+    assert "UNREVIEWED CANDIDATE" not in repr(result)
     assert result["generation_context"] == [hit]
     assert result["retrieved_evidence"][0]["source"] == "notes/launch.md"
     assert result["retrieval_stages"][0]["stages"]["vector"][

@@ -832,7 +832,9 @@ def test_answer_review_search_requires_a_later_configured_answer_attempt(
     assert len(answer_calls) == 1
     assert result["search_attempts"] == 1
     assert result["answer_attempts"] == 1
+    initial_review = json.loads(controller.prompts[0][1]["content"])
     review_retry = json.loads(controller.prompts[-1][1]["content"])
+    assert "search" not in initial_review["legal_actions"]
     assert "validation_feedback" in review_retry
     assert "No Answer attempts remain" in review_retry["validation_feedback"]
 
@@ -1309,6 +1311,133 @@ def test_agentic_answer_review_can_abstain():
 
     assert result["answer"] == ABSTENTION_MESSAGE
     assert result["answer_attempts"] == 1
+
+
+def test_ambiguous_01_is_clarified_after_its_candidate_is_reviewed():
+    hits = [
+        make_hit(
+            "delivery_timeline.md",
+            8,
+            "The public launch target remains 2026-06-01. No final public "
+            "launch date has been approved because the marketing review is "
+            "still open.",
+        ),
+        make_hit(
+            "delivery_timeline.md",
+            9,
+            "The date 2026-06-03 appeared in a contingency proposal as a "
+            "possible fallback; the council did not approve that fallback.",
+        ),
+    ]
+    query = "When will the public launch happen?"
+    candidate = (
+        "The planning target is 2026-06-01, but no public launch date has "
+        "been approved."
+    )
+    clarification = (
+        "Are you asking for the planning target or the approved public launch "
+        "date?"
+    )
+    controller = FakeController([
+        action_json({"action": "clarify", "message": clarification}),
+    ])
+    generated = []
+
+    result = agentic_answer(
+        query,
+        rag=None,
+        meta_store=None,
+        search_fn=lambda _query: hits,
+        controller=controller,
+        answer_fn=lambda _query, *, hits, stream: (
+            generated.append(hits)
+            or {
+                "answer": candidate,
+                "citations": [],
+                "generation_context": [
+                    {
+                        "source": hit["source"],
+                        "chunk_id": hit["chunk_id"],
+                        "text": hit["text"],
+                    }
+                    for hit in hits
+                ],
+            }
+        ),
+    )
+
+    assert generated == [hits]
+    assert result["reason_code"] == "needs_clarification"
+    assert result["response_origin"] == "controller"
+    assert result["answer"] == clarification
+    assert result["answer"] != candidate
+    assert result["answer_attempts"] == 1
+
+
+def test_unanswerable_13_can_accept_answer_model_abstention_after_review():
+    hits = [
+        make_hit(
+            "product_overview.md",
+            7,
+            "Customer support requests go to support@northstar.example. "
+            "Marco checks that mailbox each business day during the pilot.",
+        ),
+        make_hit(
+            "risks.md",
+            6,
+            "Pilot support requests may wait too long when the shared inbox "
+            "receives reports outside business hours.",
+        ),
+    ]
+    query = "How many customer support requests were received during the pilot?"
+    controller = FakeController([action_json({"action": "accept"})])
+
+    result = agentic_answer(
+        query,
+        rag=None,
+        meta_store=None,
+        search_fn=lambda _query: hits,
+        controller=controller,
+        answer_fn=lambda _query, *, hits, stream: {
+            "answer": ABSTENTION_MESSAGE,
+            "citations": [],
+            "generation_context": [
+                {
+                    "source": hit["source"],
+                    "chunk_id": hit["chunk_id"],
+                    "text": hit["text"],
+                }
+                for hit in hits
+            ],
+        },
+    )
+
+    assert result["answer"] == ABSTENTION_MESSAGE
+    assert result["reason_code"] == "insufficient_evidence"
+    assert result["response_origin"] == "answer_model"
+    assert result["search_attempts"] == 1
+    assert result["answer_attempts"] == 1
+    review_system_prompt = " ".join(controller.prompts[0][0]["content"].split())
+
+    assert (
+        "Revise only when the current context can support a sufficient answer."
+        in review_system_prompt
+    )
+    assert (
+        "Clarify only when the question itself is ambiguous or materially "
+        "underspecified."
+        in review_system_prompt
+    )
+    assert (
+        "Missing or irrelevant evidence alone is not a reason to clarify."
+        in review_system_prompt
+    )
+    assert (
+        "Search only when necessary evidence is absent from the current "
+        "candidate pool and both a Search attempt and a later Answer attempt "
+        "remain."
+        in review_system_prompt
+    )
 
 
 def test_agentic_preserves_each_search_ranking_for_retrieval_evaluation():
