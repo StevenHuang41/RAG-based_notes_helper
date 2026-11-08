@@ -1377,7 +1377,13 @@ def test_ambiguous_01_is_clarified_after_its_candidate_is_reviewed():
     assert result["answer_attempts"] == 1
 
 
-def test_unanswerable_13_can_accept_answer_model_abstention_after_review():
+@pytest.mark.parametrize(
+    "answer_text",
+    [ABSTENTION_MESSAGE, f"  {ABSTENTION_MESSAGE.upper()}  "],
+)
+def test_unanswerable_13_can_accept_answer_model_abstention_after_review(
+    answer_text,
+):
     hits = [
         make_hit(
             "product_overview.md",
@@ -1402,7 +1408,7 @@ def test_unanswerable_13_can_accept_answer_model_abstention_after_review():
         search_fn=lambda _query: hits,
         controller=controller,
         answer_fn=lambda _query, *, hits, stream: {
-            "answer": ABSTENTION_MESSAGE,
+            "answer": answer_text,
             "citations": [],
             "generation_context": [
                 {
@@ -1415,7 +1421,7 @@ def test_unanswerable_13_can_accept_answer_model_abstention_after_review():
         },
     )
 
-    assert result["answer"] == ABSTENTION_MESSAGE
+    assert result["answer"] == answer_text
     assert result["reason_code"] == "insufficient_evidence"
     assert result["response_origin"] == "answer_model"
     assert result["search_attempts"] == 1
@@ -1441,6 +1447,53 @@ def test_unanswerable_13_can_accept_answer_model_abstention_after_review():
         "remain."
         in review_system_prompt
     )
+
+
+def test_agentic_accepts_paraphrased_answer_model_abstention_after_review():
+    hits = [
+        make_hit(
+            "product_overview.md",
+            7,
+            "Customer support requests go to support@northstar.example. "
+            "Marco checks that mailbox each business day during the pilot.",
+        ),
+    ]
+    candidate = "The notes do not say how many support requests were received."
+    controller = FakeController([
+        action_json({"action": "accept_abstention"}),
+    ])
+
+    result = agentic_answer(
+        "How many customer support requests were received during the pilot?",
+        rag=None,
+        meta_store=None,
+        search_fn=lambda _query: hits,
+        controller=controller,
+        answer_fn=lambda _query, *, hits, stream: {
+            "answer": candidate,
+            "citations": [],
+            "generation_context": [
+                {
+                    "source": hit["source"],
+                    "chunk_id": hit["chunk_id"],
+                    "text": hit["text"],
+                }
+                for hit in hits
+            ],
+        },
+    )
+
+    assert result["answer"] == candidate
+    assert result["reason_code"] == "insufficient_evidence"
+    assert result["response_origin"] == "answer_model"
+    assert result["search_attempts"] == 1
+    assert result["answer_attempts"] == 1
+    review_payload = json.loads(controller.prompts[0][-1]["content"])
+    assert "accept_abstention" in review_payload["legal_actions"]
+    assert review_payload["generation_context"][0]["text"] == hits[0]["text"]
+    review_prompt = " ".join(controller.prompts[0][0]["content"].split())
+    assert "accept it with `accept_abstention`" in review_prompt
+    assert "Use `abstain` when the controller selects an abstention" in review_prompt
 
 
 def test_agentic_preserves_each_search_ranking_for_retrieval_evaluation():

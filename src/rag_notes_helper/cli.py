@@ -115,6 +115,7 @@ def _render_agentic_progress(progress: AgenticProgress) -> None:
     elif progress.event == "answer_review_decided":
         decision_names = {
             "accept": "accept",
+            "accept_abstention": "accept Answer-model abstention",
             "revise": "revise",
             "expand_evidence": "expand evidence",
             "search": "search",

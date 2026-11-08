@@ -2022,6 +2022,16 @@ def test_run_evaluation_records_agentic_outcomes_and_ragas_applicability(
     outcome_specs = [
         ("answered", True, "The pilot ran for six weeks.", "answered", "answer_model", [candidate_a, candidate_b], selected_context, None),
         ("answer-model-abstention", False, ABSTENTION_MESSAGE, "insufficient_evidence", "answer_model", [candidate_a, candidate_b], selected_context, None),
+        (
+            "answer-model-paraphrase-abstention",
+            False,
+            "The notes do not state how many customer support requests were received.",
+            "insufficient_evidence",
+            "answer_model",
+            [candidate_a, candidate_b],
+            selected_context,
+            None,
+        ),
         ("answer-model-abstention-no-context", False, ABSTENTION_MESSAGE, "insufficient_evidence", "answer_model", [candidate_a], [], None),
         ("controller-abstention", False, ABSTENTION_MESSAGE, "insufficient_evidence", "controller", [candidate_a], [candidate_a], None),
         ("clarification", False, "Which pilot are you asking about?", "needs_clarification", "controller", [candidate_a], [], None),
@@ -2173,6 +2183,18 @@ def test_run_evaluation_records_agentic_outcomes_and_ragas_applicability(
     assert accepted_abstention["generation_metrics"]["faithfulness"] == 0.9
     assert accepted_abstention["retrieval_metrics"]["context_utilization"] == 0.9
 
+    accepted_paraphrase = records["answer-model-paraphrase-abstention"]
+    assert accepted_paraphrase["answer"] == (
+        "The notes do not state how many customer support requests were received."
+    )
+    assert accepted_paraphrase["reason_code"] == "insufficient_evidence"
+    assert accepted_paraphrase["response_origin"] == "answer_model"
+    assert accepted_paraphrase["predicted_answerable"] is False
+    assert accepted_paraphrase["abstained"] is True
+    assert accepted_paraphrase["generation_metrics"]["answer_relevancy"] == 0.9
+    assert accepted_paraphrase["generation_metrics"]["answer_correctness"] == 0.9
+    assert accepted_paraphrase["generation_metrics"]["faithfulness"] == 0.9
+
     assert records["controller-abstention"]["metric_reasons"]["answer_relevancy"] == (
         "Skipped because the controller selected abstention."
     )
@@ -2200,6 +2222,7 @@ def test_run_evaluation_records_agentic_outcomes_and_ragas_applicability(
     assert questions_by_metric["answer_relevancy"] == {
         "Question for answered?",
         "Question for answer-model-abstention?",
+        "Question for answer-model-paraphrase-abstention?",
         "Question for answer-model-abstention-no-context?",
     }
     assert questions_by_metric["answer_correctness"] == questions_by_metric[
@@ -2208,6 +2231,7 @@ def test_run_evaluation_records_agentic_outcomes_and_ragas_applicability(
     assert questions_by_metric["faithfulness"] == {
         "Question for answered?",
         "Question for answer-model-abstention?",
+        "Question for answer-model-paraphrase-abstention?",
     }
     assert questions_by_metric["context_utilization"] == questions_by_metric[
         "faithfulness"
@@ -2226,12 +2250,12 @@ def test_run_evaluation_records_agentic_outcomes_and_ragas_applicability(
         "bounded_outcomes": {
             "answered": 1,
             "answer_attempts_exhausted": 1,
-            "insufficient_evidence": 3,
+            "insufficient_evidence": 4,
             "needs_clarification": 1,
             "no_retrieval_results": 1,
         },
         "insufficient_evidence_by_origin": {
-            "answer_model": 2,
+            "answer_model": 3,
             "controller": 1,
         },
         "workflow_errors": {"controller_failure": 1},
@@ -2250,22 +2274,22 @@ def test_run_evaluation_records_agentic_outcomes_and_ragas_applicability(
         "correct_behavior_count": 1,
     }
     assert workflow_summary["answerability_outcomes"]["expected_unanswerable"] == {
-        "case_count": 4,
+        "case_count": 5,
         "answered_count": 0,
-        "abstained_count": 3,
+        "abstained_count": 4,
         "unavailable_count": 1,
         "retrieval_empty_count": 0,
         "clarification_count": 1,
-        "insufficient_evidence_count": 3,
+        "insufficient_evidence_count": 4,
         "answer_attempts_exhausted_count": 0,
         "error_count": 0,
         "unavailable_or_error_count": 1,
-        "correct_behavior_count": 3,
+        "correct_behavior_count": 4,
     }
     assert results["workflow_reliability"] == {
-        "successful_cases": 7,
-        "selected_cases": 8,
-        "ratio": 0.875,
+        "successful_cases": 8,
+        "selected_cases": 9,
+        "ratio": 8 / 9,
     }
 
 
