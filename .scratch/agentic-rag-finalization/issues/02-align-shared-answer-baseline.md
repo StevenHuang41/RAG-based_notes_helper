@@ -4,9 +4,14 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Both workflows use the original query, the same starting Retrieval configuration, answer model, shared answer prompt, and Generation top-k.
-- [ ] Classic remains one Retrieval search followed by one grounded Answer generation, without controller or answer-review calls.
-- [ ] The shared prompt permits natural organization and formatting while requiring every factual claim to use supplied note evidence.
-- [ ] The public answer-generation behavior demonstrates the same baseline for both modes.
+- [x] Both workflows use the original query, the same starting Retrieval configuration, answer model, shared answer prompt, and Generation top-k.
+- [x] Classic remains one Retrieval search followed by one grounded Answer generation, without controller or answer-review calls.
+- [x] The shared prompt permits natural organization and formatting while requiring every factual claim to use supplied note evidence.
+- [x] The public answer-generation behavior demonstrates the same baseline for both modes.
+
+## Comments
+
+- Implemented in `397dab5` and merged into integration at `247afce`.
+- Public answer, CLI, and Agentic focused tests passed; the complete offline suite passed with 266 tests.

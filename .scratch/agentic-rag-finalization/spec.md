@@ -1,6 +1,6 @@
 # Finalize the bounded Agentic RAG workflow
 
-Status: ready-for-agent
+Status: resolved
 
 ## Goal
 
