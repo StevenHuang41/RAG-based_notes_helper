@@ -39,3 +39,5 @@ abstaining.
 - Implemented in `a48cd97`.
 - `tests/test_agentic.py` and `tests/test_query_outcomes.py` passed (64 tests); `git diff --check` and `py_compile` passed.
 - Reviewer instructions distinguish query ambiguity from evidence insufficiency; controller failures expose only stable categories while preserving safe trace and withholding candidate text.
+- Final-candidate `revise` or `expand_evidence` at the Answer cap returns `answer_attempts_exhausted` without another generation; out-of-budget Search still retries and fails safely.
+- Follow-up implemented in `7eda032`; both focused suites passed again (64 tests), with `git diff --check` and `py_compile` clean.
