@@ -14,6 +14,10 @@ import pytest
 
 from rag_notes_helper.eval import eval_runner
 from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE
+from rag_notes_helper.rag.agentic import (
+    ANSWER_RETRY_EXHAUSTED_MESSAGE,
+    NO_RETRIEVAL_RESULTS_MESSAGE,
+)
 from rag_notes_helper.rag.index import RagIndex
 
 
@@ -217,7 +221,7 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert (run_dir / "README.md").is_file()
     assert not (run_dir / "summary.json").exists()
     results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
-    assert results["schema_version"] == 9
+    assert results["schema_version"] == 10
     assert results["run_status"] == "completed"
     assert results["workflow_outcome"] == "completed"
     assert results["workflow_error_count"] == 0
@@ -406,6 +410,10 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
             "answered_count": answerable_count,
             "abstained_count": 0,
             "unavailable_count": 0,
+            "retrieval_empty_count": 0,
+            "clarification_count": 0,
+            "insufficient_evidence_count": 0,
+            "answer_attempts_exhausted_count": 0,
             "error_count": 0,
             "unavailable_or_error_count": 0,
             "correct_behavior_count": answerable_count,
@@ -415,6 +423,10 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
             "answered_count": unanswerable_count,
             "abstained_count": 0,
             "unavailable_count": 0,
+            "retrieval_empty_count": 0,
+            "clarification_count": 0,
+            "insufficient_evidence_count": 0,
+            "answer_attempts_exhausted_count": 0,
             "error_count": 0,
             "unavailable_or_error_count": 0,
             "correct_behavior_count": 0,
@@ -423,7 +435,7 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     direct_summary = summary["workflows"][workflow]["by_category"]["direct"]
     assert direct_summary["generation_usage"]["token_usage"]["total_tokens"] == (
         sum(case["category"] == "direct" for case in fixture_cases)
-        * (26 if agentic else 12)
+        * (19 if agentic else 12)
     )
     direct_case_count = sum(
         case["category"] == "direct" for case in fixture_cases
@@ -448,12 +460,12 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
         "token_usage"
     ]["total_tokens"] == case_count * 3
     selected_case = results["cases"][0]
-    assert selected_case["generation_usage"]["call_count"] == (3 if agentic else 1)
+    assert selected_case["generation_usage"]["call_count"] == (2 if agentic else 1)
     assert selected_case["generation_usage"]["token_usage"] == {
         "status": "available",
-        "input_tokens": 16 if agentic else 10,
-        "output_tokens": 10 if agentic else 2,
-        "total_tokens": 26 if agentic else 12,
+        "input_tokens": 13 if agentic else 10,
+        "output_tokens": 6 if agentic else 2,
+        "total_tokens": 19 if agentic else 12,
     }
     if agentic:
         assert selected_case["generation_usage"]["character_usage"]["input"] > 0
@@ -478,11 +490,11 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
         "rag_query_ms"
     ]
     assert summary["workflows"][workflow]["generation_usage"]["call_count"] == (
-        len(fixture_cases) * (3 if agentic else 1)
+        len(fixture_cases) * (2 if agentic else 1)
     )
     assert summary["workflows"][workflow]["generation_usage"]["token_usage"][
         "total_tokens"
-    ] == len(fixture_cases) * (26 if agentic else 12)
+    ] == len(fixture_cases) * (19 if agentic else 12)
     assert summary["category_counts"] == {
         category: sum(case["category"] == category for case in fixture_cases)
         for category in ("direct", "multi_hop", "unanswerable", "ambiguous")
@@ -838,6 +850,10 @@ def test_run_summary_counts_errors_and_unavailable_answers_separately(
             "answered_count": 0,
             "abstained_count": 0,
             "unavailable_count": 0,
+            "retrieval_empty_count": 0,
+            "clarification_count": 0,
+            "insufficient_evidence_count": 0,
+            "answer_attempts_exhausted_count": 0,
             "error_count": 1,
             "unavailable_or_error_count": 1,
             "correct_behavior_count": 0,
@@ -847,6 +863,10 @@ def test_run_summary_counts_errors_and_unavailable_answers_separately(
             "answered_count": 0,
             "abstained_count": 0,
             "unavailable_count": 1,
+            "retrieval_empty_count": 0,
+            "clarification_count": 0,
+            "insufficient_evidence_count": 0,
+            "answer_attempts_exhausted_count": 0,
             "error_count": 0,
             "unavailable_or_error_count": 1,
             "correct_behavior_count": 0,
@@ -859,6 +879,10 @@ def test_run_summary_counts_errors_and_unavailable_answers_separately(
         "answered_count": None,
         "abstained_count": None,
         "unavailable_count": None,
+        "retrieval_empty_count": None,
+        "clarification_count": None,
+        "insufficient_evidence_count": None,
+        "answer_attempts_exhausted_count": None,
         "error_count": None,
         "unavailable_or_error_count": None,
         "correct_behavior_count": None,
@@ -963,6 +987,10 @@ def test_whitespace_answer_is_unavailable_and_not_ragas_eligible(
         "answered_count": 0,
         "abstained_count": 0,
         "unavailable_count": 1,
+        "retrieval_empty_count": 0,
+        "clarification_count": 0,
+        "insufficient_evidence_count": 0,
+        "answer_attempts_exhausted_count": 0,
         "error_count": 0,
         "unavailable_or_error_count": 1,
         "correct_behavior_count": 0,
@@ -1968,3 +1996,372 @@ def test_run_evaluation_judges_only_generated_answers_with_references(
     assert "| Fusion@— | — | — | — |" in retrieval_failure_section
     assert "| Rerank@— | — | — | — |" in retrieval_failure_section
     assert "| Generation@1 | — | — | — |" in retrieval_failure_section
+
+
+def test_run_evaluation_records_agentic_outcomes_and_ragas_applicability(
+    monkeypatch,
+    tmp_path,
+):
+    candidate_a = {
+        "source": "notes/support.md",
+        "chunk_id": 1,
+        "start_line": 1,
+        "end_line": 1,
+        "score": 0.91,
+        "text": "Customer support requests go to the shared mailbox.",
+    }
+    candidate_b = {
+        "source": "notes/pilot.md",
+        "chunk_id": 2,
+        "start_line": 3,
+        "end_line": 3,
+        "score": 0.88,
+        "text": "The pilot ran for six weeks.",
+    }
+    selected_context = [candidate_b, candidate_a]
+    outcome_specs = [
+        ("answered", True, "The pilot ran for six weeks.", "answered", "answer_model", [candidate_a, candidate_b], selected_context, None),
+        ("answer-model-abstention", False, ABSTENTION_MESSAGE, "insufficient_evidence", "answer_model", [candidate_a, candidate_b], selected_context, None),
+        ("answer-model-abstention-no-context", False, ABSTENTION_MESSAGE, "insufficient_evidence", "answer_model", [candidate_a], [], None),
+        ("controller-abstention", False, ABSTENTION_MESSAGE, "insufficient_evidence", "controller", [candidate_a], [candidate_a], None),
+        ("clarification", False, "Which pilot are you asking about?", "needs_clarification", "controller", [candidate_a], [], None),
+        ("retrieval-empty", True, NO_RETRIEVAL_RESULTS_MESSAGE, "no_retrieval_results", "deterministic", [], [], None),
+        ("answer-exhausted", True, ANSWER_RETRY_EXHAUSTED_MESSAGE, "answer_attempts_exhausted", "deterministic", [candidate_a], [candidate_a], None),
+        ("controller-error", True, "I could not complete the bounded review.", "controller_failure", "deterministic", [candidate_a], [candidate_a], "controller_failure"),
+    ]
+    cases = [
+        {
+            "id": case_id,
+            "category": "unanswerable" if not answerable else "direct",
+            "challenge_tags": [],
+            "question": f"Question for {case_id}?",
+            "reference_answer": f"Reference answer for {case_id}.",
+            "answerable": answerable,
+            "expected_sources": [],
+            "expected_evidence": [],
+        }
+        for case_id, answerable, *_rest in outcome_specs
+    ]
+    settings = SimpleNamespace(
+        llm=SimpleNamespace(
+            provider="fixture",
+            model="fixture-answer",
+            effective_eval_provider="fixture",
+            effective_eval_model="fixture-judge",
+            max_chunks=2,
+        ),
+        embed_model_name="fixture-embedding",
+        chunk_size=200,
+        chunk_overlap=50,
+        top_k=3,
+        vector_top_k=3,
+        bm25_top_k=3,
+        fusion_top_k=3,
+        min_retrieval_score=0.0,
+    )
+
+    @contextmanager
+    def isolated_index():
+        yield settings, object(), object()
+
+    outcomes = {
+        case["question"]: outcome
+        for case, outcome in zip(cases, outcome_specs, strict=True)
+    }
+
+    def fake_run_query(
+        _rag,
+        _meta_store,
+        *,
+        query,
+        agentic,
+        stream,
+        on_generation,
+        on_retrieval,
+    ):
+        (
+            case_id,
+            _answerable,
+            answer,
+            reason_code,
+            response_origin,
+            candidates,
+            generation_context,
+            workflow_error,
+        ) = outcomes[query]
+        result = {
+            "answer": answer,
+            "citations": [],
+            "retrieved_evidence": candidates,
+            "search_results": [candidates],
+            "search_queries": [query],
+            "generation_context": generation_context,
+            "reason_code": reason_code,
+            "response_origin": response_origin,
+            "search_attempts": 1,
+            "answer_attempts": 0 if case_id == "retrieval-empty" else 1,
+        }
+        if workflow_error:
+            result.update({
+                "workflow_error": workflow_error,
+                "workflow_error_type": "AgenticWorkflowError",
+                "controller_failure_category": "invalid_json",
+            })
+        return result
+
+    batches_seen = []
+
+    def fake_worker(_command, *, input, capture_output, text, check):
+        request = json.loads(input)
+        batches_seen.extend(request["batches"])
+        score_sets = []
+        for batch in request["batches"]:
+            metric = batch["metric_names"][0]
+            score_sets.append([
+                {
+                    metric: 0.9,
+                    "metric_reasons": {metric: "Scored by fixture judge."},
+                    "metric_latencies_ms": {metric: 1.0},
+                }
+                for _row in batch["rows"]
+            ])
+        return SimpleNamespace(
+            stdout=json.dumps({"scores": score_sets, "judge_calls": []}),
+            returncode=0,
+        )
+
+    monkeypatch.setattr(eval_runner, "load_qa_fixture", lambda: cases)
+    monkeypatch.setattr(eval_runner, "get_settings", lambda: settings)
+    monkeypatch.setattr(eval_runner, "_isolated_fixture_index", isolated_index)
+    monkeypatch.setattr("rag_notes_helper.cli.run_query", fake_run_query)
+    monkeypatch.setattr(eval_runner.subprocess, "run", fake_worker)
+
+    run_dir = eval_runner.run_evaluation(
+        output_root=tmp_path,
+        agentic=True,
+    )
+    results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
+    records = {record["case_id"]: record for record in results["cases"]}
+    workflow_summary = results["summary"]["workflows"]["agentic"]
+
+    assert results["schema_version"] == 10
+    assert results["summary"]["schema_version"] == 3
+
+    assert records["retrieval-empty"]["reason_code"] == "no_retrieval_results"
+    assert records["retrieval-empty"]["response_origin"] == "deterministic"
+    assert records["retrieval-empty"]["search_attempts"] == 1
+    assert records["retrieval-empty"]["answer_attempts"] == 0
+    assert records["retrieval-empty"]["retrieved_evidence"] == []
+    assert records["retrieval-empty"]["generation_context"] == []
+    assert records["retrieval-empty"]["predicted_answerable"] is None
+    assert records["retrieval-empty"]["answerability_correct"] is None
+    assert records["retrieval-empty"]["abstained"] is None
+
+    accepted_abstention = records["answer-model-abstention"]
+    assert accepted_abstention["reason_code"] == "insufficient_evidence"
+    assert accepted_abstention["response_origin"] == "answer_model"
+    assert accepted_abstention["search_attempts"] == 1
+    assert accepted_abstention["answer_attempts"] == 1
+    assert accepted_abstention["predicted_answerable"] is False
+    assert accepted_abstention["abstained"] is True
+    assert [
+        item["chunk_id"] for item in accepted_abstention["retrieved_evidence"]
+    ] == [1, 2]
+    assert [item["chunk_id"] for item in accepted_abstention["generation_context"]] == [2, 1]
+    assert accepted_abstention["generation_metrics"]["answer_relevancy"] == 0.9
+    assert accepted_abstention["generation_metrics"]["answer_correctness"] == 0.9
+    assert accepted_abstention["generation_metrics"]["faithfulness"] == 0.9
+    assert accepted_abstention["retrieval_metrics"]["context_utilization"] == 0.9
+
+    assert records["controller-abstention"]["metric_reasons"]["answer_relevancy"] == (
+        "Skipped because the controller selected abstention."
+    )
+    assert records["clarification"]["metric_reasons"]["answer_correctness"] == (
+        "Skipped because the workflow requested clarification."
+    )
+    assert records["retrieval-empty"]["metric_reasons"]["answer_relevancy"] == (
+        "Skipped because Retrieval returned no candidate chunks."
+    )
+    assert records["answer-exhausted"]["metric_reasons"]["faithfulness"] == (
+        "Skipped because no accepted Answer candidate remained."
+    )
+    assert records["controller-error"]["metric_reasons"]["answer_correctness"] == (
+        "Skipped because the workflow did not complete a final answer."
+    )
+    assert records["controller-error"]["controller_failure_category"] == "invalid_json"
+
+    questions_by_metric = {
+        batch["metric_names"][0]: {
+            row["question"]
+            for row in batch["rows"]
+        }
+        for batch in batches_seen
+    }
+    assert questions_by_metric["answer_relevancy"] == {
+        "Question for answered?",
+        "Question for answer-model-abstention?",
+        "Question for answer-model-abstention-no-context?",
+    }
+    assert questions_by_metric["answer_correctness"] == questions_by_metric[
+        "answer_relevancy"
+    ]
+    assert questions_by_metric["faithfulness"] == {
+        "Question for answered?",
+        "Question for answer-model-abstention?",
+    }
+    assert questions_by_metric["context_utilization"] == questions_by_metric[
+        "faithfulness"
+    ]
+    assert records["answer-model-abstention-no-context"]["generation_metrics"][
+        "faithfulness"
+    ] is None
+    assert records["answer-model-abstention-no-context"]["retrieval_metrics"][
+        "context_utilization"
+    ] is None
+    assert records["answer-model-abstention-no-context"]["metric_reasons"][
+        "faithfulness"
+    ] == "Unavailable because no final generation context was available."
+
+    assert workflow_summary["outcome_counts"] == {
+        "bounded_outcomes": {
+            "answered": 1,
+            "answer_attempts_exhausted": 1,
+            "insufficient_evidence": 3,
+            "needs_clarification": 1,
+            "no_retrieval_results": 1,
+        },
+        "insufficient_evidence_by_origin": {
+            "answer_model": 2,
+            "controller": 1,
+        },
+        "workflow_errors": {"controller_failure": 1},
+    }
+    assert workflow_summary["answerability_outcomes"]["expected_answerable"] == {
+        "case_count": 4,
+        "answered_count": 1,
+        "abstained_count": 1,
+        "unavailable_count": 1,
+        "retrieval_empty_count": 1,
+        "clarification_count": 0,
+        "insufficient_evidence_count": 0,
+        "answer_attempts_exhausted_count": 1,
+        "error_count": 1,
+        "unavailable_or_error_count": 2,
+        "correct_behavior_count": 1,
+    }
+    assert workflow_summary["answerability_outcomes"]["expected_unanswerable"] == {
+        "case_count": 4,
+        "answered_count": 0,
+        "abstained_count": 3,
+        "unavailable_count": 1,
+        "retrieval_empty_count": 0,
+        "clarification_count": 1,
+        "insufficient_evidence_count": 3,
+        "answer_attempts_exhausted_count": 0,
+        "error_count": 0,
+        "unavailable_or_error_count": 1,
+        "correct_behavior_count": 3,
+    }
+    assert results["workflow_reliability"] == {
+        "successful_cases": 7,
+        "selected_cases": 8,
+        "ratio": 0.875,
+    }
+
+
+def test_paired_workflows_select_same_cases_and_preserve_runtime_paths(
+    monkeypatch,
+    tmp_path,
+):
+    cases = eval_runner.load_qa_fixture()
+    runtime_notes = tmp_path / "user-notes"
+    runtime_storage = tmp_path / "user-storage"
+    runtime_notes.mkdir()
+    runtime_storage.mkdir()
+    note_sentinel = runtime_notes / "private.md"
+    storage_sentinel = runtime_storage / "index-sentinel"
+    note_sentinel.write_text("Private notes stay outside evaluation.", encoding="utf-8")
+    storage_sentinel.write_text("Persistent index stays untouched.", encoding="utf-8")
+    monkeypatch.setenv("NOTES_DIR", str(runtime_notes))
+    monkeypatch.setenv("STORAGE_DIR", str(runtime_storage))
+
+    settings = SimpleNamespace(
+        llm=SimpleNamespace(
+            provider="fixture",
+            model="fixture-answer",
+            effective_eval_provider="fixture",
+            effective_eval_model="fixture-judge",
+            max_chunks=2,
+        ),
+        embed_model_name="fixture-embedding",
+        chunk_size=200,
+        chunk_overlap=50,
+        top_k=3,
+        vector_top_k=3,
+        bm25_top_k=3,
+        fusion_top_k=3,
+        min_retrieval_score=0.0,
+    )
+    isolated_index_calls = []
+    query_workflows = []
+
+    @contextmanager
+    def isolated_index():
+        isolated_index_calls.append("fixture-index")
+        yield settings, object(), object()
+
+    def fake_run_query(
+        _rag,
+        _meta_store,
+        *,
+        query,
+        agentic,
+        stream,
+        on_generation,
+        on_retrieval,
+    ):
+        query_workflows.append((query, agentic))
+        return {
+            "answer": "A fixture answer.",
+            "citations": [],
+            "retrieved_evidence": [],
+            "search_results": [[]],
+            "search_queries": [query],
+            "retrieval_stages": [],
+            "generation_context": [],
+            "reason_code": "answered",
+            "response_origin": "answer_model",
+            "search_attempts": 1,
+            "answer_attempts": 1 if agentic else None,
+        }
+
+    monkeypatch.setattr(eval_runner, "load_qa_fixture", lambda: cases)
+    monkeypatch.setattr(eval_runner, "get_settings", lambda: settings)
+    monkeypatch.setattr(eval_runner, "_isolated_fixture_index", isolated_index)
+    monkeypatch.setattr(eval_runner, "_attach_ragas_scores", lambda *args, **kwargs: None)
+    monkeypatch.setattr("rag_notes_helper.cli.run_query", fake_run_query)
+
+    selected_ids = {}
+    for workflow, agentic in (("classic", False), ("agentic", True)):
+        run_dir = eval_runner.run_evaluation(
+            output_root=tmp_path / workflow,
+            agentic=agentic,
+            sample=5,
+            seed=23,
+        )
+        results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
+        selected_ids[workflow] = results["run_metadata"]["selected_case_ids"]
+
+    assert selected_ids["classic"] == selected_ids["agentic"]
+    assert len(selected_ids["classic"]) == 5
+    assert len(isolated_index_calls) == 2
+    assert sum(not agentic for _query, agentic in query_workflows) == 5
+    assert sum(agentic for _query, agentic in query_workflows) == 5
+    assert note_sentinel.read_text(encoding="utf-8") == (
+        "Private notes stay outside evaluation."
+    )
+    assert storage_sentinel.read_text(encoding="utf-8") == (
+        "Persistent index stays untouched."
+    )
+    assert Path(os.environ["NOTES_DIR"]) == runtime_notes
+    assert Path(os.environ["STORAGE_DIR"]) == runtime_storage

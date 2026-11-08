@@ -590,7 +590,7 @@ def test_agentic_evaluation_preserves_structured_degraded_search_trace(
     summary = results["summary"]["workflows"]["agentic"]
     report = (run_dir / "README.md").read_text(encoding="utf-8")
 
-    assert results["schema_version"] == 9
+    assert results["schema_version"] == 10
     assert results["run_status"] == "completed"
     assert results["workflow_outcome"] == "completed_with_errors"
     assert results["workflow_error_count"] == 1

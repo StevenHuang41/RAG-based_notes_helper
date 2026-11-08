@@ -586,10 +586,24 @@ def _answerability_fields(
     case: dict[str, Any],
     answer: Any,
     *,
+    reason_code: str | None = None,
+    workflow_error: bool = False,
     forced_abstention: bool = False,
 ) -> dict[str, Any]:
     expected_answerable = bool(case["answerable"])
-    if not has_nonblank_answer(answer):
+    non_answer_outcomes = {
+        "controller_failure",
+        "invalid_query",
+        "needs_clarification",
+        "no_evidence_after_searches",
+        "no_retrieval_results",
+        "retrieval_failure",
+    }
+    if (
+        workflow_error
+        or not has_nonblank_answer(answer)
+        or reason_code in non_answer_outcomes
+    ):
         return {
             "expected_answerable": expected_answerable,
             "predicted_answerable": None,
@@ -597,9 +611,13 @@ def _answerability_fields(
             "correct_abstention": None,
             "answerability_correct": None,
         }
-    abstained = forced_abstention or (
-        isinstance(answer, str)
-        and answer.strip().casefold() == ABSTENTION_MESSAGE.casefold()
+    abstained = (
+        forced_abstention
+        or reason_code in {"insufficient_evidence", "answer_attempts_exhausted"}
+        or (
+            isinstance(answer, str)
+            and answer.strip().casefold() == ABSTENTION_MESSAGE.casefold()
+        )
     )
     predicted_answerable = not abstained
     return {
@@ -627,6 +645,10 @@ def _answerability_group_summary(
             "answered_count": None,
             "abstained_count": None,
             "unavailable_count": None,
+            "retrieval_empty_count": None,
+            "clarification_count": None,
+            "insufficient_evidence_count": None,
+            "answer_attempts_exhausted_count": None,
             "error_count": None,
             "unavailable_or_error_count": None,
             "correct_behavior_count": None,
@@ -635,14 +657,12 @@ def _answerability_group_summary(
     error_count = sum(bool(case.get("workflow_error")) for case in group)
     unavailable_count = sum(
         not case.get("workflow_error")
-        and not has_nonblank_answer(case.get("answer"))
-        and case.get("abstained") is not True
+        and case.get("predicted_answerable") is None
         for case in group
     )
     answered_count = sum(
         not case.get("workflow_error")
-        and has_nonblank_answer(case.get("answer"))
-        and case.get("abstained") is not True
+        and case.get("predicted_answerable") is True
         for case in group
     )
     abstained_count = sum(
@@ -651,8 +671,30 @@ def _answerability_group_summary(
     )
     correct_behavior_count = sum(
         not case.get("workflow_error")
-        and has_nonblank_answer(case.get("answer"))
         and case.get("answerability_correct") is True
+        for case in group
+    )
+    retrieval_empty_count = sum(
+        not case.get("workflow_error")
+        and case.get("reason_code") in {
+            "no_retrieval_results",
+            "no_evidence_after_searches",
+        }
+        for case in group
+    )
+    clarification_count = sum(
+        not case.get("workflow_error")
+        and case.get("reason_code") == "needs_clarification"
+        for case in group
+    )
+    insufficient_evidence_count = sum(
+        not case.get("workflow_error")
+        and case.get("reason_code") == "insufficient_evidence"
+        for case in group
+    )
+    answer_attempts_exhausted_count = sum(
+        not case.get("workflow_error")
+        and case.get("reason_code") == "answer_attempts_exhausted"
         for case in group
     )
     return {
@@ -660,6 +702,10 @@ def _answerability_group_summary(
         "answered_count": answered_count,
         "abstained_count": abstained_count,
         "unavailable_count": unavailable_count,
+        "retrieval_empty_count": retrieval_empty_count,
+        "clarification_count": clarification_count,
+        "insufficient_evidence_count": insufficient_evidence_count,
+        "answer_attempts_exhausted_count": answer_attempts_exhausted_count,
         "error_count": error_count,
         "unavailable_or_error_count": unavailable_count + error_count,
         "correct_behavior_count": correct_behavior_count,
@@ -680,14 +726,26 @@ def _answerability_outcomes(cases: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _ragas_metric_skip_reason(case: dict[str, Any], metric: str) -> str | None:
+    reason_code = case.get("reason_code")
+    response_origin = case.get("response_origin")
+    if case.get("workflow_error"):
+        return "Skipped because the workflow did not complete a final answer."
+    if reason_code in {"no_retrieval_results", "no_evidence_after_searches"}:
+        return "Skipped because Retrieval returned no candidate chunks."
+    if reason_code == "needs_clarification":
+        return "Skipped because the workflow requested clarification."
+    if reason_code == "insufficient_evidence" and response_origin == "controller":
+        return "Skipped because the controller selected abstention."
+    if reason_code == "answer_attempts_exhausted" or case.get(
+        "answer_retry_exhausted"
+    ) is True:
+        return "Skipped because no accepted Answer candidate remained."
     if not has_nonblank_answer(case.get("answer")):
         return "Skipped because no generated answer was available."
     if case.get("answer", "").strip() == "LLM return empty response":
         return "Skipped because the answer model returned an empty response."
-    if case.get("response_origin") != "answer_model":
+    if response_origin != "answer_model":
         return "Skipped because the response was not generated by the answer model."
-    if case.get("workflow_error"):
-        return "Skipped because the workflow did not complete a final answer."
     if not has_nonblank_answer(case.get("reference_answer")):
         return "Skipped because no reference answer was available."
     if metric in {"faithfulness", "context_utilization"} and not case.get(
@@ -1383,6 +1441,8 @@ def _record_case(
         **_answerability_fields(
             case,
             answer,
+            reason_code=result.get("reason_code"),
+            workflow_error=workflow_error is not None,
             forced_abstention=result.get("answer_retry_exhausted") is True,
         ),
         **_retrieval_coverage(case, evidence_records),
@@ -1424,6 +1484,9 @@ def _record_case(
         record["workflow_error"] = workflow_error
         if result.get("workflow_error_type") is not None:
             record["workflow_error_type"] = result["workflow_error_type"]
+        failure_category = result.get("controller_failure_category")
+        if isinstance(failure_category, str):
+            record["controller_failure_category"] = failure_category
     return record
 
 
@@ -1531,6 +1594,32 @@ def _attach_ragas_scores(
             case["latency"]["end_to_end_ms"] = None
 
 
+def _workflow_outcome_counts(cases: list[dict[str, Any]]) -> dict[str, Any]:
+    bounded_outcomes: Counter[str] = Counter()
+    workflow_errors: Counter[str] = Counter()
+    insufficient_evidence_by_origin: Counter[str] = Counter()
+    for case in cases:
+        workflow_error = case.get("workflow_error")
+        if workflow_error:
+            workflow_errors[str(workflow_error)] += 1
+            continue
+
+        reason_code = case.get("reason_code") or "unavailable"
+        bounded_outcomes[str(reason_code)] += 1
+        if reason_code == "insufficient_evidence":
+            insufficient_evidence_by_origin[
+                str(case.get("response_origin") or "unknown")
+            ] += 1
+
+    return {
+        "bounded_outcomes": dict(sorted(bounded_outcomes.items())),
+        "insufficient_evidence_by_origin": dict(
+            sorted(insufficient_evidence_by_origin.items())
+        ),
+        "workflow_errors": dict(sorted(workflow_errors.items())),
+    }
+
+
 def _workflow_summary(cases: list[dict[str, Any]]) -> dict[str, Any]:
     by_category: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for case in cases:
@@ -1552,6 +1641,7 @@ def _workflow_summary(cases: list[dict[str, Any]]) -> dict[str, Any]:
 
         return {
             "case_count": len(group),
+            "outcome_counts": _workflow_outcome_counts(group),
             "ragas_case_count": sum(
                 case["generation_metrics"].get("faithfulness") is not None
                 for case in group
@@ -1706,7 +1796,7 @@ def run_evaluation(
     _log(run_log, f"Starting {workflow} synthetic-notes RAG evaluation.")
 
     results: dict[str, Any] = {
-        "schema_version": 9,
+        "schema_version": 10,
         "run_status": "running",
         "run_metadata": {
             "timestamp_local": timestamp,
@@ -1878,7 +1968,7 @@ def run_evaluation(
                 "workflow_reliability": workflow_reliability,
             })
             results["summary"] = {
-                "schema_version": 2,
+                "schema_version": 3,
                 "run_status": results["run_status"],
                 "workflow_outcome": results["workflow_outcome"],
                 "workflow_error_count": workflow_error_count,
