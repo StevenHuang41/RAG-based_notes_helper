@@ -118,6 +118,79 @@ def test_ollama_generation_normalizes_reported_usage(monkeypatch):
     }
 
 
+def test_ollama_generation_forwards_format_to_chat_payload(monkeypatch):
+    import rag_notes_helper.rag.llm.ollama_api as ollama_api
+
+    llm = _initialize(OllamaLLM)
+    llm.base_url = "http://localhost:11434"
+    requests_seen = []
+    schema = {
+        "type": "object",
+        "properties": {"action": {"type": "string"}},
+        "required": ["action"],
+    }
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"message": {"content": '{"action":"accept"}'}}
+
+    def fake_post(*args, **kwargs):
+        requests_seen.append(kwargs)
+        return Response()
+
+    monkeypatch.setattr(ollama_api.requests, "post", fake_post)
+
+    assert llm.generate_raw(
+        [{"role": "user", "content": "Return an action."}],
+        format=schema,
+        think=False,
+    ) == '{"action":"accept"}'
+    assert requests_seen[0]["json"]["format"] == schema
+
+
+def test_ollama_retries_rejected_schema_in_json_mode(monkeypatch):
+    import requests
+    import rag_notes_helper.rag.llm.ollama_api as ollama_api
+
+    llm = _initialize(OllamaLLM)
+    llm.base_url = "http://localhost:11434"
+    requests_seen = []
+    schema = {"type": "object", "required": ["action"]}
+
+    class Response:
+        def __init__(self, status_code):
+            self.status_code = status_code
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise requests.HTTPError(
+                    "The model does not support this JSON schema.",
+                    response=self,
+                )
+
+        def json(self):
+            return {"message": {"content": '{"action":"accept"}'}}
+
+    def fake_post(*args, **kwargs):
+        requests_seen.append(kwargs)
+        return Response(400 if len(requests_seen) == 1 else 200)
+
+    monkeypatch.setattr(ollama_api.requests, "post", fake_post)
+
+    assert llm.generate_raw(
+        [{"role": "user", "content": "Return an action."}],
+        format=schema,
+        think=False,
+    ) == '{"action":"accept"}'
+    assert [request["json"]["format"] for request in requests_seen] == [
+        schema,
+        "json",
+    ]
+
+
 def test_missing_provider_usage_stays_unavailable():
     llm = _initialize(OpenAILLM)
     llm.client = SimpleNamespace(

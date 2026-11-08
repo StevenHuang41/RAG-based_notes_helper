@@ -94,8 +94,9 @@ AgenticAction: TypeAlias = Annotated[
 ]
 
 _ACTION_ADAPTER = TypeAdapter(AgenticAction)
+_ACTION_FORMAT = _ACTION_ADAPTER.json_schema()
 _ACTION_SCHEMA = json.dumps(
-    _ACTION_ADAPTER.json_schema(),
+    _ACTION_FORMAT,
     ensure_ascii=False,
 )
 
@@ -133,8 +134,9 @@ AnswerReviewAction: TypeAlias = Annotated[
 ]
 
 _ANSWER_REVIEW_ADAPTER = TypeAdapter(AnswerReviewAction)
+_ANSWER_REVIEW_FORMAT = _ANSWER_REVIEW_ADAPTER.json_schema()
 _ANSWER_REVIEW_SCHEMA = json.dumps(
-    _ANSWER_REVIEW_ADAPTER.json_schema(),
+    _ANSWER_REVIEW_FORMAT,
     ensure_ascii=False,
 )
 
@@ -487,7 +489,7 @@ def _request_action(
         generation_started = perf_counter()
         try:
             generation_options = (
-                {"think": False}
+                {"think": False, "format": _ACTION_FORMAT}
                 if getattr(controller, "provider_name", None) == "ollama"
                 else {}
             )
@@ -637,7 +639,7 @@ def _request_answer_review(
         generation_started = perf_counter()
         try:
             generation_options = (
-                {"think": False}
+                {"think": False, "format": _ANSWER_REVIEW_FORMAT}
                 if getattr(controller, "provider_name", None) == "ollama"
                 else {}
             )
