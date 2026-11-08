@@ -243,6 +243,31 @@ def test_rag_answer_does_not_assume_the_user_owns_the_notes(
     assert "Who am I" in system_prompt
 
 
+def test_rag_answer_allows_organized_formatting_and_keeps_evidence_grounding(
+    monkeypatch,
+    mock_hits,
+):
+    captured_prompts = []
+
+    class PromptLLM:
+        def generate(self, prompt, line_width):
+            captured_prompts.append(prompt)
+            return "A grounded answer."
+
+    monkeypatch.setattr(
+        "rag_notes_helper.rag.answer.get_llm",
+        lambda: PromptLLM(),
+    )
+
+    rag_answer("Summarize the note", hits=mock_hits)
+
+    system_prompt = captured_prompts[0][0]["content"]
+    assert "organized answer" in system_prompt
+    assert "prose, headings, or lists" in system_prompt.lower()
+    assert "Use only the provided Context for factual claims" in system_prompt
+    assert "NEVER use markdown formatting" not in system_prompt
+
+
 def test_rag_answer_stream(monkeypatch, mock_dependencies, mock_hits):
 
     monkeypatch.setenv("STREAM", "true")
