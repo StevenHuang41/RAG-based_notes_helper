@@ -7,21 +7,27 @@ deterministic Retrieval-empty outcome.
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Deterministic query validation and the original-query first Search use
+- [x] Deterministic query validation and the original-query first Search use
   the shared Classic/Agentic Retrieval and ranking baseline.
-- [ ] For a non-empty initial ranked candidate pool, the first Answer
+- [x] For a non-empty initial ranked candidate pool, the first Answer
   generation receives the same ordered Generation top-k as Classic RAG, with
   no controller sufficiency decision before generation.
-- [ ] The candidate remains buffered until post-generation Answer review
+- [x] The candidate remains buffered until post-generation Answer review
   accepts it; the reviewer receives the exact ordered context used for that
   candidate.
-- [ ] If the initial ranked candidate pool is empty, return
+- [x] If the initial ranked candidate pool is empty, return
   `no_retrieval_results` without a controller call, Answer-model call, or
   Answer attempt. Do not report it as clarification.
-- [ ] Progress reports the actual Search, Answer generation, and Answer review
+- [x] Progress reports the actual Search, Answer generation, and Answer review
   phases and does not show a pre-generation controller phase or candidate
   text.
-- [ ] Behavior is covered through the existing `agentic_answer()` seam for
+- [x] Behavior is covered through the existing `agentic_answer()` seam for
   `direct-06` and empty initial Retrieval.
+
+## Comments
+
+- Implemented in `3620825`.
+- `tests/test_agentic.py`, `tests/test_query_outcomes.py`, and `tests/test_cli_agentic.py` passed (84 tests); `git diff --check` passed.
+- No-hit Search returns `no_retrieval_results`, records zero Answer attempts, and skips controller and Answer generation.
