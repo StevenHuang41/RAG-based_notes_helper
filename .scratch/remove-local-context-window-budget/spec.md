@@ -1,6 +1,6 @@
 # Remove the local context-window budget
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
@@ -96,3 +96,7 @@ Keep at most five complete conversation turns and the separate output cap `LLM_M
 - ADR-0009 records the proposed architectural amendment; specification readiness is not implementation completion or live-provider verification.
 - This spec supersedes conflicting local-budget requirements in the earlier two-phase design only for this change. Its complete-pool review and generation-selection architecture remain in effect.
 - Follow the existing local issue-tracker convention for subsequent work. If tickets are requested, propose independently verifiable slices and obtain approval of the breakdown before publishing them.
+
+## Comments
+
+- Implemented on `integration/remove-local-context-window-budget` relative to isolated baseline `09e0a44`. All three implementation tickets are resolved. Full deterministic suite: 274 passed; Standards and Spec reviews: zero findings each. See the feature verification report for exact commands, baseline provenance, cleanup and live-provider limitations.
