@@ -131,17 +131,17 @@ def test_answer_model_abstention_is_accepted_with_none_coverage(monkeypatch):
     assert result['review_passed'] is True
 
 
-def test_real_generation_fits_context_and_freezes_it_for_revision(monkeypatch):
+def test_real_generation_preserves_full_selected_context_for_revision(monkeypatch):
     from rag_notes_helper.rag import answer as answer_module
 
     settings = SimpleNamespace(
         agentic_max_search_attempts=3, agentic_max_answer_attempts=3, line_width=80,
         llm=SimpleNamespace(max_chunks=3, context_window_tokens=5800, max_tokens=512),
     )
-    review_settings = SimpleNamespace(agentic_max_search_attempts=3, agentic_max_answer_attempts=3, llm=SimpleNamespace(max_chunks=3, context_window_tokens=12000, max_tokens=512))
+    review_settings = SimpleNamespace(agentic_max_search_attempts=3, agentic_max_answer_attempts=3, llm=SimpleNamespace(max_chunks=3, context_window_tokens=50000, max_tokens=512))
     monkeypatch.setattr(agentic, 'get_settings', lambda: review_settings)
     monkeypatch.setattr(answer_module, 'get_settings', lambda: settings)
-    chunks = [{'source': 'release.md', 'chunk_id': i, 'text': 'Lena owns launch. ' + 'x' * 1480, 'score': .9} for i in range(3)]
+    chunks = [{'source': 'release.md', 'chunk_id': i, 'text': 'Lena owns launch. ' + 'x' * 4000, 'score': .9} for i in range(3)]
     monkeypatch.setattr(agentic, 'search_notes', lambda query, **kwargs: chunks)
     reviews = []
 
@@ -168,16 +168,15 @@ def test_real_generation_fits_context_and_freezes_it_for_revision(monkeypatch):
     result = cli.run_query(object(), object(), query='Who and when?', agentic=True)
     assert result['review_passed'] is True, (result.get('reason_code'), result.get('failure_category'), result.get('workflow_error_type'))
     assert len(result['selected_pool']) == 3
-    assert 0 < len(result['generation_context']) < 3
+    assert len(result['generation_context']) == 3
     assert reviews[0] == reviews[1]
     assert [item['text'] for item in reviews[0]] == [item['text'] for item in result['generation_context']]
     assert 'explicitly identify any missing information' in prompts[0][0]['content']
     for prompt in prompts:
-        from rag_notes_helper.rag.prompt_context import estimate_prompt_tokens
-        assert estimate_prompt_tokens(prompt) + settings.llm.max_tokens <= settings.llm.context_window_tokens
+        assert all(chunk['text'] in prompt[-1]['content'] for chunk in chunks)
 
 
-def test_provider_failure_preserves_actual_truncated_context_without_raw_error(monkeypatch):
+def test_provider_failure_preserves_full_attempted_context_without_raw_error(monkeypatch):
     from rag_notes_helper.rag import answer as answer_module
 
     settings = SimpleNamespace(
@@ -186,11 +185,11 @@ def test_provider_failure_preserves_actual_truncated_context_without_raw_error(m
     )
     review_settings = SimpleNamespace(
         agentic_max_search_attempts=3, agentic_max_answer_attempts=3,
-        llm=SimpleNamespace(max_chunks=3, context_window_tokens=12000, max_tokens=512),
+        llm=SimpleNamespace(max_chunks=3, context_window_tokens=50000, max_tokens=512),
     )
     monkeypatch.setattr(agentic, 'get_settings', lambda: review_settings)
     monkeypatch.setattr(answer_module, 'get_settings', lambda: settings)
-    chunks = [{'source': 'release.md', 'chunk_id': i, 'text': f'Fact {i}. ' + 'x' * 1480, 'score': .9} for i in range(3)]
+    chunks = [{'source': 'release.md', 'chunk_id': i, 'text': f'Fact {i}. ' + 'x' * 4000, 'score': .9} for i in range(3)]
     monkeypatch.setattr(agentic, 'search_notes', lambda query, **kwargs: chunks)
 
     class Controller:
@@ -218,9 +217,9 @@ def test_provider_failure_preserves_actual_truncated_context_without_raw_error(m
     assert result['failure_category'] == 'provider_failure'
     assert result['workflow_error_type'] == 'RuntimeError'
     assert len(result['selected_pool']) == 3
-    assert 0 < len(result['generation_context']) < 3
+    assert len(result['generation_context']) == 3
     assert all(item['text'] in prompts[0][-1]['content'] for item in result['generation_context'])
-    assert chunks[-1]['text'] not in prompts[0][-1]['content']
+    assert chunks[-1]['text'] in prompts[0][-1]['content']
     assert 'SECRET' not in repr(result)
     assert result['citations'] == []
     assert result['review_passed'] is False

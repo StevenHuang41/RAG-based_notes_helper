@@ -9,8 +9,6 @@ from rag_notes_helper.rag.llm.base import make_generation_usage_record
 from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.rag.prompt_context import (
     ConversationTurn,
-    estimate_prompt_tokens,
-    fit_conversation_history,
     serialize_conversation_history,
 )
 from rag_notes_helper.utils.timer import deco_time_block
@@ -51,10 +49,6 @@ AGENTIC_SYSTEM_PROMPT = SYSTEM_PROMPT.replace(
 )
 
 
-class AnswerContextBudgetError(ValueError):
-    """The exact Answer context cannot fit the configured prompt budget."""
-
-
 class AnswerGenerationError(RuntimeError):
     """Retain evidence audit metadata when an Agentic provider call fails."""
 
@@ -74,7 +68,6 @@ def rag_answer(
     revision_feedback: str | None = None,
     conversation_history: Sequence[ConversationTurn] = (),
     allow_partial: bool = False,
-    fixed_context: bool = False,
 ) -> dict[str, Any]:
 
     if not hits:
@@ -148,22 +141,7 @@ def rag_answer(
             {"role": "user", "content": user_prompt},
         ]
 
-    fitted_history = fit_conversation_history(
-        conversation_history,
-        build_prompt=build_prompt,
-        context_window_tokens=settings.llm.context_window_tokens,
-        output_tokens=settings.llm.max_tokens,
-    ) if conversation_history else []
-    prompt = build_prompt(tuple(fitted_history))
-
-    if allow_partial:
-        while estimate_prompt_tokens(prompt) + settings.llm.max_tokens > settings.llm.context_window_tokens:
-            if fixed_context or len(generation_context) <= 1:
-                raise AnswerContextBudgetError("The Answer generation context exceeds its configured budget.")
-            generation_context.pop()
-            citations.pop()
-            context = "\n\n".join(item["prompt_block"] for item in generation_context)
-            prompt = build_prompt(tuple(fitted_history))
+    prompt = build_prompt(conversation_history)
 
     llm = get_llm()
 
