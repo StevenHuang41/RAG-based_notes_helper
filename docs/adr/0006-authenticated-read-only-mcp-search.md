@@ -1,3 +1,5 @@
 # Expose local note search through an authenticated MCP resource server
 
 The application exposes one read-only `search_notes` tool over MCP Streamable HTTP so a connected model client can retrieve the same final hybrid evidence used by the local RAG workflow, without file tools or server-side answer generation. The endpoint remains a resource server: an external OAuth authorization server issues asymmetric JWT access tokens, which are checked against OIDC discovery metadata and JWKS for exact issuer, signature, expiry, resource audience, and read scope. This keeps provider selection open and avoids storing identity-provider credentials in the notes application; opaque tokens will require a future RFC 7662 introspection verifier. The client receives chunk text and provenance, so evidence is transmitted to that client for its model to generate the answer while source notes and the index remain local.
+
+**Status: Superseded** by the local stdio MCP search decision. Remote HTTP and OAuth are removed; see ADR-0010.

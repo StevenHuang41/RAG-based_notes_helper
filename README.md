@@ -246,7 +246,7 @@ RAG-based_notes_helper/
 │   └── results/                     # generated evaluation reports; ignored by Git
 ├── src/rag_notes_helper/
 │   ├── cli.py                      # rag-app entry point
-│   ├── mcp_server.py               # authenticated read-only MCP search server
+│   ├── mcp_server.py               # local read-only MCP search server
 │   ├── core/config.py              # runtime settings and validation
 │   ├── eval/                       # RAGAS evaluation
 │   ├── rag/
@@ -332,34 +332,13 @@ uv run rag-app --repl --agentic "What changed before launch?"
 
 Each query starts with fresh Agentic state and performs a new Retrieval. The Agentic REPL keeps up to five recent user/assistant turns in memory for resolving intent; prompts label them as conversational context, never evidence. This history is cleared when the REPL exits. One-shot queries and evaluation cases start with empty history. Agentic candidates stay buffered until evidence review accepts them; with `STREAM=true`, the CLI then displays the accepted answer in chunks. Set `STREAM=false` to display it all at once.
 
-### Remote MCP search
+### Local MCP search
 
-The optional `rag-mcp-server` command exposes one read-only `search_notes` tool over Streamable HTTP. It uses the local Vector, BM25, RRF, and CrossEncoder retrieval pipeline, returns the selected chunk text with a relative source path, chunk ID, line range, and ranking provenance, and does not call an answer-generation model. It accepts only a query and an optional `top_k`; the server caps the result count at `LLM_MAX_CHUNKS`. The runtime index is refreshed from the allowed `data/` corpus when the server starts.
+The `rag-mcp-server` command exposes one read-only `search_notes` tool over local stdio. It refreshes the runtime index from `data/` at startup, runs the shared Hybrid retrieval pipeline, and returns ranked chunks with relative source paths, line ranges, and ranking provenance. Restart the server to guarantee later note changes are indexed. It does not generate an answer.
 
-The note files and FAISS index stay on the machine running this application. When a hosted model client calls the tool, the returned evidence is sent to that provider so its model can compose an answer.
+The optional `top_k` defaults to 5 and is capped at 20, independently of `LLM_MAX_CHUNKS`. It is a maximum: upstream Vector, BM25, and fusion limits and available evidence can yield fewer chunks. Source notes and the index remain local, but returned evidence enters the connected assistant's context and may be sent to its model provider.
 
-The server is an OAuth resource server; it does not issue tokens or provide an identity provider. Configure an authorization server that publishes OIDC discovery metadata and signs JWT access tokens with asymmetric keys in its JWKS. Tokens must have an `iss` matching the configured issuer, a valid signature and expiry, an `aud` matching the public MCP endpoint, and the configured read scope. The SDK enforces the scope at the Streamable HTTP boundary. An issuer URL by itself is not token validation; there is no static-token fallback.
-
-Set the following in `.env` after configuring the same issuer, audience, and scope at your OAuth provider:
-
-```text
-MCP_ISSUER_URL=https://identity.example.com/
-MCP_RESOURCE_SERVER_URL=https://notes.example.com/mcp
-MCP_READ_SCOPE=notes:read
-MCP_HOST=127.0.0.1
-MCP_PORT=8000
-MCP_ALLOWED_HOSTS=notes.example.com
-```
-
-Start the server with:
-
-```bash
-uv run rag-mcp-server
-```
-
-`MCP_ISSUER_URL` and `MCP_RESOURCE_SERVER_URL` are required. They may use HTTP only on loopback for local development; remote URLs must use HTTPS. The resource URL must be the exact `/mcp` endpoint and its value must match the token audience. The server binds to loopback by default. For a remote client, use a stable public HTTPS reverse proxy or named tunnel that forwards to this local endpoint, and set `MCP_ALLOWED_HOSTS` to the public hostname accepted in the HTTP `Host` header. A tunnel exposes transport only; it does not replace OAuth authentication or TLS. If binding directly to a non-loopback interface, configure the allowed host list and terminate HTTPS at a trusted proxy.
-
-As of 2026-10-31, Anthropic lists custom remote MCP connectors for Free, Pro, Max, Ultra, Team, and Enterprise; Free is limited to one connector. OpenAI lists full MCP access for Business and Enterprise/Edu, and read/fetch MCP access for Pro; Plus is not listed. Plan availability can change, so check the providers' current [Anthropic connector plan details](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp) and [ChatGPT MCP plan details](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt). A hosted-client smoke test is optional and is not part of offline acceptance. See the official MCP SDK's [resource-server authorization guide](https://github.com/modelcontextprotocol/python-sdk/blob/main/docs/run/authorization.md) for the protocol's discovery and bearer-token behavior.
+For a local MCP client, configure its stdio command as `uv` with arguments `run` and `rag-mcp-server`, and set its working directory to this repository. Install the project dependencies first. The server runs as the local user; it has no network listener or OAuth layer. See your client's documentation for its MCP configuration format.
 
 REPL commands:
 

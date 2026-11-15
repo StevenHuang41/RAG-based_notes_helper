@@ -2,96 +2,25 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 import logging
-import re
+import sys
+from contextlib import redirect_stdout
 import threading
 from pathlib import PurePosixPath, PureWindowsPath
-from typing import Any
-from urllib.parse import urlsplit
+from typing import Annotated, Any
 
-from mcp.server.auth.provider import TokenVerifier
-from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
-from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
-from pydantic import BaseModel, Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BaseModel, Field, model_validator
 
-from rag_notes_helper.core.config import get_settings
-from rag_notes_helper.mcp_auth import OIDCJwksTokenVerifier, is_loopback_host
 from rag_notes_helper.rag.index import rebuild_index
 from rag_notes_helper.rag.meta_store import MetaStore
 from rag_notes_helper.rag.retrieval import retrieve
 
 
 logger = logging.getLogger(__name__)
-_SCOPE_PATTERN = re.compile(r"^[\x21\x23-\x5B\x5D-\x7E]+$")
-
-
-class MCPSettings(BaseSettings):
-    """Settings for the optional remote MCP search endpoint."""
-
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_prefix="MCP_",
-        env_ignore_empty=True,
-        extra="ignore",
-    )
-
-    issuer_url: str
-    resource_server_url: str
-    read_scope: str = "notes:read"
-    host: str = "127.0.0.1"
-    port: int = Field(8000, ge=1, le=65535)
-    allowed_hosts: str | None = None
-
-    @field_validator("issuer_url", "resource_server_url")
-    @classmethod
-    def validate_url(cls, value: str) -> str:
-        parsed = urlsplit(value)
-        if (
-            parsed.scheme not in {"http", "https"}
-            or not parsed.hostname
-            or parsed.username is not None
-            or parsed.password is not None
-            or parsed.query
-            or parsed.fragment
-        ):
-            raise ValueError("MCP issuer and resource URLs must be valid HTTP URLs")
-        if parsed.scheme != "https" and not is_loopback_host(parsed.hostname):
-            raise ValueError("MCP issuer and resource URLs must use HTTPS off loopback")
-        return value
-
-    @field_validator("resource_server_url")
-    @classmethod
-    def validate_resource_endpoint(cls, value: str) -> str:
-        if urlsplit(value).path.rstrip("/") != "/mcp":
-            raise ValueError("MCP_RESOURCE_SERVER_URL must identify the /mcp endpoint")
-        return value.rstrip("/")
-
-    @field_validator("read_scope")
-    @classmethod
-    def validate_read_scope(cls, value: str) -> str:
-        if not _SCOPE_PATTERN.fullmatch(value):
-            raise ValueError("MCP_READ_SCOPE must be one valid OAuth scope token")
-        return value
-
-    @model_validator(mode="after")
-    def validate_listener(self) -> MCPSettings:
-        if not is_loopback_host(self.host) and not self.allowed_hosts_list:
-            raise ValueError(
-                "MCP_ALLOWED_HOSTS is required when MCP_HOST is not loopback"
-            )
-        return self
-
-    @property
-    def allowed_hosts_list(self) -> list[str]:
-        if not self.allowed_hosts:
-            return []
-        hosts = [host.strip() for host in self.allowed_hosts.split(",") if host.strip()]
-        if any("*" in host for host in hosts):
-            raise ValueError("MCP_ALLOWED_HOSTS cannot contain a wildcard")
-        return hosts
+DEFAULT_TOP_K = 5
+MAX_TOP_K = 20
 
 
 class RankingProvenance(BaseModel):
@@ -130,26 +59,8 @@ class SearchNotesResponse(BaseModel):
 def create_mcp_server(
     *,
     search: Callable[[str], Sequence[Mapping[str, Any]]],
-    settings: MCPSettings,
-    max_chunks: int,
-    token_verifier: TokenVerifier | None = None,
 ) -> MCPServer:
-    """Build the one-tool MCP server; authentication is always enabled."""
-    if max_chunks < 1:
-        raise ValueError("max_chunks must be positive")
-
-    verifier = token_verifier or OIDCJwksTokenVerifier(
-        issuer_url=settings.issuer_url,
-        resource_server_url=settings.resource_server_url,
-    )
-    auth = AuthSettings(
-        issuer_url=settings.issuer_url,
-        resource_server_url=settings.resource_server_url,
-        required_scopes=[settings.read_scope],
-        # The verifier checks aud against resource_server_url itself. This supports
-        # standard issuer-specific API audiences as well as RFC 8707 resource URLs.
-        validate_token_resource=False,
-    )
+    """Build a read-only local note search server."""
     server = MCPServer(
         "RAG Notes Helper",
         version="0.2.0",
@@ -157,8 +68,6 @@ def create_mcp_server(
             "Search the configured local note corpus and return ranked evidence. "
             "This server does not generate answers or expose filesystem access."
         ),
-        token_verifier=verifier,
-        auth=auth,
     )
     search_lock = threading.Lock()
 
@@ -172,7 +81,7 @@ def create_mcp_server(
     )
     def search_notes(
         query: str,
-        top_k: int | None = None,
+        top_k: Annotated[int, Field(strict=True)] | None = None,
         ctx: Context | None = None,
     ) -> SearchNotesResponse:
         """Search local notes and return the final ranked evidence chunks."""
@@ -185,7 +94,7 @@ def create_mcp_server(
         if isinstance(top_k, bool) or (top_k is not None and top_k < 1):
             raise ToolError("top_k must be a positive integer")
 
-        limit = max_chunks if top_k is None else min(top_k, max_chunks)
+        limit = DEFAULT_TOP_K if top_k is None else min(top_k, MAX_TOP_K)
         with search_lock:
             candidates = search(normalized_query)
         results: list[NoteSearchResult] = []
@@ -273,18 +182,14 @@ def _relative_source(source: Any) -> str:
     return posix_path.as_posix()
 
 
-def _create_runtime_server(
-    settings: MCPSettings,
-) -> tuple[MCPServer, MetaStore]:
-    runtime_settings = get_settings()
-    rag = rebuild_index()
+def _create_runtime_server() -> tuple[MCPServer, MetaStore]:
+    # Index rebuilding reports progress for the CLI; stdio is reserved for MCP.
+    with redirect_stdout(sys.stderr):
+        rag = rebuild_index()
     meta_store = MetaStore()
-
     try:
         server = create_mcp_server(
             search=lambda query: retrieve(rag, meta_store, query=query),
-            settings=settings,
-            max_chunks=runtime_settings.llm.max_chunks,
         )
     except Exception:
         meta_store.close()
@@ -293,20 +198,9 @@ def _create_runtime_server(
 
 
 def main() -> None:
-    settings = MCPSettings()
-    server, meta_store = _create_runtime_server(settings)
-    transport_security = (
-        TransportSecuritySettings(allowed_hosts=settings.allowed_hosts_list)
-        if settings.allowed_hosts_list
-        else None
-    )
+    server, meta_store = _create_runtime_server()
     try:
-        server.run(
-            transport="streamable-http",
-            host=settings.host,
-            port=settings.port,
-            transport_security=transport_security,
-        )
+        server.run(transport="stdio")
     finally:
         meta_store.close()
 
