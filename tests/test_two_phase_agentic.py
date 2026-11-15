@@ -7,6 +7,62 @@ from rag_notes_helper import cli
 from rag_notes_helper.rag import agentic
 
 
+def test_query_reviews_large_complementary_pool_and_stops_after_second_search(monkeypatch):
+    settings = SimpleNamespace(
+        agentic_max_search_attempts=3, agentic_max_answer_attempts=1,
+        llm=SimpleNamespace(max_chunks=1, context_window_tokens=50000, max_tokens=64),
+    )
+    monkeypatch.setattr(agentic, "get_settings", lambda: settings)
+    question = "Who owns launch and when?"
+    owner = {"source": "owners.md", "chunk_id": 0, "text": "Lena owns launch. " + "x" * 26000, "score": .9}
+    date = {"source": "dates.md", "chunk_id": 0, "text": "Launch is June 1. " + "y" * 26000, "score": .8}
+    searches, reviews = [], []
+
+    def search(query, **kwargs):
+        searches.append(query)
+        return [owner] if len(searches) == 1 else [owner, date]
+
+    class Controller:
+        provider_name = "fixture"
+        model = "fixture"
+
+        def generate_raw(self, messages):
+            payload = json.loads(messages[-1]["content"])
+            if "chunks_pool" not in payload:
+                return json.dumps({"action": "accept"})
+            reviews.append(payload)
+            if len(reviews) == 1:
+                return json.dumps({
+                    "coverage": "partial_evidence", "missing_information": ["launch date"],
+                    "next_search": {"query": "launch date", "vector_min_score": .2, "bm25_min_score_ratio": .1},
+                })
+            return json.dumps({"coverage": "sufficient_evidence", "missing_information": []})
+
+    monkeypatch.setattr(agentic, "search_notes", search)
+    monkeypatch.setattr(agentic, "get_llm", Controller)
+    monkeypatch.setattr(agentic, "rerank_candidates", lambda query, candidates, **kwargs: candidates)
+    monkeypatch.setattr(agentic, "rag_answer", lambda query, *, hits, **kwargs: {
+        "answer": "Lena owns launch. The date is not in selected evidence.",
+        "citations": [], "generation_context": hits,
+    })
+
+    result = cli.run_query(object(), object(), query=question, agentic=True)
+
+    assert result["review_passed"] is True
+    assert searches == [question, "launch date"]
+    assert [review["question"] for review in reviews] == [question, question]
+    assert reviews[1]["last_search"]["query"] == "launch date"
+    assert reviews[1]["chunks_pool"] == [
+        {key: chunk[key] for key in ("source", "chunk_id", "text")}
+        for chunk in (owner, date)
+    ]
+    assert [chunk["source"] for chunk in result["chunks_pool"]] == ["owners.md", "dates.md"]
+    assert [entry["search_id"] for entry in result["chunks_pool"][0]["search_provenance"]] == [1, 2]
+    assert result["retrieval_stop_reason"] == "sufficient_evidence"
+    assert result["search_attempts"] == 2
+    assert len(result["selected_pool"]) == 1
+
+
 @pytest.mark.parametrize("pool_size", [1, 2, 3])
 def test_query_reviews_pool_before_selecting_generation_context(monkeypatch, pool_size):
     settings = SimpleNamespace(
@@ -140,11 +196,11 @@ def test_query_accumulates_rewritten_searches_with_independent_attempt_cap(monke
     assert [p["search_id"] for p in pool[0]["search_provenance"]] == ([1] if cap == 1 else [1, *range(3, cap + 1)])
 
 
-@pytest.mark.parametrize("scenario", ["intelligible_empty", "unintelligible", "invalid_review", "provider_failure", "review_overflow", "invalid_then_valid", "empty_then_found", "intelligibility_invalid", "intelligibility_failure", "repeated_plan"])
+@pytest.mark.parametrize("scenario", ["intelligible_empty", "unintelligible", "invalid_review", "provider_failure", "provider_context_failure", "invalid_then_valid", "empty_then_found", "intelligibility_invalid", "intelligibility_failure", "repeated_plan"])
 def test_query_handles_empty_pools_and_retrieval_review_degradation(monkeypatch, scenario):
     settings = SimpleNamespace(
         agentic_max_search_attempts=3, agentic_max_answer_attempts=1,
-        llm=SimpleNamespace(max_chunks=1 if scenario == "review_overflow" else 5, context_window_tokens=7000 if scenario == "review_overflow" else 50000, max_tokens=64),
+        llm=SimpleNamespace(max_chunks=1 if scenario == "provider_context_failure" else 5, context_window_tokens=7000 if scenario == "provider_context_failure" else 50000, max_tokens=64),
     )
     monkeypatch.setattr(agentic, "get_settings", lambda: settings)
     hit = {"source": "release.md", "chunk_id": 1, "text": "Lena owns launch.", "score": .9}
@@ -155,12 +211,12 @@ def test_query_handles_empty_pools_and_retrieval_review_degradation(monkeypatch,
         searches.append(query)
         if empty_first and (scenario != "empty_then_found" or len(searches) == 1):
             return []
-        if scenario == "review_overflow":
+        if scenario == "provider_context_failure":
             return [hit, {"source": "noise.md", "chunk_id": 0, "text": "x" * 20000, "score": .1}]
         return [hit]
 
     monkeypatch.setattr(agentic, "search_notes", search)
-    if scenario == "review_overflow":
+    if scenario == "provider_context_failure":
         monkeypatch.setattr(agentic, "rerank_candidates", lambda query, candidates, **kwargs: candidates)
     reviews = []
     checks = []
@@ -173,6 +229,8 @@ def test_query_handles_empty_pools_and_retrieval_review_degradation(monkeypatch,
             payload = json.loads(messages[-1]["content"])
             if payload.get("phase") == "intelligibility":
                 checks.append(payload["question"])
+                if scenario == "unintelligible":
+                    assert payload["conversation_history"] == [{"user": "x" * 60000, "assistant": "Earlier intent"}]
                 if scenario == "intelligibility_invalid":
                     return "not JSON"
                 if scenario == "intelligibility_failure":
@@ -180,8 +238,8 @@ def test_query_handles_empty_pools_and_retrieval_review_degradation(monkeypatch,
                 return json.dumps({"intelligible": scenario != "unintelligible"})
             if "chunks_pool" in payload:
                 reviews.append(payload)
-                if scenario == "provider_failure":
-                    raise RuntimeError("provider unavailable")
+                if scenario in {"provider_failure", "provider_context_failure"}:
+                    raise RuntimeError("provider context length exceeded" if scenario == "provider_context_failure" else "provider unavailable")
                 if scenario == "invalid_review" or (scenario == "invalid_then_valid" and len(reviews) == 1):
                     return "not json"
                 if scenario == "repeated_plan":
@@ -204,7 +262,8 @@ def test_query_handles_empty_pools_and_retrieval_review_degradation(monkeypatch,
         return {"answer": "Lena owns launch.", "citations": [], "generation_context": hits}
 
     monkeypatch.setattr(agentic, "rag_answer", answer)
-    result = cli.run_query(object(), object(), query="Who owns launch?", agentic=True)
+    history = [("x" * 60000, "Earlier intent")] if scenario == "unintelligible" else []
+    result = cli.run_query(object(), object(), query="Who owns launch?", agentic=True, conversation_history=history)
     if scenario in {"intelligible_empty", "unintelligible", "intelligibility_invalid", "intelligibility_failure"}:
         assert not answers
         assert result["answer_attempts"] == 0
@@ -218,15 +277,19 @@ def test_query_handles_empty_pools_and_retrieval_review_degradation(monkeypatch,
         assert result["workflow_degraded"] is True
         assert result["retrieval_coverage"]["coverage"] == "unknown"
         assert not reviews
-    if scenario in {"invalid_review", "provider_failure", "review_overflow", "repeated_plan"}:
+    if scenario in {"invalid_review", "provider_failure", "provider_context_failure", "repeated_plan"}:
         assert result["retrieval_coverage"]["coverage"] == "unknown"
         assert result["retrieval_stop_reason"] == "review_degraded"
         assert result["workflow_degraded"] is True
         assert result["retrieval_degradation"]["cause"] == {
-            "invalid_review": "invalid_json", "provider_failure": "provider_failure", "review_overflow": "review_context_budget_exceeded", "repeated_plan": "schema_invalid_action",
+            "invalid_review": "invalid_json", "provider_failure": "provider_failure", "provider_context_failure": "provider_failure", "repeated_plan": "schema_invalid_action",
         }[scenario]
         assert len(searches) == 1
-        assert len(reviews) == {"invalid_review": 2, "provider_failure": 1, "review_overflow": 0, "repeated_plan": 2}[scenario]
+        assert len(reviews) == {"invalid_review": 2, "provider_failure": 1, "provider_context_failure": 1, "repeated_plan": 2}[scenario]
+    if scenario == "provider_context_failure":
+        assert len(result["chunks_pool"]) == 2
+        assert len(result["selected_pool"]) == 1
+        assert reviews[0]["chunks_pool"][1]["text"] == "x" * 20000
     if scenario == "invalid_then_valid":
         assert len(reviews) == 2
         assert "validation_feedback" in reviews[1]

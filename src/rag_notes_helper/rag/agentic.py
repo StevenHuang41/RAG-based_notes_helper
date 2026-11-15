@@ -666,12 +666,6 @@ def _request_retrieval_decision(
             {"role": "system", "content": instruction},
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
         ]
-        settings = get_settings()
-        if estimate_prompt_tokens(prompt) + settings.llm.max_tokens > settings.llm.context_window_tokens:
-            raise AgenticWorkflowError(
-                "The complete Retrieval reviewer input exceeds the model budget.",
-                failure_category="review_context_budget_exceeded",
-            )
         started = perf_counter()
         options = (
             {"think": False, "format": schema}
