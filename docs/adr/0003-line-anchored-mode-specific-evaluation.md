@@ -3,6 +3,8 @@
 Date: 2026-10-25
 Status: Accepted
 
+Amended by [ADR-0008](0008-two-phase-agentic-evidence-recovery.md): accepted Answer-model-generated abstentions enter per-metric Ragas applicability checks. The exclusion below continues to apply to deterministic or controller-origin abstentions; the other metric input requirements remain in effect.
+
 ## Context
 
 The synthetic QA benchmark must make retrieval quality inspectable at the source level. Chunk IDs change when chunking settings or source content changes, and text snippets alone do not identify their exact location. A single paired evaluation invocation also obscures which workflow a run is intended to measure, while a summary JSON and separate detail JSON duplicate report information.

@@ -6,6 +6,8 @@ Answer tests. Legacy replace/expand/reopen assertions are deliberately retired.
 """
 
 import json
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -13,6 +15,20 @@ import pytest
 from rag_notes_helper import cli
 from rag_notes_helper.rag import agentic
 from rag_notes_helper.rag.llm.base import BaseLLM
+
+
+def test_cli_import_filters_only_known_langchain_warning():
+    result = subprocess.run(
+        [sys.executable, "-W", "default", "-c", (
+            "import rag_notes_helper.cli; import warnings; "
+            "warnings.warn('other pending warning', PendingDeprecationWarning)"
+        )],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "The default value of `allowed_objects` will change" not in result.stderr
+    assert "other pending warning" in result.stderr
 
 
 class RawResponseLLM(BaseLLM):

@@ -1,4 +1,5 @@
 import json
+import warnings
 from copy import deepcopy
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -6,7 +7,17 @@ from functools import partial
 from time import perf_counter
 from typing import Annotated, Any, Literal, TypeAlias, TypedDict
 
-from langgraph.graph import END, START, StateGraph
+# LangChain configures its own warning filters when first imported. Scope this
+# workaround to the LangGraph import until its default Reviver is configured.
+with warnings.catch_warnings():
+    import langchain_core  # noqa: F401
+
+    warnings.filterwarnings(
+        "ignore",
+        message=r"The default value of `allowed_objects` will change in a future version\.",
+        category=PendingDeprecationWarning,
+    )
+    from langgraph.graph import END, START, StateGraph
 
 from pydantic import (
     BaseModel,

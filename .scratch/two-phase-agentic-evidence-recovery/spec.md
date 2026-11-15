@@ -1,6 +1,8 @@
 # Separate Agentic evidence recovery from answer generation
 
-Status: ready-for-agent
+Status: resolved
+
+Implementation and verification are recorded in [verification.md](verification.md), including live-provider limitations. The later [context-budget removal spec](../remove-local-context-window-budget/spec.md) and [ADR-0009](../../docs/adr/0009-remove-local-context-window-budget.md) supersede this spec's local context-budget checks, budget-driven context trimming, and `review_context_budget_exceeded` outcome. The corresponding requirements below are retained as historical decisions; complete-pool review and provider-failure fallback remain in effect.
 
 ## Problem Statement
 

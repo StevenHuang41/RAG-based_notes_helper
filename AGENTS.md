@@ -2,8 +2,7 @@
 
 ## Project Overview
 
-A CLI tool for answering questions about local notes using RAG.
-Users can choose between Classic and Agentic workflows.
+A CLI tool for answering questions about local notes using RAG. Users can choose between Classic and Agentic workflows.
 
 ## Repository Structure
 
