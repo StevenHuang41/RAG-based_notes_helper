@@ -396,6 +396,15 @@ Inspect the actual tool call and response to confirm that `top_k` is 3 and that 
 
 If the server does not connect, check that the absolute `uv` and repository paths exist, dependencies are installed, and the project's `.env` is valid. Inspect the client's MCP logs or server stderr for configuration, model download, and index errors; stdout is reserved for the MCP protocol. The first startup can take longer while building the index or downloading models. Restart the server after modifying notes.
 
+On macOS, if the server exits with a segmentation fault (exit 139) during indexing or embedding, try setting `OMP_NUM_THREADS=1` in the client-launched server environment. For Codex, add this to the existing `rag_notes` entry in `~/.codex/config.toml`, then start a new session:
+
+```toml
+[mcp_servers.rag_notes.env]
+OMP_NUM_THREADS = "1"
+```
+
+A local macOS ARM / Python 3.14 test reproduced the crash when FAISS and SentenceTransformer were used together; limiting OpenMP threads allowed the MCP search to complete. The underlying native failure is not yet identified. This setting can affect performance and is only a troubleshooting option.
+
 ---
 
 ## Docker Usage
