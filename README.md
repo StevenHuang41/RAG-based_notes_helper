@@ -100,42 +100,29 @@ This project keeps knowledge external and inspectable. Notes are chunked, embedd
 
 ## Architecture
 
-```text
-Documents in data/
-        |
-        v
-Loaders (.txt / .md / .pdf / .py)
-        |
-        v
-Streaming chunking
-        |
-        v
-SentenceTransformer embeddings
-        |
-        +--------------------+
-        |                    |
-        v                    v
-      FAISS vector index     Metadata store and BM25 search
-        |                    |
-        +---------+----------+
-                  |
-                  v
-          Reciprocal Rank Fusion
-                  |
-                  v
-User query -> workflow selection
-                  |
-          +-------+--------+
-          |                |
-          v                v
-Classic RAG          Agentic RAG
-one retrieval        bounded LangGraph StateGraph
-          |          search + pool review -> select -> generate + answer review
-          +-------+--------+
-                  |
-                  v
-         LLM answer + citations
+```mermaid
+flowchart TD
+    notes["Notes in data/"] --> load["Loaders and chunking"]
+    load --> embed["SentenceTransformer embeddings"]
+    embed --> vector["FAISS vector index"]
+    load --> metadata["Chunk metadata and BM25 index"]
+    vector --> hybrid["Hybrid retrieval: Vector + BM25, RRF, reranking"]
+    metadata --> hybrid
+    user["User query"] --> choose{"Workflow"}
+    choose --> classic["Classic RAG"]
+    choose --> agentic["Agentic RAG: bounded search and evidence review"]
+    classic --> hybrid
+    agentic --> hybrid
+    hybrid --> context["Selected evidence"]
+    context --> answer["Answer generation and citations"]
+    assistant["Local coding assistant"] -->|"search_notes over stdio"| mcp["Local MCP server"]
+    mcp --> hybrid
+    hybrid -->|"Ranked chunks and provenance"| mcp
+    mcp -->|"Evidence"| assistant
+    assistant -->|"Answer based on evidence"| user
 ```
+
+The local MCP path returns retrieval evidence to the coding assistant; the RAG application's answer-generation workflow is not invoked by the MCP server.
 
 ---
 
@@ -332,14 +319,6 @@ uv run rag-app --repl --agentic "What changed before launch?"
 
 Each query starts with fresh Agentic state and performs a new Retrieval. The Agentic REPL keeps up to five recent user/assistant turns in memory for resolving intent; prompts label them as conversational context, never evidence. This history is cleared when the REPL exits. One-shot queries and evaluation cases start with empty history. Agentic candidates stay buffered until evidence review accepts them; with `STREAM=true`, the CLI then displays the accepted answer in chunks. Set `STREAM=false` to display it all at once.
 
-### Local MCP search
-
-The `rag-mcp-server` command exposes one read-only `search_notes` tool over local stdio. It refreshes the runtime index from `data/` at startup, runs the shared Hybrid retrieval pipeline, and returns ranked chunks with relative source paths, line ranges, and ranking provenance. Restart the server to guarantee later note changes are indexed. It does not generate an answer.
-
-The optional `top_k` defaults to 5 and is capped at 20, independently of `LLM_MAX_CHUNKS`. It is a maximum: upstream Vector, BM25, and fusion limits and available evidence can yield fewer chunks. Source notes and the index remain local, but returned evidence enters the connected assistant's context and may be sent to its model provider.
-
-For a local MCP client, configure its stdio command as `uv` with arguments `run` and `rag-mcp-server`, and set its working directory to this repository. Install the project dependencies first. The server runs as the local user; it has no network listener or OAuth layer. See your client's documentation for its MCP configuration format.
-
 REPL commands:
 
 ```text
@@ -353,6 +332,69 @@ REPL commands:
 :stream    or :s     toggle stream mode
 :evaluate  or :ev    run evaluation
 ```
+
+### Local MCP search
+
+The `rag-mcp-server` command exposes one read-only `search_notes` tool over local stdio. It refreshes the runtime index from `data/` at startup, runs the shared Hybrid retrieval pipeline, and returns ranked chunks with relative source paths, line ranges, and ranking provenance. Restart the server to guarantee later note changes are indexed. It does not generate an answer.
+
+The optional `top_k` defaults to 5 and is capped at 20, independently of `LLM_MAX_CHUNKS`. It is a maximum: upstream Vector, BM25, and fusion limits and available evidence can yield fewer chunks. Source notes and the index remain local, but returned evidence enters the connected assistant's context and may be sent to its model provider.
+
+#### Set up a local client
+
+Install from source and configure the project as described in [Local Development](#local-development). Add your notes under `data/`. The application currently validates `LLM_PROVIDER` and `LLM_MODEL` when the server starts, even though MCP search does not invoke an answer-generation model; choose a valid provider configuration in `.env`. Embedding and reranking models must be available locally or downloadable on first use. The client starts the server itself; there is no need to launch a separate terminal for `rag-mcp-server`.
+
+From the repository directory, note the absolute paths shown by these commands:
+
+```bash
+pwd
+command -v uv
+```
+
+Use those paths below. The client launches the local process with your user permissions; it has no network listener or OAuth layer. When configuring a client, allow enough startup time for indexing and first-time model downloads.
+
+**Codex app / CLI**
+
+From this repository directory, register the server with the Codex CLI. `--directory` selects this checkout even when you use Codex from another directory:
+
+```bash
+codex mcp add rag_notes -- "$(command -v uv)" --directory "$PWD" run rag-mcp-server
+codex mcp list
+```
+
+Set `startup_timeout_sec = 120` in the resulting `rag_notes` entry in `~/.codex/config.toml`, then start a new local Codex app session and check that `rag_notes` is available. Alternatively, add the following entry directly, replacing both paths with the absolute paths from above:
+
+```toml
+[mcp_servers.rag_notes]
+command = "/absolute/path/to/uv"
+args = ["--directory", "/absolute/path/to/RAG-based_notes_helper", "run", "rag-mcp-server"]
+startup_timeout_sec = 120
+```
+
+Use one registration method, not both. See [Codex MCP configuration](https://developers.openai.com/codex/mcp) for current options.
+
+**Claude Code**
+
+From this repository directory, register a local stdio server:
+
+```bash
+claude mcp add --transport stdio rag_notes -- "$(command -v uv)" --directory "$PWD" run rag-mcp-server
+claude mcp get rag_notes
+```
+
+Start Claude Code in the same project and use `/mcp` to inspect its server status. This configuration follows [Claude Code MCP documentation](https://code.claude.com/docs/en/mcp); it has not been verified with an actual Claude Code tool call.
+
+#### Search and verify
+
+In your coding assistant, try:
+
+```text
+Use the rag_notes search_notes tool to find what my notes say about RAG.
+Return at most 3 chunks, cite their source paths and line ranges, and answer only from those chunks.
+```
+
+Inspect the actual tool call and response to confirm that `top_k` is 3 and that each result includes text, relative source path, chunk ID, line range, and ranking provenance. Then compare the answer and citations with the returned evidence. The assistant decides whether to call the tool and how to use its results; instructions alone do not guarantee a tool call or an evidence-grounded answer. An empty result means no chunks were returned for that search, while a tool error indicates a failure.
+
+If the server does not connect, check that the absolute `uv` and repository paths exist, dependencies are installed, and the project's `.env` is valid. Inspect the client's MCP logs or server stderr for configuration, model download, and index errors; stdout is reserved for the MCP protocol. The first startup can take longer while building the index or downloading models. Restart the server after modifying notes.
 
 ---
 
