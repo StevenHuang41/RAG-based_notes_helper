@@ -484,9 +484,8 @@ Common settings:
 | `LLM_EVAL_PROVIDER` | Optional Ragas judge provider; defaults to `LLM_PROVIDER` | `hf`, `openai`, `ollama`, `gemini`, `openrouter` |
 | `LLM_EVAL_MODEL` | Optional Ragas judge model; defaults to `LLM_MODEL`; set with `LLM_EVAL_PROVIDER` | provider-specific model name |
 | `LLM_EVAL_API_KEY` | Optional judge key; required for a different remote judge provider | `your-evaluation-provider-api-key` |
-| `LLM_MAX_CHUNKS` | Maximum retrieved chunks sent to LLM | `5` |
-| `LLM_MAX_TOKENS` | Maximum output tokens reserved for each generation | `1024` |
-| `LLM_CONTEXT_WINDOW_TOKENS` | Total model context budget for serialized prompt plus reserved output tokens | `8192` |
+| `LLM_MAX_CHUNKS` | Maximum selected chunks sent to Answer generation | `5` |
+| `LLM_MAX_TOKENS` | Maximum output tokens for each generation | `1024` |
 | `LLM_TEMPERATURE` | Generation temperature | `0.1` |
 | `CHUNK_SIZE` | Chunk size for ingestion | `800` |
 | `CHUNK_OVERLAP` | Chunk overlap | `200` |
@@ -502,9 +501,9 @@ Common settings:
 
 `TOP_K` remains accepted as a legacy alias for `FUSION_TOP_K`, and `MIN_RETRIEVAL_SCORE` remains accepted as a legacy alias for `VECTOR_MIN_SCORE`. Existing local configuration therefore continues to work while new configuration uses the stage-specific names.
 
-Set `LLM_CONTEXT_WINDOW_TOKENS` to the selected model's total context capacity. The application estimates prompt size conservatively from the fully serialized messages, trims the oldest complete REPL turns until they fit, and reserves `LLM_MAX_TOKENS` for the model response. The estimate avoids adding a provider-specific tokenizer dependency, so the configured context value should match the model's advertised capacity.
+The application retains the most recent five complete REPL turns for intent context without trimming them by a local token estimate. `LLM_MAX_TOKENS` controls the separate output limit. The retired `LLM_CONTEXT_WINDOW_TOKENS` setting is ignored if it remains in an existing environment file.
 
-Agentic pool storage is separate from this model-input budget. A complete pool that cannot fit Retrieval review causes explicit `review_context_budget_exceeded` degradation; the stored pool is retained for final selection. Generation can fit fewer whole chunks than `LLM_MAX_CHUNKS` under its prompt budget, and subsequent revisions keep that exact context. Compare the selected-pool table with actual generation context when inspecting evidence coverage.
+Agentic sends the complete accumulated chunks pool to Retrieval review against the original question after each Search. Once Retrieval stops, an oversized pool is reranked and at most `LLM_MAX_CHUNKS` chunks are selected for Answer generation; those chunks remain intact through Answer review and revisions. Model and deployment capacity still applies. If a provider rejects review input, existing degraded Retrieval fallback retains the pool for final selection; Answer generation or Answer review failure returns the existing safe warning. The application does not provision provider context capacity or guarantee that a provider consumes every submitted token.
 
 ---
 

@@ -213,7 +213,7 @@ def test_classic_and_agentic_share_initial_search_and_answer_generation(
 
         class LLM:
             max_chunks = 2
-            context_window_tokens = 50000
+
             max_tokens = 1024
 
         llm = LLM()

@@ -3,10 +3,10 @@ import pytest
 from rag_notes_helper.eval.report import write_readme
 
 
-def render_report(tmp_path, case, *, summary=None):
+def render_report(tmp_path, case, *, summary=None, legacy_metadata=None):
     path = tmp_path / 'README.md'
     write_readme(path, {
-        'run_metadata': {'workflow': 'agentic', 'max_answer_chunks': 1},
+        'run_metadata': {'workflow': 'agentic', 'max_answer_chunks': 1, **(legacy_metadata or {})},
         'workflow_degraded_count': 1 if case.get('workflow_degraded') else 0,
         'summary': {'workflows': {'agentic': summary or {}}},
         'cases': [{'workflow': 'agentic', 'case_id': 'pool', 'question': 'Who?', **case}],
@@ -85,7 +85,7 @@ def test_report_exposes_degradation_coverage_and_metric_denominators(tmp_path):
         'answer_coverage': 'partial', 'review_passed': True,
         'answer_missing_information': ['Date'],
         'judge_metrics': {'faithfulness': {'status': 'failed', 'eligible': True, 'reason': 'Judge failed.'}},
-    }, summary={'ragas_metric_status_counts': counts, 'workflow_degraded_case_count': 1, 'workflow_failure_case_count': 0, 'outcome_counts': {'workflow_degradations': {'review_context_budget_exceeded': 1}}})
+    }, summary={'ragas_metric_status_counts': counts, 'workflow_degraded_case_count': 1, 'workflow_failure_case_count': 0, 'outcome_counts': {'workflow_degradations': {'review_context_budget_exceeded': 1}}}, legacy_metadata={'context_window_tokens': 8192})
     assert '**Workflow degraded:** `1`' in report
     assert '| Pool coverage | unknown |' in report
     assert '| Assessed question | Who? |' in report

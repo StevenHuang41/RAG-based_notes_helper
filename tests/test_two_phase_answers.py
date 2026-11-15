@@ -10,7 +10,7 @@ from rag_notes_helper.rag import agentic
 def setup_query(monkeypatch, reviews, answers, *, max_attempts=3):
     settings = SimpleNamespace(
         agentic_max_search_attempts=3, agentic_max_answer_attempts=max_attempts,
-        llm=SimpleNamespace(max_chunks=5, context_window_tokens=50000, max_tokens=1024),
+        llm=SimpleNamespace(max_chunks=5, max_tokens=1024),
     )
     monkeypatch.setattr(agentic, 'get_settings', lambda: settings)
     hits = [{'source': 'release.md', 'chunk_id': 0, 'text': 'Lena owns launch.', 'score': .9}]
@@ -136,9 +136,9 @@ def test_real_generation_preserves_full_selected_context_for_revision(monkeypatc
 
     settings = SimpleNamespace(
         agentic_max_search_attempts=3, agentic_max_answer_attempts=3, line_width=80,
-        llm=SimpleNamespace(max_chunks=3, context_window_tokens=5800, max_tokens=512),
+        llm=SimpleNamespace(max_chunks=3, max_tokens=512),
     )
-    review_settings = SimpleNamespace(agentic_max_search_attempts=3, agentic_max_answer_attempts=3, llm=SimpleNamespace(max_chunks=3, context_window_tokens=50000, max_tokens=512))
+    review_settings = SimpleNamespace(agentic_max_search_attempts=3, agentic_max_answer_attempts=3, llm=SimpleNamespace(max_chunks=3, max_tokens=512))
     monkeypatch.setattr(agentic, 'get_settings', lambda: review_settings)
     monkeypatch.setattr(answer_module, 'get_settings', lambda: settings)
     chunks = [{'source': 'release.md', 'chunk_id': i, 'text': 'Lena owns launch. ' + 'x' * 4000, 'score': .9} for i in range(3)]
@@ -181,11 +181,11 @@ def test_provider_failure_preserves_full_attempted_context_without_raw_error(mon
 
     settings = SimpleNamespace(
         agentic_max_search_attempts=3, agentic_max_answer_attempts=3, line_width=80,
-        llm=SimpleNamespace(max_chunks=3, context_window_tokens=5800, max_tokens=512),
+        llm=SimpleNamespace(max_chunks=3, max_tokens=512),
     )
     review_settings = SimpleNamespace(
         agentic_max_search_attempts=3, agentic_max_answer_attempts=3,
-        llm=SimpleNamespace(max_chunks=3, context_window_tokens=50000, max_tokens=512),
+        llm=SimpleNamespace(max_chunks=3, max_tokens=512),
     )
     monkeypatch.setattr(agentic, 'get_settings', lambda: review_settings)
     monkeypatch.setattr(answer_module, 'get_settings', lambda: settings)

@@ -22,19 +22,39 @@ def test_unset_eval_pair_inherits_generation_provider_and_model():
     assert settings.effective_eval_provider == "ollama"
     assert settings.effective_eval_model == "llama3.1"
     assert settings.effective_eval_api_key_str is None
-    assert settings.context_window_tokens == 8192
 
 
-def test_context_window_must_reserve_the_output_token_budget():
-    with pytest.raises(ValidationError, match="LLM_CONTEXT_WINDOW_TOKENS"):
-        make_settings(context_window_tokens=1024, max_tokens=1024)
+@pytest.mark.parametrize("value", ["1", "not-a-token-count"])
+def test_removed_context_window_env_is_ignored(monkeypatch, value):
+    monkeypatch.setenv("LLM_CONTEXT_WINDOW_TOKENS", value)
+
+    settings = make_settings(max_tokens=8192)
+
+    assert settings.max_tokens == 8192
+    assert "context_window_tokens" not in settings.model_dump()
+
+
+def test_removed_context_window_in_env_file_does_not_prevent_startup(monkeypatch, tmp_path):
+    monkeypatch.delenv("LLM_CONTEXT_WINDOW_TOKENS", raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text("LLM_CONTEXT_WINDOW_TOKENS=not-a-token-count\n", encoding="utf-8")
+    llm = make_settings(_env_file=env_file, max_tokens=8192)
+    notes = tmp_path / "notes"
+    notes.mkdir()
+
+    settings = Settings(
+        _env_file=env_file, llm=llm, notes_dir=notes,
+        storage_dir=tmp_path / "storage", logs_dir=tmp_path / "logs",
+    )
+
+    assert settings.llm.max_tokens == 8192
+    assert "context_window_tokens" not in settings.llm.model_dump()
 
 
 def test_legacy_output_budget_does_not_require_a_new_context_setting():
     settings = make_settings(max_tokens=8192)
 
     assert settings.max_tokens == 8192
-    assert settings.context_window_tokens == 8192
 
 
 def test_legacy_output_budget_env_loads_without_context_window_setting(monkeypatch):
@@ -46,7 +66,6 @@ def test_legacy_output_budget_env_loads_without_context_window_setting(monkeypat
     settings = LLMSettings(_env_file=None)
 
     assert settings.max_tokens == 8192
-    assert settings.context_window_tokens == 8192
 
 
 @pytest.mark.parametrize("setting", ["eval_provider", "eval_model"])

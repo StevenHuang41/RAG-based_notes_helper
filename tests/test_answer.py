@@ -169,15 +169,15 @@ def test_rag_answer_keeps_newest_five_complete_turns_with_long_history(
             prompts.append(prompt)
             yield "answer"
 
-    class TinyContextSettings:
+    class HistorySettings:
         line_width = 80
         llm = type("LLM", (), {
             "max_chunks": 5,
             "max_tokens": 20,
-            "context_window_tokens": 2000,
+
         })()
 
-    monkeypatch.setattr(answer_module, "get_settings", lambda: TinyContextSettings())
+    monkeypatch.setattr(answer_module, "get_settings", lambda: HistorySettings())
     monkeypatch.setattr(answer_module, "get_llm", lambda: PromptLLM())
     history = [("excluded question", "excluded answer")] + [
         (f"question {i} " + "x" * 2000, f"answer {i} " + "y" * 2000)

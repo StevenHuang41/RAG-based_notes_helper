@@ -103,7 +103,6 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     monkeypatch.setenv("CHUNK_OVERLAP", "50")
     monkeypatch.setenv("AGENTIC_MAX_SEARCH_ATTEMPTS", "2")
     monkeypatch.setenv("AGENTIC_MAX_ANSWER_ATTEMPTS", "4")
-    monkeypatch.setenv("LLM_CONTEXT_WINDOW_TOKENS", "100000")
 
     user_notes = Path(os.environ["NOTES_DIR"])
     user_storage = Path(os.environ["STORAGE_DIR"])
@@ -276,6 +275,7 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
         results["run_metadata"]["agentic_max_answer_attempts"]
         == 4
     )
+    assert "context_window_tokens" not in results["run_metadata"]
     assert results["run_metadata"]["workflow"] == workflow
     assert results["run_metadata"]["timezone"] == "Asia/Taipei"
     assert results["run_metadata"]["chunk_size"] == 200
