@@ -370,7 +370,7 @@ args = ["--directory", "/absolute/path/to/RAG-based_notes_helper", "run", "rag-m
 startup_timeout_sec = 120
 ```
 
-Use one registration method, not both. The Codex app end-to-end connection and tool call have not yet been verified. See [Codex MCP configuration](https://developers.openai.com/codex/mcp) for current options.
+Use one registration method, not both. A Codex app session was verified against the sample notes: `search_notes` returned three chunks with provenance for `top_k=3`, and Codex answered from them. The local test used `OMP_NUM_THREADS=1`; see the troubleshooting note below. See [Codex MCP configuration](https://developers.openai.com/codex/mcp) for current options.
 
 **Claude Code**
 
