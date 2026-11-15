@@ -25,7 +25,6 @@ from rag_notes_helper.rag.llm.base import make_generation_usage_record
 from rag_notes_helper.rag.meta_store import MetaStore
 from rag_notes_helper.rag.prompt_context import (
     ConversationTurn,
-    estimate_prompt_tokens,
     serialize_conversation_history,
 )
 from rag_notes_helper.rag.retrieval import (
@@ -112,7 +111,6 @@ AnswerReviewAction: TypeAlias = Annotated[
     Field(discriminator="action"),
 ]
 ControllerFailureCategory: TypeAlias = Literal[
-    "review_context_budget_exceeded",
     "provider_failure",
     "invalid_json",
     "schema_invalid_action",

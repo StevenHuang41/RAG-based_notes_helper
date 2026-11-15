@@ -64,6 +64,7 @@ def test_two_phase_evaluation_keeps_answer_quality_separate_from_reliability(mon
     monkeypatch.setattr(eval_runner, "_run_ragas_batches_isolated", score_batches)
     run_dir = eval_runner.run_evaluation(agentic=True, output_root=tmp_path)
     results = json.loads((run_dir / "results.json").read_text())
+    assert "context_window_tokens" not in results["run_metadata"]
     records = {c["case_id"]: c for c in results["cases"]}
     degraded = records["degraded"]
     assert degraded["chunks_pool"][0]["search_provenance"] == hit["search_provenance"]

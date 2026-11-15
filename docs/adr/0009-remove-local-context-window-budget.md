@@ -1,6 +1,6 @@
 # Remove the local context-window budget
 
-Status: Proposed — awaiting final shared-understanding confirmation; not implemented.
+Status: Accepted — implemented locally; deterministic verification and live-provider limitations are recorded in the feature verification report.
 
 Remove `LLM_CONTEXT_WINDOW_TOKENS` and its runtime effects rather than replace it with model-capacity discovery. The current UTF-8-byte estimate can discard evidence or reject review before the provider is called. Provider capacity remains enforced by the deployment/provider; preserve existing provider-failure handling.
 
@@ -18,7 +18,7 @@ Remove `LLM_CONTEXT_WINDOW_TOKENS` and its runtime effects rather than replace i
 
 ## Relationship to existing decisions
 
-If accepted, this amends ADR-0008's local `review_context_budget_exceeded` behavior while preserving complete-pool review and the existing provider-failure fallback. ADR-0008 remains accepted during this discussion. Evidence-pool coverage can still differ from final generation-context coverage after top-k selection.
+This amends ADR-0008's local `review_context_budget_exceeded` behavior while preserving complete-pool review and the existing provider-failure fallback. ADR-0008's remaining decisions stay accepted. Evidence-pool coverage can still differ from final generation-context coverage after top-k selection.
 
 ## Implementation and acceptance scope
 

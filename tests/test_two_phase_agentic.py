@@ -10,7 +10,7 @@ from rag_notes_helper.rag import agentic
 def test_query_reviews_large_complementary_pool_and_stops_after_second_search(monkeypatch):
     settings = SimpleNamespace(
         agentic_max_search_attempts=3, agentic_max_answer_attempts=1,
-        llm=SimpleNamespace(max_chunks=1, context_window_tokens=50000, max_tokens=64),
+        llm=SimpleNamespace(max_chunks=1, max_tokens=64),
     )
     monkeypatch.setattr(agentic, "get_settings", lambda: settings)
     question = "Who owns launch and when?"
@@ -67,7 +67,7 @@ def test_query_reviews_large_complementary_pool_and_stops_after_second_search(mo
 def test_query_reviews_pool_before_selecting_generation_context(monkeypatch, pool_size):
     settings = SimpleNamespace(
         agentic_max_search_attempts=3, agentic_max_answer_attempts=3,
-        llm=SimpleNamespace(max_chunks=2, context_window_tokens=50000, max_tokens=1024),
+        llm=SimpleNamespace(max_chunks=2, max_tokens=1024),
     )
     monkeypatch.setattr(agentic, "get_settings", lambda: settings)
     chunks = [
@@ -139,7 +139,7 @@ def test_query_reviews_pool_before_selecting_generation_context(monkeypatch, poo
 def test_query_accumulates_rewritten_searches_with_independent_attempt_cap(monkeypatch, cap, final_coverage):
     settings = SimpleNamespace(
         agentic_max_search_attempts=cap, agentic_max_answer_attempts=1,
-        llm=SimpleNamespace(max_chunks=10, context_window_tokens=50000, max_tokens=1024),
+        llm=SimpleNamespace(max_chunks=10, max_tokens=1024),
     )
     monkeypatch.setattr(agentic, "get_settings", lambda: settings)
     seen = []
@@ -200,7 +200,7 @@ def test_query_accumulates_rewritten_searches_with_independent_attempt_cap(monke
 def test_query_handles_empty_pools_and_retrieval_review_degradation(monkeypatch, scenario):
     settings = SimpleNamespace(
         agentic_max_search_attempts=3, agentic_max_answer_attempts=1,
-        llm=SimpleNamespace(max_chunks=1 if scenario == "provider_context_failure" else 5, context_window_tokens=7000 if scenario == "provider_context_failure" else 50000, max_tokens=64),
+        llm=SimpleNamespace(max_chunks=1 if scenario == "provider_context_failure" else 5, max_tokens=64),
     )
     monkeypatch.setattr(agentic, "get_settings", lambda: settings)
     hit = {"source": "release.md", "chunk_id": 1, "text": "Lena owns launch.", "score": .9}
@@ -300,7 +300,7 @@ def test_query_handles_empty_pools_and_retrieval_review_degradation(monkeypatch,
 def test_query_preserves_safe_trace_for_search_and_rerank_failures(monkeypatch, fault):
     settings = SimpleNamespace(
         agentic_max_search_attempts=3, agentic_max_answer_attempts=1,
-        llm=SimpleNamespace(max_chunks=1, context_window_tokens=50000, max_tokens=64),
+        llm=SimpleNamespace(max_chunks=1, max_tokens=64),
     )
     monkeypatch.setattr(agentic, "get_settings", lambda: settings)
     hits = [{"source": "release.md", "chunk_id": i, "text": f"Fact {i}", "score": .9} for i in range(2)]
@@ -342,7 +342,7 @@ def test_query_preserves_safe_trace_for_search_and_rerank_failures(monkeypatch, 
 def test_query_retries_invalid_threshold_without_consuming_search_attempt(monkeypatch):
     settings = SimpleNamespace(
         agentic_max_search_attempts=2, agentic_max_answer_attempts=1,
-        llm=SimpleNamespace(max_chunks=5, context_window_tokens=50000, max_tokens=64),
+        llm=SimpleNamespace(max_chunks=5, max_tokens=64),
     )
     monkeypatch.setattr(agentic, "get_settings", lambda: settings)
     hit = {"source": "release.md", "chunk_id": 1, "text": "Fact", "score": .9}

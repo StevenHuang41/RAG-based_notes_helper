@@ -38,7 +38,7 @@ def test_generate_raw_preserves_json_without_display_wrapping():
 def runtime(monkeypatch):
     settings = SimpleNamespace(
         agentic_max_search_attempts=3, agentic_max_answer_attempts=3,
-        llm=SimpleNamespace(max_chunks=5, context_window_tokens=50000, max_tokens=1024),
+        llm=SimpleNamespace(max_chunks=5, max_tokens=1024),
     )
     monkeypatch.setattr(agentic, "get_settings", lambda: settings)
     hit = {"source": "plan.md", "chunk_id": 0, "text": "The project starts in April.", "score": .9}
@@ -154,7 +154,7 @@ def test_review_ignores_unrelated_extra_fields_without_authorizing_search(monkey
 
 def test_answer_reviewer_keeps_newest_five_complete_turns_with_long_history(monkeypatch, runtime):
     settings, hit, answer_calls = runtime
-    settings.llm.context_window_tokens = 7000
+
     controller = Controller()
     monkeypatch.setattr(agentic, "get_llm", lambda: controller)
     history = [("excluded question", "excluded answer")] + [

@@ -1908,7 +1908,6 @@ def run_evaluation(
                 "top_k": settings.top_k,
                 "min_retrieval_score": settings.min_retrieval_score,
                 "max_answer_chunks": settings.llm.max_chunks,
-                "context_window_tokens": getattr(settings.llm, "context_window_tokens", None),
                 "max_tokens": getattr(settings.llm, "max_tokens", None),
                 "agentic_max_searches": getattr(
                     settings, "agentic_max_search_attempts", 3
