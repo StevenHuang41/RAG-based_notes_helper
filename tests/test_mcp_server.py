@@ -94,3 +94,55 @@ server.main()
 
     anyio.run(exercise)
     assert marker.read_text() == "closed"
+
+
+def test_search_returns_complete_chunk_and_ranking_provenance():
+    hit = {
+        "text": "Deployment is on Friday.", "source": "project/release.md",
+        "chunk_id": 42, "start_line": 12, "end_line": 14,
+        "rank": 3, "rerank_rank": 1, "vector_rank": 2, "vector_score": 0.8,
+        "bm25_rank": 4, "bm25_score": 1.3, "fusion_score": 0.03,
+        "reranker_score": 0.9,
+    }
+    server = create_mcp_server(search=lambda query: [hit])
+
+    async def exercise() -> None:
+        async with Client(server) as client:
+            response = await client.call_tool("search_notes", {"query": "deployment"})
+        assert not response.is_error
+        assert response.structured_content["results"] == [{
+            "text": "Deployment is on Friday.", "source": "project/release.md",
+            "chunk_id": 42, "start_line": 12, "end_line": 14,
+            "ranking": {"final_rank": 1, "rrf_rank": 3, "rerank_rank": 1,
+                        "vector_rank": 2, "vector_score": 0.8, "bm25_rank": 4,
+                        "bm25_score": 1.3, "fusion_score": 0.03,
+                        "reranker_score": 0.9},
+        }]
+    anyio.run(exercise)
+
+
+def test_search_respects_upstream_fusion_limit(monkeypatch):
+    from types import SimpleNamespace
+    import faiss
+    import numpy as np
+    from rag_notes_helper.rag.retrieval import retrieve
+
+    records = [candidate(i) | {"doc_id": str(i)} for i in range(4)]
+    index = faiss.IndexFlatIP(2)
+    index.add(np.array([[1.0, 0.0], [0.9, 0.0], [0.8, 0.0], [0.7, 0.0]], dtype="float32"))
+    rag = SimpleNamespace(index=index, embed_model=SimpleNamespace(
+        encode=lambda *args, **kwargs: np.array([[1.0, 0.0]], dtype="float32")))
+    metadata = SimpleNamespace(get=lambda i: records[i])
+    encoder = SimpleNamespace(predict=lambda pairs: [1.0] * len(pairs))
+    monkeypatch.setattr("rag_notes_helper.rag.retrieval.get_settings", lambda: SimpleNamespace(
+        vector_top_k=4, bm25_top_k=4, fusion_top_k=2, min_retrieval_score=0.0,
+        bm25_min_score_ratio=0.0, llm=SimpleNamespace(max_chunks=1)))
+    server = create_mcp_server(search=lambda query: retrieve(rag, metadata, query=query, cross_encoder=encoder))
+
+    async def exercise() -> None:
+        async with Client(server) as client:
+            response = await client.call_tool("search_notes", {"query": "Evidence", "top_k": 4})
+        assert not response.is_error
+        assert response.structured_content["top_k"] == 4
+        assert len(response.structured_content["results"]) == 2
+    anyio.run(exercise)
