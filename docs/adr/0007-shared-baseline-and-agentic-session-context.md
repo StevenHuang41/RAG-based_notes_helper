@@ -2,6 +2,8 @@
 
 Status: Accepted
 
+Amended by [ADR-0008](0008-two-phase-agentic-evidence-recovery.md) for Agentic pre-generation evidence recovery, empty-pool handling, final context selection, and removal of post-generation Retrieval reopening. Classic and the remaining isolation and configuration constraints are retained. The local implementation has migrated; conflicting decisions below describe historical behavior.
+
 ## Context
 
 Classic and Agentic RAG are compared using the same local note corpus and

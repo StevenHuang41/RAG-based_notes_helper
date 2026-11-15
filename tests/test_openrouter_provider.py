@@ -206,6 +206,7 @@ def test_classic_and_agentic_answers_use_openrouter_factory(monkeypatch):
     }
     responses = iter([
         "Classic answer",
+        '{"coverage":"sufficient_evidence","missing_information":[]}',
         "Agentic answer",
         '{"action":"accept"}',
     ])
@@ -242,6 +243,7 @@ def test_classic_and_agentic_answers_use_openrouter_factory(monkeypatch):
         for options in client_options
     )
     assert [request["model"] for request in requests] == [
+        "anthropic/claude-test",
         "anthropic/claude-test",
         "anthropic/claude-test",
         "anthropic/claude-test",

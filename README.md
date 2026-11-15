@@ -79,7 +79,7 @@ This project keeps knowledge external and inspectable. Notes are chunked, embedd
 - Grounds answers in retrieved context.
 - Offers an opt-in Agentic RAG workflow with independently configurable Search and evidence-reviewed Answer attempt limits (defaults: three each; allowed range: one through five).
 - Supports optional citation output for source visibility.
-- Supports streaming responses in REPL mode.
+- Supports streaming responses in one-shot and REPL modes when `STREAM=true`.
 
 ### CLI workflow
 
@@ -130,7 +130,7 @@ User query -> workflow selection
           v                v
 Classic RAG          Agentic RAG
 one retrieval        bounded LangGraph StateGraph
-          |          search / generate / review / clarify / abstain
+          |          search + pool review -> select -> generate + answer review
           +-------+--------+
                   |
                   v
@@ -166,11 +166,13 @@ one retrieval        bounded LangGraph StateGraph
 
 6. **Workflow selection and answer generation**
    - Classic RAG sends one retrieval result to answer generation.
-   - Agentic RAG uses a LangGraph StateGraph to ask the configured LLM for Pydantic-validated JSON actions after inspecting retrieved chunks and filtering diagnostics. The initial search uses the original question and configured starting thresholds. A later search supplies a nonblank rewritten query, validated Vector and query-relative BM25 thresholds, and a `replace` or `extend` evidence mode. It may adapt thresholds but cannot change configured top-k values, the RRF constant, models, or generation limits.
-   - Each Agentic query has independent configurable total-attempt limits for Retrieval searches and Answer generations. Both defaults are three, allowed values range from one through five, and each limit includes the initial attempt. Controller calls and validation retries do not consume either budget. A Search requested during answer review requires both a Search attempt and a later Answer attempt to remain. `replace` starts a new active candidate pool; `extend` deduplicates old and new fused candidates before reranking the combined pool against the original question. Every executed Search and its thresholds remain available for audit.
-   - Agentic RAG buffers each candidate answer and asks the controller to accept it, request a focused revision, reopen Retrieval, ask the user to clarify, or abstain based on selected evidence and remaining budgets. A candidate rejected at the configured Answer limit returns deterministic `answer_attempts_exhausted` text without exposing the candidate. Agentic mode therefore does not stream unreviewed candidate text, while Classic streaming remains available.
-   - Every query returns a structured non-empty outcome. Stable reason codes distinguish `invalid_query`, `needs_clarification`, `no_evidence_after_searches`, `insufficient_evidence`, `answer_attempts_exhausted`, `controller_failure`, and `retrieval_failure`; response-origin and workflow-error fields distinguish deterministic degraded responses from normal bounded results.
-   - Classic RAG returns deterministic insufficient-evidence text without Answer generation when its single Retrieval search returns no chunks. Agentic RAG may use remaining capacity for a safe rewritten search, or ask for clarification when no safe rewrite exists; it abstains when bounded recovery cannot find sufficient evidence.
+   - Agentic RAG uses a LangGraph StateGraph with two phases: bounded evidence recovery, then generation and same-context Answer review. Each Search appends original chunks to a pool deduplicated by source/chunk identity, preserving first-seen order and all Search provenance. The controller judges the full pool against the original question as zero, partial, or sufficient evidence; no separate round coverage state is maintained.
+   - The first Search uses the original question and configured thresholds. For zero/partial evidence, later searches may rewrite the query and adjust Vector/BM25 thresholds within `[0, 1]`, while configured top-k, models, and generation limits remain unchanged. Normal Retrieval stops at sufficient evidence or the Search cap. Coverage and stop reason are separate: exhausted searches do not prove corpus absence.
+   - Search and Answer total-attempt limits are independently configurable, defaulting to three each with an allowed range of one through five. Each includes the first attempt. Controller validation retries consume neither budget. Answer review cannot reopen Retrieval or expand its selected context.
+   - Once Retrieval finishes, pools larger than `LLM_MAX_CHUNKS` are reranked against the original question and reduced to top-k. Smaller pools retain first-seen order without final reranking. A sufficient pool can lose necessary evidence during selection, so Answer review uses the exact context actually supplied to generation.
+   - A non-empty selected pool reaches generation even when evidence is irrelevant. Accepted answers can be full, partial with explicit gaps, or abstentions. Unsupported claims or undisclosed gaps trigger revisions with the same context. Candidates remain buffered until accepted; revision exhaustion, empty generation, or failed review returns a fixed warning without exposing a rejected candidate. With `STREAM=true`, the CLI displays the accepted Agentic answer in chunks after review; Classic streams during generation.
+   - When the accumulated pool is empty, an intelligibility check can request rephrasing of an unintelligible original question. An intelligible question can continue recovery; a final empty pool returns deterministic search-limitation text without Answer generation. A later empty Search does not erase earlier chunks or trigger that check when the pool is non-empty.
+   - Invalid Retrieval decisions receive one validation retry. Persistent invalidity, provider failure, or insufficient reviewer context budget records degradation and uses the available pool for final selection; unknown coverage is not treated as zero evidence. User-facing warnings avoid internal failure codes, while evaluation retains sanitized causes.
    - Retrieved chunks are inserted into the LLM prompt as context.
    - The answer can include source citations.
    - REPL mode keeps the loaded index available for faster repeated queries.
@@ -191,9 +193,9 @@ Each run writes `README.md`, `results.json`, and `run.log` under a local-time, T
 
 The evaluation corpus and QA set are a fixed regression set, not a statistically representative benchmark. A small sample can omit categories; inspect the selected case IDs and category counts in the report. Evaluation logs use case IDs and do not include query or note text. Results keep deterministic answerability, reason-code, response-origin, workflow-error, Retrieval evidence, and line-grounded Recall/Precision/NDCG checks separate from model-based RAGAS diagnostics.
 
-Answer Relevancy and Answer Correctness run for every non-empty normal or degraded response, including abstentions and clarifications; Answer Correctness uses the reviewed Reference answer. Faithfulness and Context Utilization additionally require a non-empty exact Final generation context. When that context is absent, their scores remain unavailable with an explicit reason rather than becoming a synthetic zero or high score. Workflow-error cases retain per-case diagnostics but are excluded from normal semantic-response means. RAGAS scores are provider-dependent observations, not pass/fail guarantees.
+Accepted generated full answers, partial answers, and abstentions enter per-metric Ragas applicability checks, including accepted answers after degraded Retrieval review. Deterministic empty-pool/rephrasing/warning outcomes and rejected candidates do not enter accepted-final-answer means. Answer Correctness requires the reviewed Reference answer; Faithfulness and Context Utilization additionally require the exact Final generation context. Each metric records `scored`, `unavailable`, or `failed` with applicable/scored counts and reasons. RAGAS scores are provider-dependent observations, not pass/fail guarantees.
 
-The report distinguishes artifact process status from workflow outcome. A successfully written run containing query-level failures is `completed` with workflow outcome `completed_with_errors`; it reports the workflow-error count and reliability over selected cases. Per-query Search registries show each query and effective Vector/BM25 thresholds, stage records retain every executed search even after later failure or replacement, and Final context evidence metrics use only the exact context sent to the final Answer generation call. Token counts are provider-reported; unavailable values remain marked unavailable, while character counts are recorded separately.
+The report distinguishes artifact process status from workflow outcome. A successfully written run containing query-level failures or degradation is `completed` with workflow outcome `completed_with_errors`; it reports failure/degradation counts and reliability independently of answer quality. Agentic query details compare accumulated and selected pools in two metadata-only tables, even when final reranking is skipped, then show actual generation context separately. Per-query Search registries retain effective thresholds and every executed Search. Final context evidence metrics use only the exact context sent to generation. Real Retrieval review, final pool rerank, Answer review, and judge costs remain distinguishable. Token counts are provider-reported; unavailable values remain unavailable, while character counts are recorded separately.
 
 The QA set covers direct lookup, multi-hop integration, unanswerable questions, and ambiguous questions. Evaluation always uses this reviewed evaluation corpus and isolated synthetic index; it never evaluates a user's `data/` directory or persistent `storage/` snapshot. If the corpus changes, review and update any affected line-anchored QA evidence in the same change; validation rejects stale evidence rather than rewriting it automatically.
 
@@ -328,7 +330,7 @@ uv run rag-app --repl --agentic
 uv run rag-app --repl --agentic "What changed before launch?"
 ```
 
-Each query starts with fresh Agentic state and performs a new Retrieval. The Agentic REPL keeps up to five recent user/assistant turns in memory for resolving intent; prompts label them as conversational context, never evidence. This history is cleared when the REPL exits. One-shot queries and evaluation cases start with empty history. Agentic answers are buffered until evidence review accepts them, even when REPL streaming is enabled.
+Each query starts with fresh Agentic state and performs a new Retrieval. The Agentic REPL keeps up to five recent user/assistant turns in memory for resolving intent; prompts label them as conversational context, never evidence. This history is cleared when the REPL exits. One-shot queries and evaluation cases start with empty history. Agentic candidates stay buffered until evidence review accepts them; with `STREAM=true`, the CLI then displays the accepted answer in chunks. Set `STREAM=false` to display it all at once.
 
 ### Remote MCP search
 
@@ -501,6 +503,8 @@ Common settings:
 `TOP_K` remains accepted as a legacy alias for `FUSION_TOP_K`, and `MIN_RETRIEVAL_SCORE` remains accepted as a legacy alias for `VECTOR_MIN_SCORE`. Existing local configuration therefore continues to work while new configuration uses the stage-specific names.
 
 Set `LLM_CONTEXT_WINDOW_TOKENS` to the selected model's total context capacity. The application estimates prompt size conservatively from the fully serialized messages, trims the oldest complete REPL turns until they fit, and reserves `LLM_MAX_TOKENS` for the model response. The estimate avoids adding a provider-specific tokenizer dependency, so the configured context value should match the model's advertised capacity.
+
+Agentic pool storage is separate from this model-input budget. A complete pool that cannot fit Retrieval review causes explicit `review_context_budget_exceeded` degradation; the stored pool is retained for final selection. Generation can fit fewer whole chunks than `LLM_MAX_CHUNKS` under its prompt budget, and subsequent revisions keep that exact context. Compare the selected-pool table with actual generation context when inspecting evidence coverage.
 
 ---
 

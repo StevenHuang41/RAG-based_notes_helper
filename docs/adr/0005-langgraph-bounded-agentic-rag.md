@@ -2,6 +2,8 @@
 
 Status: Accepted
 
+Amended by [ADR-0008](0008-two-phase-agentic-evidence-recovery.md) for pre-generation evidence recovery, empty-pool handling, context selection, and same-context Answer review. The local implementation has migrated; conflicting decisions below describe historical behavior.
+
 ADR-0001 kept the first Agentic RAG implementation framework-light until graph orchestration became useful; the hybrid retrieval, answer-generation, and answer-review transitions now justify LangGraph's explicit state graph. Use a reusable compiled `StateGraph` for Agentic RAG while retaining Pydantic action validation, one validation retry for malformed controller output, read-only note search, answers restricted to evidence retrieved in the current query, and abstention when evidence is insufficient.
 
 Use the shared original-query Search and ranking baseline. If the initial ranked candidate pool is non-empty, send the first Generation top-k directly to Answer generation; do not run a controller evidence-sufficiency gate before it. If the initial candidate pool is empty, return a deterministic `no_retrieval_results` outcome without a controller or Answer call. Empty Retrieval is not evidence of query ambiguity or corpus absence. Buffer every Agentic candidate until the controller reviews it against the exact ordered Generation context and accepts it.

@@ -1,7 +1,8 @@
 import argparse
 import importlib
+import re
 import sys
-from time import perf_counter
+from time import perf_counter, sleep
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, Literal
@@ -250,6 +251,37 @@ def display_ansewr(answer):
         print(answer)
 
 
+def _answer_for_display(result: dict[str, Any], *, stream: bool, agentic: bool):
+    answer = result["answer"]
+    if (
+        stream
+        and agentic
+        and result.get("review_passed") is True
+        and isinstance(answer, str)
+    ):
+        # Agentic candidates stay buffered until review accepts them. Pace the
+        # accepted text so terminal output visibly arrives in chunks.
+        words = re.findall(r"\S+\s*", answer)
+        chunks = []
+        pending = ""
+        for word in words:
+            pending += word
+            if len(pending) >= 24:
+                chunks.append(pending)
+                pending = ""
+        if pending:
+            chunks.append(pending)
+
+        def stream_chunks():
+            for index, chunk in enumerate(chunks):
+                if index:
+                    sleep(0.03)
+                yield chunk
+
+        return stream_chunks()
+    return answer
+
+
 def run_onetime(
     rag: RagIndex,
     meta_store: MetaStore,
@@ -257,17 +289,21 @@ def run_onetime(
     query: str,
     citations: bool = False,
     agentic: bool = False,
+    stream: bool | None = None,
 ) -> None:
+    if stream is None:
+        stream = get_settings().stream
     logger.info((f"query: {query[:20]}{' ...' if len(query) > 20 else ''}"))
     result = run_query(
         rag,
         meta_store,
         query=query,
         agentic=agentic,
+        stream=stream,
         on_progress_event=_render_agentic_progress if agentic else None,
     )
 
-    display_ansewr(result["answer"])
+    display_ansewr(_answer_for_display(result, stream=stream, agentic=agentic))
 
     if citations and result["citations"]:
         show_citations(result)
@@ -514,7 +550,9 @@ def repl(
                 print()
                 continue
 
-            display_ansewr(result["answer"])
+            display_ansewr(_answer_for_display(
+                result, stream=stream_response, agentic=agentic
+            ))
 
             if agentic:
                 conversation_history.append((query, str(result["answer"])))

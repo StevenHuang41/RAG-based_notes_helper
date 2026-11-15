@@ -74,6 +74,8 @@ def _call_label(call: dict[str, Any], call_number: int) -> str:
         label = f"Controller call {call_number}"
         if call.get("phase") == "retrieval_review" and call.get("search_index"):
             return f"{label} (Search {call['search_index']})"
+        if call.get("phase") == "intelligibility" and call.get("search_index"):
+            return f"{label} (Intelligibility, Search {call['search_index']})"
         if call.get("phase") == "answer_review" and call.get("answer_attempt"):
             return f"{label} (Answer review {call['answer_attempt']})"
         return label
@@ -134,6 +136,8 @@ def _execution_rows(case: dict[str, Any]) -> list[list[Any]]:
 
 def _latency_value(case: dict[str, Any], stage_name: str) -> float | None:
     raw_value = (case.get("latency", {}) or {}).get(stage_name)
+    if stage_name == "final_pool_rerank_ms" and raw_value is None:
+        raw_value = (case.get("final_selection", {}) or {}).get("latency_ms")
     try:
         value = float(raw_value)
     except (TypeError, ValueError):
@@ -182,7 +186,7 @@ def _overall_latency_rows(
     ragas = _latency_statistics(cases, "judge_ms")
     query_stage_names = ["retrieval_ms"]
     if workflow == "agentic":
-        query_stage_names.append("controller_ms")
+        query_stage_names.extend(["controller_ms", "final_pool_rerank_ms"])
     query_stage_names.append("answer_generation_ms")
 
     rag_query_values = []
@@ -196,14 +200,17 @@ def _overall_latency_rows(
         total_values.append(rag_query_value + (judge_value or 0.0))
     rag_query = _latency_statistics_from_values(rag_query_values)
     total = _latency_statistics_from_values(total_values)
-    return [
-        ["Retrieval", *retrieval],
+    rows = [["Retrieval", *retrieval]]
+    if workflow == "agentic":
+        rows.append(["Final pool rerank", *_latency_statistics(cases, "final_pool_rerank_ms")])
+    rows.extend([
         ["Controller", *controller],
         ["Generation", *generation],
         ["RAG query", *rag_query],
         ["Ragas", *ragas],
         ["Total", *total],
-    ]
+    ])
+    return rows
 
 
 def _candidate_index(
@@ -463,6 +470,46 @@ def _render_expected_evidence(case: dict[str, Any]) -> list[str]:
     ]
 
 
+def _render_pool_selection(case: dict[str, Any]) -> list[str]:
+    selection = case.get("final_selection", {}) or {}
+    lines: list[str] = []
+    headers = [
+        "Order", "Chunk ID", "Source path", "Lines", "Search",
+        "Retrieval score", "Final rerank score", "Evidence lines",
+    ]
+    for field, heading in (
+        ("chunks_pool", "Accumulated chunks pool"),
+        ("selected_pool", "Selected chunks pool"),
+    ):
+        lines.extend([f"#### {heading}", ""])
+        if field == "selected_pool":
+            performed = selection.get("rerank_performed")
+            if performed is False:
+                lines.extend(["Skipped: pool size <= LLM_MAX_CHUNKS. Original pool order retained.", ""])
+            elif performed is True:
+                lines.extend(["Final rerank uses the original question; only the selected top-k is shown.", ""])
+        rows = []
+        for order, hit in enumerate(case.get(field, []) or [], start=1):
+            searches = list(dict.fromkeys(
+                str(item["search_id"])
+                for item in hit.get("search_provenance", []) or []
+                if item.get("search_id") is not None
+            ))
+            rows.append([
+                order, hit.get("chunk_id"), hit.get("source"),
+                f"{hit.get('start_line', '—')}–{hit.get('end_line', '—')}",
+                ", ".join(searches) or None,
+                hit.get("score"),
+                hit.get("reranker_score") if field == "selected_pool" and selection.get("rerank_performed") else None,
+                _evidence_lines(hit, case),
+            ])
+        lines.extend(_table(headers, rows))
+        if not rows:
+            lines.append("No chunks were selected or accumulated." if field in case else "Pool snapshot was not recorded.")
+        lines.append("")
+    return lines
+
+
 def _render_generation_context(case: dict[str, Any]) -> list[str]:
     candidates = _candidate_index(case)
     rows = []
@@ -495,27 +542,34 @@ def _render_generation_context(case: dict[str, Any]) -> list[str]:
 
 
 def _render_ragas_diagnostics(case: dict[str, Any]) -> list[str]:
-    return [
-        "",
-        "**Ragas diagnostics**",
-        "",
-        *_table(
-            ["Metric", "Score", "Applicability"],
-            [
-                [
-                    label,
-                    (case.get(source, {}) or {}).get(metric),
-                    (case.get("metric_reasons", {}) or {}).get(metric)
-                    or (
-                        "Scored."
-                        if (case.get(source, {}) or {}).get(metric) is not None
-                        else "Unavailable."
-                    ),
-                ]
-                for label, metric, source in RAGAS_METRICS
-            ],
-        ),
-    ]
+    statuses = case.get("judge_metrics", {}) or {}
+    show_status = any("status" in item for item in statuses.values() if isinstance(item, dict))
+    rows = []
+    for label, metric, source in RAGAS_METRICS:
+        score = (case.get(source, {}) or {}).get(metric)
+        metric_details = statuses.get(metric, {}) or {}
+        reason = metric_details.get("reason") or (case.get("metric_reasons", {}) or {}).get(metric)
+        row = [label, score]
+        if show_status:
+            row.append(metric_details.get("status") or ("scored" if score is not None else "unavailable"))
+        row.append(reason or ("Scored." if score is not None else "Unavailable."))
+        rows.append(row)
+    headers = ["Metric", "Score"]
+    if show_status:
+        headers.append("Status")
+    headers.append("Applicability")
+    return ["", "**Ragas diagnostics**", "", *_table(headers, rows)]
+
+
+def _render_metric_counts(summary: dict[str, Any], *, heading: str) -> list[str]:
+    counts = summary.get("ragas_metric_status_counts", {}) or {}
+    if not counts:
+        return []
+    rows = []
+    for label, metric, _ in RAGAS_METRICS:
+        item = counts.get(metric, {}) or {}
+        rows.append([label, *[item.get(key, 0) for key in ("eligible", "scored", "unavailable", "failed")]])
+    return ["", heading, "", *_table(["Metric", "Eligible", "Scored", "Unavailable", "Failed"], rows)]
 
 
 def _render_workflow_outcome(case: dict[str, Any]) -> list[str]:
@@ -535,6 +589,17 @@ def _render_workflow_outcome(case: dict[str, Any]) -> list[str]:
                 ],
                 ["Search attempts", case.get("search_attempts")],
                 ["Answer attempts", case.get("answer_attempts")],
+                ["Assessed question", (case.get("retrieval_coverage", {}) or {}).get("assessed_question")],
+                ["Pool coverage", (case.get("retrieval_coverage", {}) or {}).get("coverage")],
+                ["Missing information", (case.get("retrieval_coverage", {}) or {}).get("missing_information")],
+                ["Retrieval stop reason", case.get("retrieval_stop_reason")],
+                ["Workflow degraded", case.get("workflow_degraded")],
+                ["Retrieval degradation", case.get("retrieval_degradation")],
+                ["Answer coverage", case.get("answer_coverage")],
+                ["Review passed", case.get("review_passed")],
+                ["Answer missing information", case.get("answer_missing_information")],
+                ["Failure category", case.get("failure_category")],
+
             ],
         ),
         "",
@@ -619,18 +684,6 @@ def _render_agentic_query_details(
     lines.extend(_render_workflow_outcome(case))
     latency = case.get("latency", {}) or {}
     generation_calls = (case.get("generation_usage", {}) or {}).get("calls", [])
-    retrieval_controller_calls = [
-        call for call in generation_calls
-        if call.get("call_type") == "controller"
-        and call.get("phase") in {None, "retrieval_review"}
-    ]
-    controller_by_search: dict[Any, list[Any]] = {}
-    for index, call in enumerate(retrieval_controller_calls, start=1):
-        search_index = call.get("search_index", index)
-        controller_by_search.setdefault(search_index, []).append(
-            call.get("latency_ms")
-        )
-
     lines.extend(["", "#### Latency", "", "**Search**", ""])
     per_search_rows: list[list[Any]] = []
     for search in _retrieval_searches(case):
@@ -643,17 +696,13 @@ def _render_agentic_query_details(
                     label,
                     stage.get("latency_ms"),
                 ])
-        controller_values = controller_by_search.get(search_id, [])
-        per_search_rows.append([
-            f"Search {search_id}",
-            "Controller",
-            (
-                math.fsum(controller_values)
-                if controller_values
-                and all(value is not None for value in controller_values)
-                else None
-            ),
-        ])
+        for call in generation_calls:
+            if call.get("call_type") != "controller" or call.get("search_index") != search_id:
+                continue
+            phase = call.get("phase")
+            label = {"retrieval_review": "Retrieval review", "intelligibility": "Intelligibility check"}.get(phase)
+            if label is not None:
+                per_search_rows.append([f"Search {search_id}", label, call.get("latency_ms")])
     lines.extend(_table(["Search", "Stage", "Measured latency (ms)"], per_search_rows))
 
     answer_rows = []
@@ -689,6 +738,7 @@ def _render_agentic_query_details(
             ["BM25 search", stage_latency.get("bm25")],
             ["Fusion", stage_latency.get("rrf")],
             ["Reranking", stage_latency.get("reranked")],
+            ["Final pool rerank", (case.get("final_selection", {}) or {}).get("latency_ms")],
             ["Controller", latency.get("controller_ms")],
             ["Answer generation", latency.get("answer_generation_ms")],
             ["Complete query", latency.get("rag_query_ms")],
@@ -699,6 +749,7 @@ def _render_agentic_query_details(
     lines.extend(_render_search_queries(case))
     for stage_name, _, heading in _RETRIEVAL_STAGE_LABELS:
         lines.extend(_render_retrieval_stage(case, stage_name=stage_name, heading=heading))
+    lines.extend(_render_pool_selection(case))
     lines.extend(_render_generation_context(case))
     lines.extend(_render_execution_audit(case))
     return lines
@@ -727,10 +778,11 @@ def _render_workflow_outcome_summary(
     outcome_counts = workflow_summary.get("outcome_counts", {}) or {}
     bounded_outcomes = outcome_counts.get("bounded_outcomes", {}) or {}
     errors = outcome_counts.get("workflow_errors", {}) or {}
+    degradations = outcome_counts.get("workflow_degradations", {}) or {}
     insufficient_by_origin = (
         outcome_counts.get("insufficient_evidence_by_origin", {}) or {}
     )
-    if not bounded_outcomes and not errors and not insufficient_by_origin:
+    if not bounded_outcomes and not errors and not insufficient_by_origin and not degradations:
         return []
 
     rows = []
@@ -747,6 +799,8 @@ def _render_workflow_outcome_summary(
         ])
     for reason, count in sorted(errors.items()):
         rows.append(["Workflow error", reason, "—", count])
+    for cause, count in sorted(degradations.items()):
+        rows.append(["Workflow degradation", cause, "—", count])
 
     return [
         "",
@@ -774,7 +828,7 @@ def _readme_report(results: dict[str, Any]) -> str:
         if isinstance(reliability_ratio, (int, float))
         else "unavailable"
     )
-    lines = ["# RAG Evaluation Report", "", f"- **Status:** `{results.get('run_status', 'failed' if results.get('error') else 'completed')}`", f"- **Workflow outcome:** `{results.get('workflow_outcome', 'unavailable')}`", f"- **Workflow errors:** `{results.get('workflow_error_count', 0)}`", f"- **Workflow reliability:** `{reliability_text}`", f"- **Workflow:** `{workflow}`", f"- **Run timestamp (Asia/Taipei):** `{metadata.get('timestamp_local', 'unknown')}`", "- **Artifacts:** [results.json](results.json) · [run.log](run.log)", "", "## Configuration", ""]
+    lines = ["# RAG Evaluation Report", "", f"- **Status:** `{results.get('run_status', 'failed' if results.get('error') else 'completed')}`", f"- **Workflow outcome:** `{results.get('workflow_outcome', 'unavailable')}`", f"- **Workflow errors:** `{results.get('workflow_error_count', 0)}`", f"- **Workflow degraded:** `{results.get('workflow_degraded_count', 0)}`", f"- **Workflow reliability:** `{reliability_text}`", f"- **Workflow:** `{workflow}`", f"- **Run timestamp (Asia/Taipei):** `{metadata.get('timestamp_local', 'unknown')}`", "- **Artifacts:** [results.json](results.json) · [run.log](run.log)", "", "## Configuration", ""]
     lines.extend(_table(["Setting", "Value"], [[label, value] for label, value in (
         ("Answer provider", metadata.get("answer_provider")), ("Answer model", metadata.get("answer_model")),
         ("Judge provider", metadata.get("judge_provider")), ("Judge model", metadata.get("judge_model")),
@@ -793,6 +847,7 @@ def _readme_report(results: dict[str, Any]) -> str:
     lines.extend(_table(["Metric", "Score"], [[label, (workflow_summary.get("final_context_metrics", {}) or {}).get(name)] for label, name in (("Recall", "recall"), ("Precision", "precision"), ("NDCG", "ndcg"))]))
     lines.extend(["", "### Ragas diagnostics", ""])
     lines.extend(_table(["Metric", "Score"], [[label, (workflow_summary.get(source, {}) or {}).get(metric)] for label, metric, source in RAGAS_METRICS]))
+    lines.extend(_render_metric_counts(workflow_summary, heading="### Ragas applicability counts"))
     lines.extend(["", "### Latency", ""])
     cases = [
         case
@@ -813,7 +868,9 @@ def _readme_report(results: dict[str, Any]) -> str:
         final = metrics.get("final_context_metrics", {}) or {}
         category_rows.append([category, metrics.get("case_count"), final.get("recall"), final.get("precision"), final.get("ndcg"), *[(metrics.get(source, {}) or {}).get(metric) for _, metric, source in RAGAS_METRICS], (metrics.get("latency_ms", {}) or {}).get("end_to_end_ms")])
     lines.extend(_table(["Category", "Cases", "Recall", "Precision", "NDCG", "Faithfulness", "Answer Relevancy", "Answer Correctness", "Context Utilization", "Mean evaluation latency (ms)"], category_rows))
-    lines.extend(["", "## Evaluation process and metric guide", "", "1. **Final context evidence metrics** are line-grounded Recall, Precision, and Context-order NDCG for the complete ordered Answer generation context. Overall and category values average each completed query's final Context prefix row.", "2. Retrieved chunks are audit candidates. Retrieval top-k is the maximum candidates for one search; it does not mean every candidate reached answer generation.", "3. **Search ID** is the sequential Retrieval search number. Search ranks are local to their Search ID.", "4. **Faithfulness** checks whether the answer is supported by the final Answer generation context. **Answer Relevancy** checks whether the answer addresses the question. **Answer Correctness** checks the answer against the expected answer. **Context Utilization** checks whether the final Answer generation context is useful for the answer. A dash means the score was unavailable.", "5. Overall latency totals sum measured durations across cases; per-stage averages use cases with a measurement. In each query detail, Latency contains only RAG workflow stages, while the Execution audit contains token-consuming controller, answer, and Ragas judge calls plus their category totals. Token totals use a provider-reported total when present; otherwise they are the exact reported input-plus-output sum, or a dash when neither is available.", "6. Agentic RAG permits at most three Search attempts and three Answer generation attempts, each including its initial attempt. Every candidate answer is reviewed against the selected evidence before it is returned.", "", "## Query details", ""])
+    for category, metrics in sorted((workflow_summary.get("by_category", {}) or {}).items()):
+        lines.extend(_render_metric_counts(metrics, heading=f"### Ragas applicability: {_markdown_cell(category)}"))
+    lines.extend(["", "## Evaluation process and metric guide", "", "1. **Final context evidence metrics** are line-grounded Recall, Precision, and Context-order NDCG for the complete ordered Answer generation context. Overall and category values average each completed query's final Context prefix row.", "2. Retrieved chunks are audit candidates. Retrieval top-k is the maximum candidates for one search; it does not mean every candidate reached answer generation.", "3. **Search ID** is the sequential Retrieval search number. Search ranks are local to their Search ID.", "4. **Faithfulness** checks whether the answer is supported by the final Answer generation context. **Answer Relevancy** checks whether the answer addresses the question. **Answer Correctness** checks the answer against the expected answer. **Context Utilization** checks whether the final Answer generation context is useful for the answer. A dash means the score was unavailable.", "5. Overall latency totals sum measured durations across cases; per-stage averages use cases with a measurement. In each query detail, Latency contains only RAG workflow stages, while the Execution audit contains token-consuming controller, answer, and Ragas judge calls plus their category totals. Token totals use a provider-reported total when present; otherwise they are the exact reported input-plus-output sum, or a dash when neither is available.", "6. Agentic RAG completes bounded evidence recovery before generation. Search and Answer attempt limits are independently configured and include each initial attempt. Pool coverage describes the accumulated evidence, not a guarantee that final top-k selection retains every necessary fact. Only reviewed candidates are returned as generated answers; fixed warnings and empty-pool responses are separate outcomes.", "", "## Query details", ""])
     report_cases = []
     for case in results.get("cases", []):
         if "workflow" not in case and workflow == "agentic":

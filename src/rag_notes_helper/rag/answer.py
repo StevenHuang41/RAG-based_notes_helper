@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from collections.abc import Callable, Sequence
 from time import perf_counter
 from typing import Any
@@ -8,6 +9,7 @@ from rag_notes_helper.rag.llm.base import make_generation_usage_record
 from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.rag.prompt_context import (
     ConversationTurn,
+    estimate_prompt_tokens,
     fit_conversation_history,
     serialize_conversation_history,
 )
@@ -41,6 +43,27 @@ GROUNDING:
 """.strip()
 
 
+AGENTIC_SYSTEM_PROMPT = SYSTEM_PROMPT.replace(
+    "- If the answer is missing, answer only: I cannot find the answers in the notes.",
+    "- Answer every supported portion of the question and explicitly identify any "
+    "missing information. Do not invent facts to fill gaps. If no portion can be "
+    "supported, answer only: I cannot find the answers in the notes.",
+)
+
+
+class AnswerContextBudgetError(ValueError):
+    """The exact Answer context cannot fit the configured prompt budget."""
+
+
+class AnswerGenerationError(RuntimeError):
+    """Retain evidence audit metadata when an Agentic provider call fails."""
+
+    def __init__(self, generation_context: list[dict[str, Any]], error_type: str) -> None:
+        super().__init__("The Answer provider call failed.")
+        self.generation_context = deepcopy(generation_context)
+        self.provider_error_type = error_type
+
+
 @deco_time_block
 def rag_answer(
     query: str,
@@ -50,6 +73,8 @@ def rag_answer(
     on_generation: Callable[[dict[str, Any]], None] | None = None,
     revision_feedback: str | None = None,
     conversation_history: Sequence[ConversationTurn] = (),
+    allow_partial: bool = False,
+    fixed_context: bool = False,
 ) -> dict[str, Any]:
 
     if not hits:
@@ -119,7 +144,7 @@ def rag_answer(
         {revision_block}
         """
         return [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": AGENTIC_SYSTEM_PROMPT if allow_partial else SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ]
 
@@ -130,6 +155,15 @@ def rag_answer(
         output_tokens=settings.llm.max_tokens,
     ) if conversation_history else []
     prompt = build_prompt(tuple(fitted_history))
+
+    if allow_partial:
+        while estimate_prompt_tokens(prompt) + settings.llm.max_tokens > settings.llm.context_window_tokens:
+            if fixed_context or len(generation_context) <= 1:
+                raise AnswerContextBudgetError("The Answer generation context exceeds its configured budget.")
+            generation_context.pop()
+            citations.pop()
+            context = "\n\n".join(item["prompt_block"] for item in generation_context)
+            prompt = build_prompt(tuple(fitted_history))
 
     llm = get_llm()
 
@@ -145,7 +179,7 @@ def rag_answer(
                 prompt,
                 line_width=settings.line_width,
             )
-        except Exception:
+        except Exception as exc:
             if on_generation is not None:
                 on_generation(
                     make_generation_usage_record(
@@ -159,6 +193,8 @@ def rag_answer(
                         ),
                     )
                 )
+            if allow_partial:
+                raise AnswerGenerationError(generation_context, type(exc).__name__) from exc
             raise
         generation_latency_ms = round(
             (perf_counter() - generation_started) * 1000,

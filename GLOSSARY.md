@@ -17,7 +17,7 @@ Recent user and assistant turns that help interpret follow-up questions. It can 
 _Avoid_: Long-term memory, retrieved evidence
 
 **Evidence-grounded answer**:
-An answer whose factual claims are supported by retrieved note evidence; when evidence is insufficient, the system abstains.
+An answer whose factual claims are supported by retrieved note evidence. It can be a partial answer with explicit evidence gaps, or an abstention when no requested information can be supported.
 _Avoid_: Hallucination-free answer
 
 **Answer attempt**:
@@ -25,10 +25,22 @@ One candidate answer generation followed by an evidence-grounded Answer review.
 _Avoid_: Answer retry
 
 **Answer review**:
-A controller evaluation of a candidate answer's relevance, completeness, and support against the exact Answer generation context. It may accept, request a revision with the same evidence, request additional evidence, ask for clarification, or abstain.
+A controller evaluation of a candidate answer's relevance, completeness relative to available evidence, and factual support against the exact Answer generation context. It may accept full or partial answers with disclosed gaps, accept an abstention, or request a revision using the same context; it does not reopen Retrieval.
 _Avoid_: Ragas judge, answer grading
 
 ## Retrieval
+
+**Evidence coverage**:
+A controller assessment of how well a specified set of retrieved chunks supports a specified question: `zero_evidence`, `partial_evidence`, or `sufficient_evidence`. It is a model judgment, not benchmark ground truth.
+
+**Accumulated chunks pool**:
+The collection of retrieved chunks retained across searches for the current query, with their original text and source provenance. Its overall Evidence coverage is assessed against the original question.
+
+**Overall evidence coverage**:
+The Evidence coverage of the Accumulated chunks pool against the original question.
+
+**Generation-context coverage**:
+The Evidence coverage of the exact ordered chunks supplied to answer generation against the original question. It can differ from Overall evidence coverage when the generation context cannot include all available evidence.
 
 **Note Search Tool**:
 A read-only interface that searches the Allowed note corpus and returns ranked candidate chunks with source metadata for an agent or connected client to examine.
@@ -40,10 +52,7 @@ A read-only external interface that runs Hybrid retrieval over the Allowed note 
 One invocation of the Note Search Tool for a query. A retrieval search can contain separate Search method results and downstream ranking stages.
 
 **Adaptive search**:
-A later Agentic RAG Retrieval search with a validated rewritten query, Vector minimum score, query-relative BM25 minimum-score ratio, and Evidence mode. It consumes one Search attempt only when Retrieval executes.
-
-**Evidence mode**:
-The per-search choice to `replace` the active candidate pool with the new fused candidates or `extend` it with deduplicated prior and new fused candidates before reranking against the original question. All executed Search audits remain available in either mode.
+A later Agentic RAG Retrieval search using a rewritten query and/or adjusted Vector minimum score or query-relative BM25 minimum-score ratio to address gaps in the original question. Its chunks augment the Accumulated chunks pool rather than replace earlier evidence.
 
 **Allowed note corpus**:
 The set of note files approved as evidence sources for runtime retrieval. It is distinct from the Evaluation corpus used by benchmark runs.

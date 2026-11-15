@@ -30,6 +30,7 @@ def test_exhausted_answer_attempts_are_not_judgeable():
     fields = eval_runner._answerability_fields(
         {"answerable": False},
         "Please ask a more specific question.",
+        reason_code="answer_attempts_exhausted",
         forced_abstention=True,
     )
     case = {
@@ -40,8 +41,8 @@ def test_exhausted_answer_attempts_are_not_judgeable():
         "response_origin": "deterministic",
     }
 
-    assert fields["abstained"] is True
-    assert fields["answerability_correct"] is True
+    assert fields["abstained"] is None
+    assert fields["answerability_correct"] is None
     assert eval_runner._ragas_metric_is_eligible(case, "faithfulness") is False
 
 
@@ -80,13 +81,9 @@ class FixtureController:
         if "candidate_answer" in request:
             self.last_output = json.dumps({"action": "accept"})
             return self.last_output
-        evidence = request["evidence"]
         self.last_output = json.dumps({
-            "action": "answer",
-            "evidence": [
-                {"source": hit["source"], "chunk_id": hit["chunk_id"]}
-                for hit in evidence[:1]
-            ],
+            "coverage": "sufficient_evidence",
+            "missing_information": [],
         })
         return self.last_output
 
@@ -106,6 +103,7 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     monkeypatch.setenv("CHUNK_OVERLAP", "50")
     monkeypatch.setenv("AGENTIC_MAX_SEARCH_ATTEMPTS", "2")
     monkeypatch.setenv("AGENTIC_MAX_ANSWER_ATTEMPTS", "4")
+    monkeypatch.setenv("LLM_CONTEXT_WINDOW_TOKENS", "100000")
 
     user_notes = Path(os.environ["NOTES_DIR"])
     user_storage = Path(os.environ["STORAGE_DIR"])
@@ -221,7 +219,7 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert (run_dir / "README.md").is_file()
     assert not (run_dir / "summary.json").exists()
     results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
-    assert results["schema_version"] == 10
+    assert results["schema_version"] == 11
     assert results["run_status"] == "completed"
     assert results["workflow_outcome"] == "completed"
     assert results["workflow_error_count"] == 0
@@ -435,7 +433,7 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     direct_summary = summary["workflows"][workflow]["by_category"]["direct"]
     assert direct_summary["generation_usage"]["token_usage"]["total_tokens"] == (
         sum(case["category"] == "direct" for case in fixture_cases)
-        * (19 if agentic else 12)
+        * (26 if agentic else 12)
     )
     direct_case_count = sum(
         case["category"] == "direct" for case in fixture_cases
@@ -460,12 +458,12 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
         "token_usage"
     ]["total_tokens"] == case_count * 3
     selected_case = results["cases"][0]
-    assert selected_case["generation_usage"]["call_count"] == (2 if agentic else 1)
+    assert selected_case["generation_usage"]["call_count"] == (3 if agentic else 1)
     assert selected_case["generation_usage"]["token_usage"] == {
         "status": "available",
-        "input_tokens": 13 if agentic else 10,
-        "output_tokens": 6 if agentic else 2,
-        "total_tokens": 19 if agentic else 12,
+        "input_tokens": 16 if agentic else 10,
+        "output_tokens": 10 if agentic else 2,
+        "total_tokens": 26 if agentic else 12,
     }
     if agentic:
         assert selected_case["generation_usage"]["character_usage"]["input"] > 0
@@ -490,11 +488,11 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
         "rag_query_ms"
     ]
     assert summary["workflows"][workflow]["generation_usage"]["call_count"] == (
-        len(fixture_cases) * (2 if agentic else 1)
+        len(fixture_cases) * (3 if agentic else 1)
     )
     assert summary["workflows"][workflow]["generation_usage"]["token_usage"][
         "total_tokens"
-    ] == len(fixture_cases) * (19 if agentic else 12)
+    ] == len(fixture_cases) * (26 if agentic else 12)
     assert summary["category_counts"] == {
         category: sum(case["category"] == category for case in fixture_cases)
         for category in ("direct", "multi_hop", "unanswerable", "ambiguous")
@@ -2154,8 +2152,8 @@ def test_run_evaluation_records_agentic_outcomes_and_ragas_applicability(
     records = {record["case_id"]: record for record in results["cases"]}
     workflow_summary = results["summary"]["workflows"]["agentic"]
 
-    assert results["schema_version"] == 10
-    assert results["summary"]["schema_version"] == 3
+    assert results["schema_version"] == 11
+    assert results["summary"]["schema_version"] == 4
 
     assert records["retrieval-empty"]["reason_code"] == "no_retrieval_results"
     assert records["retrieval-empty"]["response_origin"] == "deterministic"
@@ -2259,18 +2257,19 @@ def test_run_evaluation_records_agentic_outcomes_and_ragas_applicability(
             "controller": 1,
         },
         "workflow_errors": {"controller_failure": 1},
+        "workflow_degradations": {},
     }
     assert workflow_summary["answerability_outcomes"]["expected_answerable"] == {
         "case_count": 4,
         "answered_count": 1,
-        "abstained_count": 1,
-        "unavailable_count": 1,
+        "abstained_count": 0,
+        "unavailable_count": 2,
         "retrieval_empty_count": 1,
         "clarification_count": 0,
         "insufficient_evidence_count": 0,
         "answer_attempts_exhausted_count": 1,
         "error_count": 1,
-        "unavailable_or_error_count": 2,
+        "unavailable_or_error_count": 3,
         "correct_behavior_count": 1,
     }
     assert workflow_summary["answerability_outcomes"]["expected_unanswerable"] == {

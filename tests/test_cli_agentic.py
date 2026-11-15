@@ -80,10 +80,78 @@ def test_run_onetime_dispatches_to_agentic_workflow(monkeypatch):
         meta_store="metadata",
         query="Question",
         agentic=True,
+        stream=False,
     )
 
     assert calls == [("Question", "index", "metadata", ())]
     assert displayed == ["Agentic answer."]
+
+
+def test_run_onetime_uses_configured_stream_setting(monkeypatch):
+    answer = {"answer": "Reviewed answer.", "citations": [], "review_passed": True}
+    calls = []
+    displayed = []
+
+    def fake_agentic_answer(query, *, rag, meta_store, stream=False, **kwargs):
+        calls.append(stream)
+        return answer
+
+    settings = type("Settings", (), {"stream": True})()
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    monkeypatch.setattr(cli, "agentic_answer", fake_agentic_answer)
+
+    def capture_display(answer):
+        displayed.append(list(answer) if not isinstance(answer, str) else answer)
+
+    monkeypatch.setattr(cli, "display_ansewr", capture_display)
+
+    cli.run_onetime(rag="index", meta_store="metadata", query="Question", agentic=True)
+
+    assert calls == [True]
+    assert displayed == [["Reviewed answer."]]
+
+
+@pytest.mark.parametrize(
+    ("stream", "agentic", "review_passed", "expected"),
+    [
+        (True, True, True, ["Reviewed answer."]),
+        (True, True, False, "Rejected candidate."),
+        (False, True, True, "Reviewed answer."),
+        (True, False, True, "Classic answer."),
+    ],
+)
+def test_answer_streaming_is_enabled_only_for_reviewed_agentic_answers(
+    stream, agentic, review_passed, expected
+):
+    result = {
+        "answer": "Reviewed answer." if review_passed else "Rejected candidate.",
+        "review_passed": review_passed,
+    }
+    if not agentic:
+        result["answer"] = "Classic answer."
+
+    displayed = cli._answer_for_display(result, stream=stream, agentic=agentic)
+
+    rendered = list(displayed) if not isinstance(displayed, str) else displayed
+    assert rendered == expected
+
+
+def test_reviewed_agentic_stream_has_visible_gaps_between_chunks(monkeypatch):
+    pauses = []
+    monkeypatch.setattr(cli, "sleep", pauses.append, raising=False)
+    result = {
+        "answer": (
+            "This reviewed answer should arrive progressively across multiple "
+            "visible chunks in the terminal."
+        ),
+        "review_passed": True,
+    }
+
+    chunks = list(cli._answer_for_display(result, stream=True, agentic=True))
+
+    assert len(chunks) > 1
+    assert "".join(chunks) == result["answer"]
+    assert pauses == [0.03] * (len(chunks) - 1)
 
 
 def test_classic_and_agentic_share_initial_search_and_answer_generation(
@@ -144,7 +212,9 @@ def test_classic_and_agentic_share_initial_search_and_answer_generation(
         line_width = 80
 
         class LLM:
-            max_chunks = 1
+            max_chunks = 2
+            context_window_tokens = 50000
+            max_tokens = 1024
 
         llm = LLM()
 
@@ -162,8 +232,8 @@ def test_classic_and_agentic_share_initial_search_and_answer_generation(
             if "candidate_answer" in payload:
                 return json.dumps({"action": "accept"})
             return json.dumps({
-                "action": "answer",
-                "evidence": [{"source": hits[0]["source"], "chunk_id": 0}],
+                "coverage": "sufficient_evidence",
+                "missing_information": [],
             })
 
     monkeypatch.setattr(cli, "retrieve", classic_retrieve)
@@ -180,17 +250,19 @@ def test_classic_and_agentic_share_initial_search_and_answer_generation(
     assert retrieval_calls[0][2] == retrieval_calls[1][2] == (None, None, None)
     assert classic["answer"] == agentic["answer"] == "Mina owns the review."
     assert classic["generation_context"] == agentic["generation_context"]
-    assert len(classic["generation_context"]) == 1
+    assert len(classic["generation_context"]) == 2
     assert len(answer_prompts) == 2
-    assert answer_prompts[0] == answer_prompts[1]
-    assert len(controller_prompts) == 1
+    assert answer_prompts[0][-1] == answer_prompts[1][-1]
+    assert len(controller_prompts) == 2
     assert "candidate_answer" in json.loads(
-        controller_prompts[0][-1]["content"]
+        controller_prompts[1][-1]["content"]
     )
 
 
 def test_one_shot_reports_agentic_workflow_error(monkeypatch, capsys):
     class DummySettings:
+        stream = False
+
         def model_dump_json(self):
             return "{}"
 

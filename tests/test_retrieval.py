@@ -542,20 +542,19 @@ def test_classic_and_agentic_workflows_use_the_shared_hybrid_search(monkeypatch)
             request = json.loads(prompt[1]["content"])
             if self.calls == 1:
                 return json.dumps({
-                    "action": "search",
-                    "query": "ownership",
-                    "vector_min_score": 0.5,
-                    "bm25_min_score_ratio": 0.0,
-                    "evidence_mode": "extend",
+                    "coverage": "partial_evidence",
+                    "missing_information": ["ownership"],
+                    "next_search": {
+                        "query": "ownership",
+                        "vector_min_score": 0.5,
+                        "bm25_min_score_ratio": 0.0,
+                    },
                 })
             if "candidate_answer" in request:
                 return json.dumps({"action": "accept"})
             return json.dumps({
-                "action": "answer",
-                "evidence": [
-                    {"source": item["source"], "chunk_id": item["chunk_id"]}
-                    for item in request["evidence"]
-                ],
+                "coverage": "sufficient_evidence",
+                "missing_information": [],
             })
 
     controller = Controller()

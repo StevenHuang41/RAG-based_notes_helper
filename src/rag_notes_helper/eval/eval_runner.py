@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from copy import deepcopy
 from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -598,6 +599,7 @@ def _answerability_fields(
         "no_evidence_after_searches",
         "no_retrieval_results",
         "retrieval_failure",
+        "answer_attempts_exhausted",
     }
     if (
         workflow_error
@@ -613,7 +615,7 @@ def _answerability_fields(
         }
     abstained = (
         forced_abstention
-        or reason_code in {"insufficient_evidence", "answer_attempts_exhausted"}
+        or reason_code == "insufficient_evidence"
         or (
             isinstance(answer, str)
             and answer.strip().casefold() == ABSTENTION_MESSAGE.casefold()
@@ -730,6 +732,8 @@ def _ragas_metric_skip_reason(case: dict[str, Any], metric: str) -> str | None:
     response_origin = case.get("response_origin")
     if case.get("workflow_error"):
         return "Skipped because the workflow did not complete a final answer."
+    if case.get("review_passed") is False:
+        return "Skipped because no accepted Answer candidate remained."
     if reason_code in {"no_retrieval_results", "no_evidence_after_searches"}:
         return "Skipped because Retrieval returned no candidate chunks."
     if reason_code == "needs_clarification":
@@ -1231,6 +1235,14 @@ def _record_case(
         ):
             if key in hit:
                 record[key] = _safe_score(hit.get(key))
+        if isinstance(hit.get("search_provenance"), list):
+            record["search_provenance"] = deepcopy(hit["search_provenance"])
+        coverage = calculate_context_prefix_metrics(
+            expected_evidence=case["expected_evidence"], context_chunks=[record],
+        )
+        if coverage:
+            for key in ("evidence_lines_covered", "ground_truth_line_count", "line_provenance_available"):
+                record[key] = coverage[-1].get(key)
         return record
 
     evidence_records = [evidence_record(hit) for hit in evidence]
@@ -1465,6 +1477,15 @@ def _record_case(
                 retrieval_stages
             ),
             "controller_ms": controller_latency_ms,
+            "retrieval_review_ms": _measured_latency_total([
+                call.get("latency_ms") for call in generation_calls
+                if call.get("phase") in {"retrieval_review", "intelligibility"}
+            ]),
+            "answer_review_ms": _measured_latency_total([
+                call.get("latency_ms") for call in generation_calls
+                if call.get("phase") == "answer_review"
+            ]),
+            "final_pool_rerank_ms": _safe_score((result.get("final_selection") or {}).get("latency_ms")),
             "answer_generation_ms": answer_latency_ms,
             "generation_ms": (
                 answer_latency_ms
@@ -1480,6 +1501,18 @@ def _record_case(
             "end_to_end_ms": rag_query_latency_ms,
         },
     }
+    if workflow == "agentic":
+        for key in ("chunks_pool", "selected_pool"):
+            record[key] = [evidence_record(hit) for hit in result.get(key, [])]
+        for key in (
+            "retrieval_coverage", "retrieval_reviews", "retrieval_stop_reason",
+            "retrieval_degradation", "final_selection", "review_passed",
+            "answer_coverage", "answer_missing_information",
+            "failure_category",
+        ):
+            if key in result:
+                record[key] = deepcopy(result[key])
+        record["workflow_degraded"] = bool(result.get("workflow_degraded"))
     if workflow_error is not None:
         record["workflow_error"] = workflow_error
         if result.get("workflow_error_type") is not None:
@@ -1513,14 +1546,18 @@ def _attach_ragas_scores(
         scored_row_index = case_index
         case_scores = scores[case_index]
         case["generation_metrics"] = {
-            metric: _safe_score(case_scores.get(metric))
+            metric: _safe_score(case_scores.get(metric)) if _ragas_metric_is_eligible(case, metric) else None
             for metric in GENERATION_METRIC_NAMES
         }
         case["retrieval_metrics"].update({
-            metric: _safe_score(case_scores.get(metric))
+            metric: _safe_score(case_scores.get(metric)) if _ragas_metric_is_eligible(case, metric) else None
             for metric in RETRIEVAL_METRIC_NAMES
         })
         metric_reasons = case_scores.get("metric_reasons", {}).copy()
+        for metric in METRIC_NAMES:
+            skip_reason = _ragas_metric_skip_reason(case, metric)
+            if skip_reason is not None:
+                metric_reasons[metric] = skip_reason
         case["metric_reasons"] = metric_reasons
         metric_latencies = case_scores.get("metric_latencies_ms", {})
         case_judge_calls = [
@@ -1562,6 +1599,7 @@ def _attach_ragas_scores(
             }
             for metric in METRIC_NAMES
         }
+        _record_metric_statuses(case)
         judge_metric_latencies = {
             metric: _safe_score(metric_latencies.get(metric))
             for metric in METRIC_NAMES
@@ -1594,11 +1632,35 @@ def _attach_ragas_scores(
             case["latency"]["end_to_end_ms"] = None
 
 
+def _record_metric_statuses(case: dict[str, Any]) -> None:
+    """Make each diagnostic's denominator and unsuccessful result explicit."""
+    for metric in METRIC_NAMES:
+        eligible = _ragas_metric_is_eligible(case, metric)
+        score = (
+            case["generation_metrics"].get(metric)
+            if metric in GENERATION_METRIC_NAMES else case["retrieval_metrics"].get(metric)
+        )
+        record = case.setdefault("judge_metrics", {}).setdefault(metric, {})
+        status = "scored" if eligible and score is not None else "failed" if eligible else "unavailable"
+        reason = (
+            _ragas_metric_skip_reason(case, metric) if not eligible
+            else case.get("metric_reasons", {}).get(metric)
+            or ("Scored." if score is not None else "Judge failed to produce a finite score.")
+        )
+        record.update({"score": score, "status": status, "eligible": eligible, "reason": reason})
+        if status != "scored":
+            case.setdefault("metric_reasons", {})[metric] = reason
+
+
 def _workflow_outcome_counts(cases: list[dict[str, Any]]) -> dict[str, Any]:
     bounded_outcomes: Counter[str] = Counter()
     workflow_errors: Counter[str] = Counter()
     insufficient_evidence_by_origin: Counter[str] = Counter()
+    workflow_degradations: Counter[str] = Counter()
     for case in cases:
+        if case.get("workflow_degraded"):
+            degradation = case.get("retrieval_degradation") or {}
+            workflow_degradations[str(degradation.get("cause") or "unknown")] += 1
         workflow_error = case.get("workflow_error")
         if workflow_error:
             workflow_errors[str(workflow_error)] += 1
@@ -1617,6 +1679,7 @@ def _workflow_outcome_counts(cases: list[dict[str, Any]]) -> dict[str, Any]:
             sorted(insufficient_evidence_by_origin.items())
         ),
         "workflow_errors": dict(sorted(workflow_errors.items())),
+        "workflow_degradations": dict(sorted(workflow_degradations.items())),
     }
 
 
@@ -1653,6 +1716,18 @@ def _workflow_summary(cases: list[dict[str, Any]]) -> dict[str, Any]:
                 )
                 for metric in METRIC_NAMES
             },
+            "ragas_metric_status_counts": {
+                metric: {
+                    "eligible": sum(_ragas_metric_is_eligible(case, metric) for case in group),
+                    **{
+                        status: sum(case.get("judge_metrics", {}).get(metric, {}).get("status") == status for case in group)
+                        for status in ("scored", "unavailable", "failed")
+                    },
+                }
+                for metric in METRIC_NAMES
+            },
+            "workflow_degraded_case_count": sum(bool(case.get("workflow_degraded")) for case in group),
+            "workflow_failure_case_count": len(workflow_error_group),
             "generation_metrics": {
                 metric: _mean([
                     case["generation_metrics"].get(metric)
@@ -1733,7 +1808,7 @@ def _workflow_summary(cases: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _workflow_reliability(cases: list[dict[str, Any]]) -> dict[str, Any]:
     selected_cases = len(cases)
-    successful_cases = sum(not case.get("workflow_error") for case in cases)
+    successful_cases = sum(not case.get("workflow_error") and not case.get("workflow_degraded") for case in cases)
     return {
         "successful_cases": successful_cases,
         "selected_cases": selected_cases,
@@ -1796,7 +1871,7 @@ def run_evaluation(
     _log(run_log, f"Starting {workflow} synthetic-notes RAG evaluation.")
 
     results: dict[str, Any] = {
-        "schema_version": 10,
+        "schema_version": 11,
         "run_status": "running",
         "run_metadata": {
             "timestamp_local": timestamp,
@@ -1833,6 +1908,8 @@ def run_evaluation(
                 "top_k": settings.top_k,
                 "min_retrieval_score": settings.min_retrieval_score,
                 "max_answer_chunks": settings.llm.max_chunks,
+                "context_window_tokens": getattr(settings.llm, "context_window_tokens", None),
+                "max_tokens": getattr(settings.llm, "max_tokens", None),
                 "agentic_max_searches": getattr(
                     settings, "agentic_max_search_attempts", 3
                 ),
@@ -1909,6 +1986,13 @@ def run_evaluation(
                         error_name = type(exc).__name__
                         for record in workflow_cases:
                             record["ragas_error"] = error_name
+                            for metric in METRIC_NAMES:
+                                if _ragas_metric_is_eligible(record, metric):
+                                    record.setdefault("metric_reasons", {})[metric] = f"Judge failed ({error_name})."
+                            _record_metric_statuses(record)
+                            if any(_ragas_metric_is_eligible(record, metric) for metric in METRIC_NAMES):
+                                record["latency"]["judge_ms"] = None
+                                record["latency"]["end_to_end_ms"] = None
                         _log(run_log, f"[{workflow}] Ragas failed ({error_name}).")
                     finally:
                         progress.update(1)
@@ -1954,6 +2038,7 @@ def run_evaluation(
                 bool(case.get("workflow_error"))
                 for case in selected_workflow_cases
             )
+            workflow_degraded_count = sum(bool(case.get("workflow_degraded")) for case in selected_workflow_cases)
             workflow_reliability = _workflow_reliability(
                 selected_workflow_cases
             )
@@ -1961,17 +2046,19 @@ def run_evaluation(
                 "run_status": "completed",
                 "workflow_outcome": (
                     "completed_with_errors"
-                    if workflow_error_count
+                    if workflow_error_count or workflow_degraded_count
                     else "completed"
                 ),
                 "workflow_error_count": workflow_error_count,
+                "workflow_degraded_count": workflow_degraded_count,
                 "workflow_reliability": workflow_reliability,
             })
             results["summary"] = {
-                "schema_version": 3,
+                "schema_version": 4,
                 "run_status": results["run_status"],
                 "workflow_outcome": results["workflow_outcome"],
                 "workflow_error_count": workflow_error_count,
+                "workflow_degraded_count": workflow_degraded_count,
                 "workflow_reliability": workflow_reliability,
                 "run_metadata": results["run_metadata"],
                 "case_count": len(cases),
