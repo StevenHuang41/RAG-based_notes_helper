@@ -18,7 +18,7 @@ from pydantic import (
 )
 
 from rag_notes_helper.core.config import get_settings
-from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE, AnswerContextBudgetError, AnswerGenerationError, rag_answer
+from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE, AnswerGenerationError, rag_answer
 from rag_notes_helper.rag.index import RagIndex
 from rag_notes_helper.rag.llm import get_llm
 from rag_notes_helper.rag.llm.base import make_generation_usage_record
@@ -26,7 +26,6 @@ from rag_notes_helper.rag.meta_store import MetaStore
 from rag_notes_helper.rag.prompt_context import (
     ConversationTurn,
     estimate_prompt_tokens,
-    fit_conversation_history,
     serialize_conversation_history,
 )
 from rag_notes_helper.rag.retrieval import (
@@ -423,38 +422,17 @@ def _request_answer_review(
     validation_feedback: str | None = None
     failure_category = "schema_invalid_action"
     for _ in range(MAX_ACTION_ATTEMPTS):
-        def build_prompt(
-            history: Sequence[ConversationTurn],
-        ) -> list[dict[str, str]]:
-            return _build_answer_review_prompt(
-                query=query,
-                generation_context=generation_context,
-                candidate_answer=candidate_answer,
-                answer_attempt=answer_attempt,
-                searches_used=searches_used,
-                max_search_attempts=max_search_attempts,
-                max_answer_attempts=max_answer_attempts,
-                validation_feedback=validation_feedback,
-                conversation_history=history,
-            )
-
-        if conversation_history:
-            settings = get_settings()
-            fitted_history = fit_conversation_history(
-                conversation_history,
-                build_prompt=build_prompt,
-                context_window_tokens=settings.llm.context_window_tokens,
-                output_tokens=settings.llm.max_tokens,
-            )
-        else:
-            fitted_history = []
-        prompt = build_prompt(fitted_history)
-        settings = get_settings()
-        if estimate_prompt_tokens(prompt) + settings.llm.max_tokens > settings.llm.context_window_tokens:
-            raise AgenticWorkflowError(
-                "The Answer reviewer context exceeds its configured budget.",
-                failure_category="review_context_budget_exceeded",
-            )
+        prompt = _build_answer_review_prompt(
+            query=query,
+            generation_context=generation_context,
+            candidate_answer=candidate_answer,
+            answer_attempt=answer_attempt,
+            searches_used=searches_used,
+            max_search_attempts=max_search_attempts,
+            max_answer_attempts=max_answer_attempts,
+            validation_feedback=validation_feedback,
+            conversation_history=conversation_history,
+        )
 
         generation_started = perf_counter()
         try:
@@ -915,7 +893,6 @@ def _answer_node(state: _AgenticState) -> dict[str, Any]:
     }
     if state["answer_fn"] is None:
         answer_kwargs["allow_partial"] = True
-        answer_kwargs["fixed_context"] = answer_attempt > 1
     if state["revision_feedback"] is not None:
         answer_kwargs["revision_feedback"] = state["revision_feedback"]
     if state["conversation_history"] and state["answer_fn"] is None:
@@ -938,7 +915,7 @@ def _answer_node(state: _AgenticState) -> dict[str, Any]:
     except Exception as exc:
         result = _answer_warning_result(
             reason_code="generation_failure",
-            failure_category=("generation_context_budget_exceeded" if isinstance(exc, AnswerContextBudgetError) else "provider_failure"),
+            failure_category="provider_failure",
             error_type=exc.provider_error_type if isinstance(exc, AnswerGenerationError) else type(exc).__name__,
         )
         if isinstance(exc, AnswerGenerationError):

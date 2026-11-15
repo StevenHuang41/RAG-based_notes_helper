@@ -152,14 +152,18 @@ def test_review_ignores_unrelated_extra_fields_without_authorizing_search(monkey
     assert result["answer"] == runtime[1]["text"]
 
 
-def test_answer_reviewer_trims_oldest_history_without_truncating_evidence(monkeypatch, runtime):
+def test_answer_reviewer_keeps_newest_five_complete_turns_with_long_history(monkeypatch, runtime):
     settings, hit, answer_calls = runtime
     settings.llm.context_window_tokens = 7000
     controller = Controller()
     monkeypatch.setattr(agentic, "get_llm", lambda: controller)
-    history = [("old " + "x" * 15000, "old answer"), ("recent question", "recent answer")]
+    history = [("excluded question", "excluded answer")] + [
+        (f"question {i} " + "x" * 7000, f"answer {i}") for i in range(5)
+    ]
     result = cli.run_query(object(), object(), query="When?", agentic=True, conversation_history=history)
     assert result["review_passed"] is True
     payload = json.loads(controller.calls[-1][0][-1]["content"])
-    assert payload["conversation_history"] == [{"user": "recent question", "assistant": "recent answer"}]
+    assert payload["conversation_history"] == [
+        {"user": user, "assistant": assistant} for user, assistant in history[-5:]
+    ]
     assert payload["generation_context"][0]["text"] == hit["text"]
