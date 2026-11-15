@@ -47,7 +47,6 @@ Follow the existing modular structure before introducing new directories.
 
 - Do not modify unrelated files
 - Do not edit `.env`, push, rewrite Git history, delete user data, or merge into `main` without explicit authorization
-- Do not commit unless explicitly requested.
 - Preserve unrelated user changes and request approval before destructive operations
 - Do not silently suppress exceptions or test failures
 
