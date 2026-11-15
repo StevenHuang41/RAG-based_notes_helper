@@ -105,7 +105,7 @@ flowchart TD
     notes["Notes in data/"] --> load["Loaders and chunking"]
     load --> embed["SentenceTransformer embeddings"]
     embed --> vector["FAISS vector index"]
-    load --> metadata["Chunk metadata and BM25 index"]
+    load --> metadata["Chunk metadata"]
     vector --> hybrid["Hybrid retrieval: Vector + BM25, RRF, reranking"]
     metadata --> hybrid
     user["User query"] --> choose{"Workflow"}
@@ -370,7 +370,7 @@ args = ["--directory", "/absolute/path/to/RAG-based_notes_helper", "run", "rag-m
 startup_timeout_sec = 120
 ```
 
-Use one registration method, not both. See [Codex MCP configuration](https://developers.openai.com/codex/mcp) for current options.
+Use one registration method, not both. The Codex app end-to-end connection and tool call have not yet been verified. See [Codex MCP configuration](https://developers.openai.com/codex/mcp) for current options.
 
 **Claude Code**
 
