@@ -337,7 +337,7 @@ REPL commands:
 
 The `rag-mcp-server` command exposes one read-only `search_notes` tool over local stdio. It refreshes the runtime index from `data/` at startup, runs the shared Hybrid retrieval pipeline, and returns ranked chunks with relative source paths, line ranges, and ranking provenance. Restart the server to guarantee later note changes are indexed. It does not generate an answer.
 
-The optional `top_k` defaults to 5 and is capped at 20, independently of `LLM_MAX_CHUNKS`. It is a maximum: upstream Vector, BM25, and fusion limits and available evidence can yield fewer chunks. Source notes and the index remain local, but returned evidence enters the connected assistant's context and may be sent to its model provider.
+The optional `top_k` defaults to `LLM_MAX_CHUNKS` and is capped at that value. A client can request fewer chunks for a single search without changing the configuration. The limit is loaded when the server starts, so restart it after changing `.env`. It is a maximum: upstream Vector, BM25, and fusion limits and available evidence can yield fewer chunks. Source notes and the index remain local, but returned evidence enters the connected assistant's context and may be sent to its model provider.
 
 #### Set up a local client
 
@@ -514,7 +514,7 @@ Common settings:
 | `LLM_EVAL_PROVIDER` | Optional Ragas judge provider; defaults to `LLM_PROVIDER` | `hf`, `openai`, `ollama`, `gemini`, `openrouter` |
 | `LLM_EVAL_MODEL` | Optional Ragas judge model; defaults to `LLM_MODEL`; set with `LLM_EVAL_PROVIDER` | provider-specific model name |
 | `LLM_EVAL_API_KEY` | Optional judge key; required for a different remote judge provider | `your-evaluation-provider-api-key` |
-| `LLM_MAX_CHUNKS` | Maximum selected chunks sent to Answer generation | `5` |
+| `LLM_MAX_CHUNKS` | Maximum selected chunks sent to Answer generation and default and maximum chunks returned by each MCP search | `5` |
 | `LLM_MAX_TOKENS` | Maximum output tokens for each generation | `1024` |
 | `LLM_TEMPERATURE` | Generation temperature | `0.1` |
 | `CHUNK_SIZE` | Chunk size for ingestion | `800` |

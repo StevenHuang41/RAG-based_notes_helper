@@ -20,3 +20,5 @@
 ## Comments
 
 Implemented on integration/local-stdio-mcp through 1459572. MCP contract, isolated subprocess, runtime retrieval and complete pytest suite passed. A real local MCP client retrieved three sample chunks with provenance using OMP_NUM_THREADS=1; Codex app acceptance remains in ticket 02.
+
+The original fixed MCP limit was superseded by the later decision to use `LLM_MAX_CHUNKS` as the default and maximum per MCP search.

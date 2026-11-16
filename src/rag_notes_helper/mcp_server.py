@@ -13,14 +13,13 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field, model_validator
 
+from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.rag.index import rebuild_index
 from rag_notes_helper.rag.meta_store import MetaStore
 from rag_notes_helper.rag.retrieval import retrieve
 
 
 logger = logging.getLogger(__name__)
-DEFAULT_TOP_K = 5
-MAX_TOP_K = 20
 
 
 class RankingProvenance(BaseModel):
@@ -59,8 +58,11 @@ class SearchNotesResponse(BaseModel):
 def create_mcp_server(
     *,
     search: Callable[[str], Sequence[Mapping[str, Any]]],
+    max_chunks: int,
 ) -> MCPServer:
     """Build a read-only local note search server."""
+    if max_chunks < 1:
+        raise ValueError("max_chunks must be positive")
     server = MCPServer(
         "RAG Notes Helper",
         version="0.2.0",
@@ -94,7 +96,7 @@ def create_mcp_server(
         if isinstance(top_k, bool) or (top_k is not None and top_k < 1):
             raise ToolError("top_k must be a positive integer")
 
-        limit = DEFAULT_TOP_K if top_k is None else min(top_k, MAX_TOP_K)
+        limit = max_chunks if top_k is None else min(top_k, max_chunks)
         with search_lock:
             candidates = search(normalized_query)
         results: list[NoteSearchResult] = []
@@ -183,6 +185,7 @@ def _relative_source(source: Any) -> str:
 
 
 def _create_runtime_server() -> tuple[MCPServer, MetaStore]:
+    max_chunks = get_settings().llm.max_chunks
     # Index rebuilding reports progress for the CLI; stdio is reserved for MCP.
     with redirect_stdout(sys.stderr):
         rag = rebuild_index()
@@ -190,6 +193,7 @@ def _create_runtime_server() -> tuple[MCPServer, MetaStore]:
     try:
         server = create_mcp_server(
             search=lambda query: retrieve(rag, meta_store, query=query),
+            max_chunks=max_chunks,
         )
     except Exception:
         meta_store.close()

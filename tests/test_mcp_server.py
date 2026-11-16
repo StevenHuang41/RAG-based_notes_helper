@@ -12,7 +12,7 @@ def candidate(i: int = 1) -> dict[str, Any]:
 
 
 def test_local_tool_returns_ranked_evidence_with_default_limit():
-    server = create_mcp_server(search=lambda query: [candidate(i) for i in range(1, 8)])
+    server = create_mcp_server(search=lambda query: [candidate(i) for i in range(1, 8)], max_chunks=5)
 
     async def exercise() -> None:
         async with Client(server) as client:
@@ -31,11 +31,14 @@ def test_local_tool_returns_ranked_evidence_with_default_limit():
 
 
 def test_limits_validation_and_empty_results():
-    server = create_mcp_server(search=lambda query: [] if query == "empty" else [candidate(i) for i in range(1, 26)])
+    server = create_mcp_server(search=lambda query: [] if query == "empty" else [candidate(i) for i in range(1, 26)], max_chunks=7)
 
     async def exercise() -> None:
         async with Client(server) as client:
-            for requested, applied in [(3, 3), (20, 20), (99, 20)]:
+            default = await client.call_tool("search_notes", {"query": "evidence"})
+            assert default.structured_content["top_k"] == 7
+            assert len(default.structured_content["results"]) == 7
+            for requested, applied in [(3, 3), (7, 7), (99, 7)]:
                 result = await client.call_tool("search_notes", {"query": "evidence", "top_k": requested})
                 assert not result.is_error
                 assert result.structured_content["top_k"] == applied
@@ -50,11 +53,26 @@ def test_limits_validation_and_empty_results():
     anyio.run(exercise)
 
 
+def test_limit_can_be_configured_above_previous_fixed_cap():
+    server = create_mcp_server(
+        search=lambda query: [candidate(i) for i in range(30)], max_chunks=30
+    )
+
+    async def exercise() -> None:
+        async with Client(server) as client:
+            result = await client.call_tool("search_notes", {"query": "evidence", "top_k": 30})
+        assert not result.is_error
+        assert result.structured_content["top_k"] == 30
+        assert len(result.structured_content["results"]) == 30
+
+    anyio.run(exercise)
+
+
 def test_errors_and_unsafe_sources_are_not_empty_results():
     async def exercise() -> None:
         for search in [lambda query: [candidate() | {"source": "../secret"}],
                        lambda query: (_ for _ in ()).throw(RuntimeError("search failed"))]:
-            async with Client(create_mcp_server(search=search)) as client:
+            async with Client(create_mcp_server(search=search, max_chunks=5)) as client:
                 result = await client.call_tool("search_notes", {"query": "x"})
                 assert result.is_error
 
@@ -80,10 +98,10 @@ def rebuild():
     return object()
 server.rebuild_index = rebuild
 server.MetaStore = Meta
-server.retrieve = lambda rag, metadata, query: [{"text": "Result", "source": "note.md", "chunk_id": 1, "start_line": 1, "end_line": 2}]
+server.retrieve = lambda rag, metadata, query: [{"text": "Result", "source": "note.md", "chunk_id": i, "start_line": 1, "end_line": 2} for i in range(4)]
 server.main()
 ''')
-    params = StdioServerParameters(command=sys.executable, args=[str(script), str(marker)], env={**os.environ, "PYTHONPATH": os.path.abspath("src")})
+    params = StdioServerParameters(command=sys.executable, args=[str(script), str(marker)], env={**os.environ, "PYTHONPATH": os.path.abspath("src"), "LLM_PROVIDER": "ollama", "LLM_MODEL": "test", "LLM_MAX_CHUNKS": "2"})
 
     async def exercise() -> None:
         async with Client(params) as client:
@@ -91,6 +109,11 @@ server.main()
             result = await client.call_tool("search_notes", {"query": "find"})
             assert not result.is_error
             assert result.structured_content["results"][0]["text"] == "Result"
+            assert result.structured_content["top_k"] == 2
+            assert len(result.structured_content["results"]) == 2
+            capped = await client.call_tool("search_notes", {"query": "find", "top_k": 20})
+            assert capped.structured_content["top_k"] == 2
+            assert len(capped.structured_content["results"]) == 2
 
     anyio.run(exercise)
     assert marker.read_text() == "closed"
@@ -104,7 +127,7 @@ def test_search_returns_complete_chunk_and_ranking_provenance():
         "bm25_rank": 4, "bm25_score": 1.3, "fusion_score": 0.03,
         "reranker_score": 0.9,
     }
-    server = create_mcp_server(search=lambda query: [hit])
+    server = create_mcp_server(search=lambda query: [hit], max_chunks=5)
 
     async def exercise() -> None:
         async with Client(server) as client:
@@ -137,7 +160,7 @@ def test_search_respects_upstream_fusion_limit(monkeypatch):
     monkeypatch.setattr("rag_notes_helper.rag.retrieval.get_settings", lambda: SimpleNamespace(
         vector_top_k=4, bm25_top_k=4, fusion_top_k=2, min_retrieval_score=0.0,
         bm25_min_score_ratio=0.0, llm=SimpleNamespace(max_chunks=1)))
-    server = create_mcp_server(search=lambda query: retrieve(rag, metadata, query=query, cross_encoder=encoder))
+    server = create_mcp_server(search=lambda query: retrieve(rag, metadata, query=query, cross_encoder=encoder), max_chunks=4)
 
     async def exercise() -> None:
         async with Client(server) as client:
