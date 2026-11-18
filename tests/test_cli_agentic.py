@@ -1,4 +1,5 @@
 import json
+import re
 import sys
 from io import StringIO
 
@@ -8,6 +9,80 @@ from rag_notes_helper import cli
 from rag_notes_helper.rag import agentic as agentic_module
 from rag_notes_helper.rag import answer as answer_module
 from rag_notes_helper.rag.agentic import AgenticProgress, AgenticWorkflowError
+
+
+@pytest.mark.parametrize("initial_stream", [False, True])
+def test_repl_config_reports_current_stream_mode(monkeypatch, capsys, initial_stream):
+    class DummyMetaStore:
+        def close(self):
+            pass
+
+    monkeypatch.setenv("STREAM", str(initial_stream).lower())
+    cli.get_settings.cache_clear()
+    commands = iter([
+        ":config", ":stream", ":config", "question", ":stream", ":config", ":quit",
+    ])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(commands))
+    query_streams = []
+
+    def fake_query(*args, **kwargs):
+        query_streams.append(kwargs["stream"])
+        return {"answer": "answer", "citations": []}
+
+    monkeypatch.setattr(cli, "run_query", fake_query)
+    cli.repl(rag="index", meta_store=DummyMetaStore())
+
+    output = capsys.readouterr().out
+    shown_streams = re.findall(
+        r"^\s*stream\s*:\s*(True|False)", output, re.MULTILINE
+    )
+    assert shown_streams == [
+        str(initial_stream), str(not initial_stream), str(initial_stream)
+    ]
+    assert query_streams == [not initial_stream]
+    cli.show_config()
+    assert f"stream     : {initial_stream}" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("initial_citations", [False, True])
+def test_repl_config_reports_current_citation_mode(monkeypatch, capsys, initial_citations):
+    class DummyMetaStore:
+        def close(self):
+            pass
+
+    commands = iter([
+        ":config", ":citations", ":config", "question", ":citations", ":config", ":quit",
+    ])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(commands))
+    monkeypatch.setattr(
+        cli, "run_query",
+        lambda *args, **kwargs: {"answer": "answer", "citations": ["source"]},
+    )
+    displayed = []
+    monkeypatch.setattr(
+        cli, "show_citations", lambda result, show_full=False: displayed.append(result)
+    )
+
+    cli.repl(rag="index", meta_store=DummyMetaStore(), citations=initial_citations)
+
+    output = capsys.readouterr().out
+    shown = re.findall(r"^\s*citations\s*:\s*(True|False)", output, re.MULTILINE)
+    assert shown == [
+        str(initial_citations), str(not initial_citations), str(initial_citations)
+    ]
+    assert bool(displayed) is (not initial_citations)
+
+
+@pytest.mark.parametrize("citations", [False, True])
+def test_cli_config_reports_citation_flag(monkeypatch, capsys, citations):
+    argv = ["rag-app", "--config"] + (["--citations"] if citations else [])
+    monkeypatch.setattr(sys, "argv", argv)
+    monkeypatch.setattr(cli, "load_or_build_index", lambda: "index")
+    monkeypatch.setattr(cli, "MetaStore", lambda: "metadata")
+
+    cli.main()
+
+    assert f"citations  : {citations}" in capsys.readouterr().out
 
 
 def test_parser_accepts_agentic_one_shot_flag():

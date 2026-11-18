@@ -168,7 +168,7 @@ def run_evaluation(
 
 
 @deco_time_block
-def show_config():
+def show_config(*, stream: bool | None = None, citations: bool = False):
     print("\nChecking Configuration ...")
     try :
         settings = get_settings()
@@ -199,7 +199,8 @@ def show_config():
     print(f"    BM25_MIN_SCORE_RATIO  : {settings.bm25_min_score_ratio}")
 
     print("\nFormat:")
-    print(f"    stream     : {settings.stream}")
+    print(f"    stream     : {settings.stream if stream is None else stream}")
+    print(f"    citations  : {citations}")
     print(f"    line_width : {settings.line_width}")
 
     print("\nPaths:")
@@ -481,7 +482,7 @@ def repl(
                     continue
 
                 if query in {":config", ":co"}:
-                    show_config()
+                    show_config(stream=stream_response, citations=citations)
                     print()
                     continue
 
@@ -696,7 +697,7 @@ def main():
         meta_store = MetaStore()
 
     if args.config:
-        show_config()
+        show_config(citations=args.citations)
 
     if args.sources:
         show_sources(meta_store)
