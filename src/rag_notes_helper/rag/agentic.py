@@ -29,7 +29,7 @@ from pydantic import (
 )
 
 from rag_notes_helper.core.config import get_settings
-from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE, AnswerGenerationError, rag_answer
+from rag_notes_helper.rag.answer import AnswerGenerationError, rag_answer
 from rag_notes_helper.rag.index import RagIndex
 from rag_notes_helper.rag.llm import get_llm
 from rag_notes_helper.rag.llm.base import make_generation_usage_record
@@ -1118,22 +1118,14 @@ def _accept_answer_node(state: _AgenticState) -> dict[str, Any]:
         raise AgenticWorkflowError("The Agentic graph has no accepted answer.")
     accepted_result = dict(candidate_result)
     review = state["answer_review"]
-    answer = accepted_result.get("answer")
-    answer_is_abstention = (
-        isinstance(answer, str)
-        and answer.strip().casefold() == ABSTENTION_MESSAGE.strip().casefold()
-    )
     accepted_result["reason_code"] = (
         "insufficient_evidence"
         if isinstance(review, AcceptAnswerAbstentionAction)
-        or answer_is_abstention
         else "answered"
     )
     accepted_result["response_origin"] = "answer_model"
     accepted_result["review_passed"] = True
-    accepted_result["answer_coverage"] = (
-        "none" if answer_is_abstention else review.answer_coverage
-    )
+    accepted_result["answer_coverage"] = review.answer_coverage
     accepted_result["answer_missing_information"] = list(review.missing_information)
     _emit_progress_event(
         state,
