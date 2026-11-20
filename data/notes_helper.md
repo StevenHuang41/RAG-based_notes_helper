@@ -1,154 +1,99 @@
 # Notes Helper
 
-## System Identity
+## What Is Notes Helper?
 
-- Ask: "Who are you", Answer: "I am Notes Helper, your personal assistant for managing and searching your notes"
-- Ask: "What is Notes Helper", Answer: "A RAG-based tool designed to help you reason across your personal data directory"
-- Ask: "Who am I", Answer: "You are the Owner of these notes"
+Notes Helper is a local-first Retrieval-Augmented Generation (RAG) tool for
+asking questions about notes in `data/`. It retrieves relevant passages and uses
+a configurable LLM to generate an answer grounded in those passages.
 
-## What Can Notes Helper Do
+You can use Notes Helper from the CLI or an interactive REPL. A local read-only
+MCP search tool also lets a connected assistant search the notes and inspect the
+returned evidence.
 
-- answer questions based on notes in `data/`
-- summarize concepts using the most relevant chunks
-- help reviewing and recalling topics from notes
-- show what files were used to generate the answer
+## What Can Notes Helper Do?
 
-**must not**:
+- Answer questions and help summarize information found in notes.
+- Read `.md`, `.txt`, `.pdf`, and `.py` files in the notes directory.
+- Show source citations with CLI answers when citations are enabled.
+- Return ranked note chunks and source metadata through the MCP search tool.
+- Indicate when retrieved evidence is insufficient, though results depend on
+  retrieval and the configured model.
 
-- invent information not present in the notes
-- use external or prior knowledge
-- hallucinate answers beyond retrieved content
+## Classic and Agentic RAG
 
----
+**Classic RAG** runs one retrieval search and generates an answer from the
+selected context. If retrieval returns no chunks, it returns a no-evidence
+response without calling the answer model.
 
-## How To Use Notes Helper
+**Agentic RAG** can review the retrieved evidence, perform additional searches,
+and review answer candidates. Search attempts and answer attempts have separate
+configured limits, each including the first attempt. Answer review uses the
+selected generation context; it does not reopen retrieval.
 
-### Asking Questions
+## How Retrieval Works
 
-* type your question after '> '
+1. Notes are split into overlapping chunks. The chunks and their embeddings are
+   stored in an index with source metadata.
+2. FAISS Vector search and BM25 independently find candidate chunks for a query.
+3. Reciprocal Rank Fusion (RRF) combines the candidate rankings, and a
+   CrossEncoder reranks the fused results.
+4. Selected chunks are provided as context to the LLM for answer generation.
 
-    - Example:
+Updating an index makes changed notes available to retrieval without fine-tuning
+the LLM. The selected context may contain only part of a note or miss relevant
+information.
 
-    ```
-    What is xxx
-    Who are you
-    How can you help me
-    ```
+## Using and Updating Notes
 
-* Notes helper will:
+Ask a question or start a REPL from the project directory:
 
-    1. search relevant content in `data/`
-    2. retrieve relevant chunks
-    3. generate a readable answer
-    4. show citations to the source notes
+```bash
+uv run rag-app "What can Notes Helper do?" --citations
+uv run rag-app "What can Notes Helper do?" --agentic --citations
+uv run rag-app --repl
+```
 
-### Commands:
+Add or edit notes in `data/`, then update the existing index before asking about
+the changes:
 
-#### CLI
+```bash
+uv run rag-app --update
+```
 
-* `--help` or `-h`
-    - Show help message
+Use `uv run rag-app --reindex` to rebuild the index from scratch. In the REPL,
+use `:update` (or `:ud`) to update changed notes and `:reindex` (or `:ri`) to
+rebuild without restarting the session.
 
-* `--repl` or `-rp`
-    - Run in REPL mode
+Other REPL commands include `:citations` to toggle source display, `:sources`
+to list indexed files, `:config` to inspect settings, `:stream` to toggle
+streaming, `:help` for commands, and `:quit` to exit.
 
-* `--reindex` or `-ri`
-    - Process all files in data/ to rebuild rag index
+The development evaluation commands `uv run rag-app --eval` and
+`uv run rag-app --agentic --eval` use a separate reviewed evaluation corpus and
+temporary index; they do not evaluate the user's `data/` notes or persistent
+`storage/` index. See the project README for setup and details.
 
-* `--update` or `-ud`
-    - Only process files that changed its content, faster than `--reindex` if only few changes
+## Limitations and Privacy
 
-* `--citations` or `-ci`
-    - Toggle citations display
+Retrieval can miss relevant passages, and an LLM can produce incomplete or
+incorrect answers even when instructed to use the notes as evidence. Check the
+cited sources and the original notes when accuracy matters.
 
-* `--sources` or `-so`
-    - Show indexed source files
+A remote LLM provider receives selected note passages as part of the prompt.
+The local MCP search tool returns note content to its connected client; that
+client may send the content to its model provider. Consider this before adding
+sensitive information to your notes.
 
-* `--config` or `-co`
-    - Show configuration
+## Test Your Notes
 
+1. Add a short fact under **My test note** below and save this file. For example,
+   write a project name and its start date.
+2. Run `uv run rag-app --update`, or enter `:update` in the REPL.
+3. Ask when your project starts, using the name you wrote. Use `--citations` on
+   the CLI or enable `:citations` in the REPL to inspect the source.
+4. Change the fact, save the file, update the index again, and repeat the
+   question. Check the cited note if the answer is missing or incorrect.
 
-#### REPL mode
-Ask multiple questions interactively, reindex notes without restarting,
-inspect sources, toggle citations
-The index and embedding model are loaded once and reused during the session
-for faster interaction
+### My test note
 
-- `:quit`       /   `:q`      (exit)
-- `:help`       /   `:h`      (show instructions)
-- `:reindex`    /   `:ri`     (reindex all files without exiting)
-- `:update`     /   `ud`      (update only changed files)
-- `:citations`  /   `:ci`     (toggle citations display)
-- `:sources`    /   `:so`     (show indexed files)
-- `:config`     /   `:co`     (check configuration)
-- `:stream`     /   `:s`      (toggle stream mode)
-- `:evaluate`   /   `:ev`     (evaluate rag)
-
-You do **NOT** need to restart the system to update or reindex
-
-See CLI usage in README.md
-
----
-
-## How It Works (RAG Overview)
-
-Notes Helper uses a standard RAG pipeline:
-
-1. Notes in `data/` are read using **memory-safe streaming loaders**
-
-2. Text is split into **overlapping chunks**
-
-3. Each chunk is embedded using a **Sentence Transformer**
-
-4. Embeddings are indexed with **Faiss**
-
-5. User queries are embedded using the same model
-
-6. Only the **top-k relevant chunks** are retrieved
-
-7. LLM generates an answer **strictly from those chunks**
-
-- The LLM never sees:
-
-    - The full notes
-    - Unrelated chunks
-    - Any external knowledge
-
----
-
-## Design Principles
-
-- **Source of truth stays external**
-  Notes remain the only knowledge base
-
-- **No fine-tuning**
-  Knowledge updates via reindexing, without retraining models
-
-- **Memory safety**
-  Large note files are processed line-by-line
-
-- **Transparency**
-  Answers can be traced back to source files
-
----
-
-## Limitations
-
-- Notes Helper cannot answer questions outside the stored notes
-- Answers depend on the quality and completeness of the notes
-- The system may return short or conservative answer if the notes are short
-
----
-
-## Reminder
-
-Notes Helper is a tool for querying your notes, not a general-purpose AI assistant
-If relevant information cannot be found in the notes, it will respond accordingly without guessing
-
-## Tips For Better Answer
-
-- write clear, rich, descriptive notes
-- keep one concept per question
-- based on experience, avoid using question mark '?'
-- run `:reindex` after adding or updating notes
-- change the configuration in `.env` according to your needs
+Add your own fact here.
