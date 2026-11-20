@@ -158,7 +158,7 @@ def test_search_respects_upstream_fusion_limit(monkeypatch):
     metadata = SimpleNamespace(get=lambda i: records[i])
     encoder = SimpleNamespace(predict=lambda pairs: [1.0] * len(pairs))
     monkeypatch.setattr("rag_notes_helper.rag.retrieval.get_settings", lambda: SimpleNamespace(
-        vector_top_k=4, bm25_top_k=4, fusion_top_k=2, min_retrieval_score=0.0,
+        vector_top_k=4, bm25_top_k=4, fusion_top_k=2, vector_min_score=0.0,
         bm25_min_score_ratio=0.0, llm=SimpleNamespace(max_chunks=1)))
     server = create_mcp_server(search=lambda query: retrieve(rag, metadata, query=query, cross_encoder=encoder), max_chunks=4)
 

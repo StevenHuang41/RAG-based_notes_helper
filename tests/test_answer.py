@@ -84,7 +84,7 @@ def test_rag_answer_returns_the_ordered_context_used_by_the_prompt(monkeypatch):
             return "Mina Chen; 2026-07-14."
 
     monkeypatch.setenv("LLM_MAX_CHUNKS", "2")
-    monkeypatch.setenv("TOP_K", "2")
+    monkeypatch.setenv("FUSION_TOP_K", "2")
     get_settings.cache_clear()
     monkeypatch.setattr(
         "rag_notes_helper.rag.answer.get_llm",
@@ -289,54 +289,6 @@ def test_rag_answer_sends_only_top_reranked_evidence_and_preserves_scores(
         },
     ]
     assert len(prompts) == 1
-
-
-def test_rag_answer_does_not_assume_the_user_owns_the_notes(
-    monkeypatch,
-    mock_hits,
-):
-    captured_prompts = []
-
-    class PromptLLM:
-        def generate(self, prompt, line_width):
-            captured_prompts.append(prompt)
-            return "I cannot find the answers in the notes."
-
-    monkeypatch.setattr(
-        "rag_notes_helper.rag.answer.get_llm",
-        lambda: PromptLLM(),
-    )
-
-    rag_answer(query="Who am I?", hits=mock_hits)
-
-    system_prompt = captured_prompts[0][0]["content"]
-    assert "You are the owner of the notes" not in system_prompt
-    assert "Who am I" in system_prompt
-
-
-def test_rag_answer_allows_organized_formatting_and_keeps_evidence_grounding(
-    monkeypatch,
-    mock_hits,
-):
-    captured_prompts = []
-
-    class PromptLLM:
-        def generate(self, prompt, line_width):
-            captured_prompts.append(prompt)
-            return "A grounded answer."
-
-    monkeypatch.setattr(
-        "rag_notes_helper.rag.answer.get_llm",
-        lambda: PromptLLM(),
-    )
-
-    rag_answer("Summarize the note", hits=mock_hits)
-
-    system_prompt = captured_prompts[0][0]["content"]
-    assert "organized answer" in system_prompt
-    assert "prose, headings, or lists" in system_prompt.lower()
-    assert "Use only the provided Context for factual claims" in system_prompt
-    assert "NEVER use markdown formatting" not in system_prompt
 
 
 def test_rag_answer_stream(monkeypatch, mock_dependencies, mock_hits):

@@ -21,7 +21,7 @@ def mock_meta_store():
 
 
 def test_retrieve_filters_by_score(monkeypatch, mock_meta_store):
-    monkeypatch.setenv("MIN_RETRIEVAL_SCORE", "0.5")
+    monkeypatch.setenv("VECTOR_MIN_SCORE", "0.5")
 
     dim = 3
     index = faiss.IndexFlatIP(dim)
@@ -77,7 +77,7 @@ def test_retrieve_applies_explicit_vector_threshold_and_reports_diagnostics(
             vector_top_k=2,
             bm25_top_k=2,
             fusion_top_k=2,
-            min_retrieval_score=0.2,
+            vector_min_score=0.2,
             bm25_min_score_ratio=0.0,
             llm=SimpleNamespace(max_chunks=1),
         ),
@@ -129,7 +129,7 @@ def test_bm25_threshold_is_relative_to_each_query_high_score(monkeypatch):
             vector_top_k=3,
             bm25_top_k=3,
             fusion_top_k=3,
-            min_retrieval_score=0.0,
+            vector_min_score=0.0,
             bm25_min_score_ratio=0.0,
             llm=SimpleNamespace(max_chunks=2),
         ),
@@ -191,7 +191,7 @@ def test_invalid_threshold_requests_fail_before_retrieval(
             vector_top_k=2,
             bm25_top_k=2,
             fusion_top_k=2,
-            min_retrieval_score=0.2,
+            vector_min_score=0.2,
             bm25_min_score_ratio=0.0,
             llm=SimpleNamespace(max_chunks=1),
         ),
@@ -230,7 +230,8 @@ def test_hybrid_retrieval_keeps_method_ranks_and_fuses_shared_candidates(monkeyp
             vector_top_k=4,
             bm25_top_k=2,
             fusion_top_k=2,
-            min_retrieval_score=0.5,
+            vector_min_score=0.5,
+            bm25_min_score_ratio=0.0,
             cross_encoder_model="fixture/cross-encoder",
             llm=SimpleNamespace(max_chunks=5),
         ),
@@ -327,7 +328,8 @@ def test_hybrid_retrieval_reranks_fused_candidates_without_score_thresholding(
             vector_top_k=3,
             bm25_top_k=3,
             fusion_top_k=3,
-            min_retrieval_score=0.5,
+            vector_min_score=0.5,
+            bm25_min_score_ratio=0.0,
             llm=SimpleNamespace(max_chunks=2),
         ),
     )
@@ -397,7 +399,8 @@ def test_hybrid_retrieval_returns_no_candidates_when_both_methods_miss(monkeypat
             vector_top_k=2,
             bm25_top_k=3,
             fusion_top_k=4,
-            min_retrieval_score=0.5,
+            vector_min_score=0.5,
+            bm25_min_score_ratio=0.0,
             llm=SimpleNamespace(max_chunks=5),
         ),
     )
@@ -428,60 +431,36 @@ def test_hybrid_retrieval_returns_no_candidates_when_both_methods_miss(monkeypat
     }
 
 
-def test_hybrid_retrieval_defaults_do_not_couple_candidates_to_generation_limit(tmp_path):
+def test_retrieval_settings_load_from_env_file(monkeypatch, tmp_path):
     notes_dir = tmp_path / "notes"
     notes_dir.mkdir()
+    values = {
+        "VECTOR_TOP_K": "17",
+        "BM25_TOP_K": "13",
+        "FUSION_TOP_K": "7",
+        "VECTOR_MIN_SCORE": "0.35",
+        "BM25_MIN_SCORE_RATIO": "0.45",
+        "LLM_MAX_CHUNKS": "3",
+    }
+    for name in values:
+        monkeypatch.delenv(name, raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text("".join(f"{name}={value}\n" for name, value in values.items()))
 
     settings = Settings(
-        _env_file=None,
-        llm=LLMSettings(provider="ollama", model="llama3", max_chunks=5),
+        _env_file=env_file,
+        llm=LLMSettings(_env_file=env_file, provider="ollama", model="llama3"),
         notes_dir=notes_dir,
         storage_dir=tmp_path / "storage",
         logs_dir=tmp_path / "logs",
     )
 
-    assert settings.vector_top_k == 30
-    assert settings.bm25_top_k == 20
-    assert settings.fusion_top_k == 15
-    assert settings.vector_min_score == 0.2
-    assert settings.bm25_min_score_ratio == 0.0
-    assert settings.min_retrieval_score == settings.vector_min_score
-    assert settings.llm.max_chunks == 5
-
-
-def test_retrieval_starting_thresholds_load_from_environment(monkeypatch, tmp_path):
-    notes_dir = tmp_path / "notes"
-    notes_dir.mkdir()
-    monkeypatch.setenv("VECTOR_MIN_SCORE", "0.35")
-    monkeypatch.setenv("BM25_MIN_SCORE_RATIO", "0.45")
-
-    settings = Settings(
-        _env_file=None,
-        llm=LLMSettings(provider="ollama", model="llama3", max_chunks=5),
-        notes_dir=notes_dir,
-        storage_dir=tmp_path / "storage",
-        logs_dir=tmp_path / "logs",
-    )
-
+    assert settings.vector_top_k == 17
+    assert settings.bm25_top_k == 13
+    assert settings.fusion_top_k == 7
     assert settings.vector_min_score == 0.35
     assert settings.bm25_min_score_ratio == 0.45
-
-
-def test_legacy_top_k_environment_setting_maps_to_fusion_limit(monkeypatch, tmp_path):
-    notes_dir = tmp_path / "notes"
-    notes_dir.mkdir()
-    monkeypatch.setenv("TOP_K", "7")
-
-    settings = Settings(
-        _env_file=None,
-        llm=LLMSettings(provider="ollama", model="llama3", max_chunks=5),
-        notes_dir=notes_dir,
-        storage_dir=tmp_path / "storage",
-        logs_dir=tmp_path / "logs",
-    )
-
-    assert settings.fusion_top_k == 7
-    assert settings.top_k == 7
+    assert settings.llm.max_chunks == 3
 
 
 def test_classic_and_agentic_workflows_use_the_shared_hybrid_search(monkeypatch):
@@ -509,7 +488,8 @@ def test_classic_and_agentic_workflows_use_the_shared_hybrid_search(monkeypatch)
             vector_top_k=2,
             bm25_top_k=2,
             fusion_top_k=2,
-            min_retrieval_score=0.5,
+            vector_min_score=0.5,
+            bm25_min_score_ratio=0.0,
             llm=SimpleNamespace(max_chunks=5),
         ),
     )

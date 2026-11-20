@@ -16,7 +16,7 @@ def test_two_phase_evaluation_keeps_answer_quality_separate_from_reliability(mon
     settings = SimpleNamespace(
         llm=SimpleNamespace(provider="fixture", model="answer", effective_eval_provider="fixture", effective_eval_model="judge", max_chunks=2),
         embed_model_name="fixture", cross_encoder_model="fixture", chunk_size=200, chunk_overlap=50,
-        top_k=3, vector_top_k=3, bm25_top_k=3, fusion_top_k=3, min_retrieval_score=.3,
+        top_k=3, vector_top_k=3, bm25_top_k=3, fusion_top_k=3, vector_min_score=.3,
     )
     monkeypatch.setattr(eval_runner, "get_settings", lambda: settings)
     monkeypatch.setattr(eval_runner, "load_qa_fixture", lambda: cases)

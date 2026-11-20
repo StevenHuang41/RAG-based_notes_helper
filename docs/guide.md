@@ -244,7 +244,7 @@ Common settings:
 | `AGENTIC_MAX_ANSWER_ATTEMPTS` | Maximum total Answer generations per Agentic query, including the first generation | `3` (range `1`–`5`) |
 | `STREAM` | Stream model output where supported | `true` |
 
-`TOP_K` remains accepted as a legacy alias for `FUSION_TOP_K`, and `MIN_RETRIEVAL_SCORE` remains accepted as a legacy alias for `VECTOR_MIN_SCORE`. Existing local configuration therefore continues to work while new configuration uses the stage-specific names.
+Use `FUSION_TOP_K` and `VECTOR_MIN_SCORE` in place of the former `TOP_K` and `MIN_RETRIEVAL_SCORE` environment variables; the old names are no longer accepted.
 
 The application retains the most recent five complete REPL turns for intent context without trimming them by a local token estimate. `LLM_MAX_TOKENS` controls the separate output limit. The retired `LLM_CONTEXT_WINDOW_TOKENS` setting is ignored if it remains in an existing environment file.
 

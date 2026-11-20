@@ -51,13 +51,7 @@ def test_removed_context_window_in_env_file_does_not_prevent_startup(monkeypatch
     assert "context_window_tokens" not in settings.llm.model_dump()
 
 
-def test_legacy_output_budget_does_not_require_a_new_context_setting():
-    settings = make_settings(max_tokens=8192)
-
-    assert settings.max_tokens == 8192
-
-
-def test_legacy_output_budget_env_loads_without_context_window_setting(monkeypatch):
+def test_output_token_limit_env_loads_without_context_window_setting(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "ollama")
     monkeypatch.setenv("LLM_MODEL", "llama3.1")
     monkeypatch.setenv("LLM_MAX_TOKENS", "8192")
@@ -193,16 +187,34 @@ def test_agentic_attempt_budgets_default_to_three(tmp_path):
     assert settings.agentic_max_answer_attempts == 3
 
 
+def test_agentic_attempt_budgets_accept_upper_limit(tmp_path):
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir()
+
+    settings = Settings(
+        _env_file=None,
+        llm=make_settings(),
+        notes_dir=notes_dir,
+        storage_dir=tmp_path / "storage",
+        logs_dir=tmp_path / "logs",
+        agentic_max_search_attempts=10,
+        agentic_max_answer_attempts=10,
+    )
+
+    assert settings.agentic_max_search_attempts == 10
+    assert settings.agentic_max_answer_attempts == 10
+
+
 @pytest.mark.parametrize(
     ("name", "value"),
     [
         ("AGENTIC_MAX_SEARCH_ATTEMPTS", 0),
-        ("AGENTIC_MAX_SEARCH_ATTEMPTS", 6),
+        ("AGENTIC_MAX_SEARCH_ATTEMPTS", 11),
         ("AGENTIC_MAX_ANSWER_ATTEMPTS", 0),
-        ("AGENTIC_MAX_ANSWER_ATTEMPTS", 6),
+        ("AGENTIC_MAX_ANSWER_ATTEMPTS", 11),
     ],
 )
-def test_agentic_attempt_budgets_reject_values_outside_one_to_five(
+def test_agentic_attempt_budgets_reject_values_outside_one_to_ten(
     tmp_path,
     name,
     value,

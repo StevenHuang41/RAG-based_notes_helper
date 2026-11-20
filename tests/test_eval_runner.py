@@ -564,8 +564,8 @@ def test_default_evaluation_run_writes_artifacts_under_results(monkeypatch):
         embed_model_name="fixture-embedding",
         chunk_size=200,
         chunk_overlap=50,
-        top_k=3,
-        min_retrieval_score=0.0,
+        fusion_top_k=3,
+        vector_min_score=0.0,
     )
 
     @contextmanager
@@ -607,8 +607,8 @@ def test_sampled_run_records_reproducible_case_selection(
         embed_model_name="fixture-embedding",
         chunk_size=200,
         chunk_overlap=50,
-        top_k=3,
-        min_retrieval_score=0.0,
+        fusion_top_k=3,
+        vector_min_score=0.0,
     )
 
     @contextmanager
@@ -698,8 +698,8 @@ def test_seed_without_sample_runs_full_fixture(monkeypatch, tmp_path):
             embed_model_name="fixture-embedding",
             chunk_size=200,
             chunk_overlap=50,
-            top_k=3,
-            min_retrieval_score=0.0,
+            fusion_top_k=3,
+            vector_min_score=0.0,
         ), object(), object()
 
     def record_case(case, *, workflow, rag, meta_store):
@@ -772,8 +772,8 @@ def test_run_summary_counts_errors_and_unavailable_answers_separately(
         embed_model_name="fixture-embedding",
         chunk_size=200,
         chunk_overlap=50,
-        top_k=3,
-        min_retrieval_score=0.0,
+        fusion_top_k=3,
+        vector_min_score=0.0,
     )
 
     @contextmanager
@@ -912,8 +912,8 @@ def test_whitespace_answer_is_unavailable_and_not_ragas_eligible(
         embed_model_name="fixture-embedding",
         chunk_size=200,
         chunk_overlap=50,
-        top_k=3,
-        min_retrieval_score=0.0,
+        fusion_top_k=3,
+        vector_min_score=0.0,
     )
 
     @contextmanager
@@ -1266,7 +1266,7 @@ def test_classic_evaluation_records_stage_metrics_and_fair_rerank_comparison(
         vector_top_k=3,
         bm25_top_k=2,
         fusion_top_k=3,
-        min_retrieval_score=0.0,
+        vector_min_score=0.0,
     )
 
     @contextmanager
@@ -1437,7 +1437,7 @@ def test_classic_evaluation_records_stage_metrics_and_fair_rerank_comparison(
 def test_classic_report_keeps_unmeasured_latencies_unavailable(monkeypatch):
     settings = SimpleNamespace(
         llm=SimpleNamespace(max_chunks=1),
-        top_k=1,
+        fusion_top_k=1,
     )
     case = {
         "id": "unmeasured-latency",
@@ -1510,8 +1510,8 @@ def test_artifact_failure_does_not_log_successful_write(
         embed_model_name="fixture-embedding",
         chunk_size=100,
         chunk_overlap=10,
-        top_k=5,
-        min_retrieval_score=0.0,
+        fusion_top_k=5,
+        vector_min_score=0.0,
     )
 
     @contextmanager
@@ -1573,8 +1573,8 @@ def test_run_evaluation_records_ordered_context_prefix_metrics(
         embed_model_name="fixture-embedding",
         chunk_size=200,
         chunk_overlap=50,
-        top_k=2,
-        min_retrieval_score=0.0,
+        fusion_top_k=2,
+        vector_min_score=0.0,
     )
 
     @contextmanager
@@ -1748,8 +1748,8 @@ def test_run_evaluation_uses_final_answer_context_for_context_utilization(
         embed_model_name="fixture-embedding",
         chunk_size=200,
         chunk_overlap=50,
-        top_k=2,
-        min_retrieval_score=0.0,
+        fusion_top_k=2,
+        vector_min_score=0.0,
     )
     selected_hit = {
         "source": "notes/alpha.md", "chunk_id": 1,
@@ -1865,7 +1865,7 @@ def test_run_evaluation_judges_only_generated_answers_with_references(
         vector_top_k=1,
         bm25_top_k=1,
         fusion_top_k=1,
-        min_retrieval_score=0.0,
+        vector_min_score=0.0,
     )
     context_hit = {
         "source": "notes/context.md",
@@ -2065,7 +2065,7 @@ def test_run_evaluation_records_agentic_outcomes_and_ragas_applicability(
         vector_top_k=3,
         bm25_top_k=3,
         fusion_top_k=3,
-        min_retrieval_score=0.0,
+        vector_min_score=0.0,
     )
 
     @contextmanager
@@ -2323,7 +2323,7 @@ def test_paired_workflows_select_same_cases_and_preserve_runtime_paths(
         vector_top_k=3,
         bm25_top_k=3,
         fusion_top_k=3,
-        min_retrieval_score=0.0,
+        vector_min_score=0.0,
     )
     isolated_index_calls = []
     query_workflows = []

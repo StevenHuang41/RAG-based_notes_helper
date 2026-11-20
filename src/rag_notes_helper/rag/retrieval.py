@@ -290,10 +290,8 @@ def retrieve(
             "vector_min_score and bm25_min_score_ratio must be provided together."
         )
     if vector_min_score is None:
-        vector_min_score = getattr(settings, "vector_min_score", None)
-        if vector_min_score is None:
-            vector_min_score = settings.min_retrieval_score
-        bm25_min_score_ratio = getattr(settings, "bm25_min_score_ratio", 0.0)
+        vector_min_score = settings.vector_min_score
+        bm25_min_score_ratio = settings.bm25_min_score_ratio
     vector_min_score = _validate_threshold("vector_min_score", vector_min_score)
     bm25_min_score_ratio = _validate_threshold(
         "bm25_min_score_ratio",

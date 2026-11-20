@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Literal
 
 from pydantic import (
-    AliasChoices,
     Field,
     SecretStr,
     model_validator,
@@ -13,8 +12,6 @@ from pydantic import (
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LLMProvider = Literal["hf", "openai", "ollama", "gemini", "openrouter"]
-DEFAULT_CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L6-v2"
-
 
 class LLMSettings(BaseSettings):
 
@@ -25,13 +22,13 @@ class LLMSettings(BaseSettings):
         extra="ignore",
     )
 
-    provider: LLMProvider
-    model: str
+    provider: LLMProvider = "ollama"
+    model: str = "gemma4:e2b"
     api_key: SecretStr | None = None
 
     max_chunks: int = Field(5, gt=0, le=50)
-    max_tokens: int = Field(1024, gt=0)
-    temperature: float = Field(0.3, gt=0, le=1)
+    max_tokens: int = Field(2048, gt=0)
+    temperature: float = Field(0.1, ge=0, le=1)
 
     eval_provider: LLMProvider | None = None
     eval_model: str | None = None
@@ -110,41 +107,23 @@ class Settings(BaseSettings):
     embed_model_name: str = Field("sentence-transformers/all-MiniLM-L6-v2")
 
     # chunking strategy
-    chunk_size: int = Field(1000, gt=0)
-    chunk_overlap: int = Field(200, gt=0)
+    chunk_size: int = Field(200, gt=0)
+    chunk_overlap: int = Field(50, gt=0)
 
     # retrieval
     vector_top_k: int = Field(30, gt=0, le=50)
     bm25_top_k: int = Field(20, gt=0, le=50)
-    fusion_top_k: int = Field(
-        15,
-        gt=0,
-        le=50,
-        validation_alias=AliasChoices("FUSION_TOP_K", "TOP_K", "fusion_top_k"),
+    fusion_top_k: int = Field(10, gt=0, le=50)
+    vector_min_score: float = Field(0.3, ge=0, le=1)
+    bm25_min_score_ratio: float = Field(0.0, ge=0, le=1)
+    cross_encoder_model: str = Field(
+        "cross-encoder/ms-marco-MiniLM-L6-v2",
+        min_length=1
     )
-    vector_min_score: float = Field(
-        0.2,
-        ge=0,
-        le=1,
-        allow_inf_nan=False,
-        validation_alias=AliasChoices(
-            "VECTOR_MIN_SCORE",
-            "MIN_RETRIEVAL_SCORE",
-            "vector_min_score",
-            "min_retrieval_score",
-        ),
-    )
-    bm25_min_score_ratio: float = Field(
-        0.0,
-        ge=0,
-        le=1,
-        allow_inf_nan=False,
-    )
-    cross_encoder_model: str = Field(DEFAULT_CROSS_ENCODER_MODEL, min_length=1)
 
     # Agentic total-attempt budgets, including each initial attempt.
-    agentic_max_search_attempts: int = Field(3, ge=1, le=5)
-    agentic_max_answer_attempts: int = Field(3, ge=1, le=5)
+    agentic_max_search_attempts: int = Field(3, ge=1, le=10)
+    agentic_max_answer_attempts: int = Field(3, ge=1, le=10)
 
     # format
     stream: bool = True
@@ -172,16 +151,6 @@ class Settings(BaseSettings):
         self.logs_dir.mkdir(parents=True, exist_ok=True)
 
         return self
-
-    @property
-    def top_k(self) -> int:
-        """Compatibility alias for the final fused retrieval result limit."""
-        return self.fusion_top_k
-
-    @property
-    def min_retrieval_score(self) -> float:
-        """Compatibility alias for the Vector starting threshold."""
-        return self.vector_min_score
 
 
 @lru_cache

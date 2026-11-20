@@ -24,7 +24,7 @@ def _settings():
         vector_top_k=2,
         bm25_top_k=2,
         fusion_top_k=3,
-        min_retrieval_score=0.0,
+        vector_min_score=0.0,
     )
 
 

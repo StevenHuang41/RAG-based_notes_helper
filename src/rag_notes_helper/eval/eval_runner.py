@@ -1395,7 +1395,7 @@ def _record_case(
     retrieval_metrics = calculate_retrieval_metrics(
         expected_evidence=case["expected_evidence"],
         retrieval_lists=raw_search_results,
-        top_k=get_settings().top_k,
+        top_k=get_settings().fusion_top_k,
     )
     context_prefix_metrics = calculate_context_prefix_metrics(
         expected_evidence=case["expected_evidence"],
@@ -1905,8 +1905,8 @@ def run_evaluation(
                 "cross_encoder_model": getattr(settings, "cross_encoder_model", None),
                 "chunk_size": settings.chunk_size,
                 "chunk_overlap": settings.chunk_overlap,
-                "top_k": settings.top_k,
-                "min_retrieval_score": settings.min_retrieval_score,
+                "top_k": settings.fusion_top_k,
+                "min_retrieval_score": settings.vector_min_score,
                 "max_answer_chunks": settings.llm.max_chunks,
                 "max_tokens": getattr(settings.llm, "max_tokens", None),
                 "agentic_max_searches": getattr(

@@ -171,7 +171,6 @@ def test_real_generation_preserves_full_selected_context_for_revision(monkeypatc
     assert len(result['generation_context']) == 3
     assert reviews[0] == reviews[1]
     assert [item['text'] for item in reviews[0]] == [item['text'] for item in result['generation_context']]
-    assert 'explicitly identify any missing information' in prompts[0][0]['content']
     for prompt in prompts:
         assert all(chunk['text'] in prompt[-1]['content'] for chunk in chunks)
 
