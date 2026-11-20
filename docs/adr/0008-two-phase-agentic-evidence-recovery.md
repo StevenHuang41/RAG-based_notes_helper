@@ -2,6 +2,8 @@
 
 Status: Accepted — implemented locally; live-provider limitations are recorded in the feature verification report.
 
+Amended by [ADR-0011](0011-evidence-gated-answer-generation.md) for zero-evidence gating, selected-context review, and Retrieval-review failure handling.
+
 Amended by [ADR-0009](0009-remove-local-context-window-budget.md): local context-window budget checks and budget-driven trimming are removed. Complete-pool review and provider-failure fallback remain in effect.
 
 ## Context

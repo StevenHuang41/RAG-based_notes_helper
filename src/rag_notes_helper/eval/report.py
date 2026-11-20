@@ -591,6 +591,7 @@ def _render_workflow_outcome(case: dict[str, Any]) -> list[str]:
                 ["Answer attempts", case.get("answer_attempts")],
                 ["Assessed question", (case.get("retrieval_coverage", {}) or {}).get("assessed_question")],
                 ["Pool coverage", (case.get("retrieval_coverage", {}) or {}).get("coverage")],
+                ["Generation context coverage", (case.get("generation_context_coverage", {}) or {}).get("coverage")],
                 ["Missing information", (case.get("retrieval_coverage", {}) or {}).get("missing_information")],
                 ["Retrieval stop reason", case.get("retrieval_stop_reason")],
                 ["Workflow degraded", case.get("workflow_degraded")],

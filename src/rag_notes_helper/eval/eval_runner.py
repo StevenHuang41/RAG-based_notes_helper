@@ -1505,7 +1505,7 @@ def _record_case(
         for key in ("chunks_pool", "selected_pool"):
             record[key] = [evidence_record(hit) for hit in result.get(key, [])]
         for key in (
-            "retrieval_coverage", "retrieval_reviews", "retrieval_stop_reason",
+            "retrieval_coverage", "generation_context_coverage", "retrieval_reviews", "retrieval_stop_reason",
             "retrieval_degradation", "final_selection", "review_passed",
             "answer_coverage", "answer_missing_information",
             "failure_category",
