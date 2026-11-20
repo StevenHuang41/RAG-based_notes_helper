@@ -317,7 +317,7 @@ The controller may adjust the query or thresholds for another Search.
 After retrieval, the workflow selects context for generation.
 Answer revisions use the same context and do not reopen retrieval.
 
-The workflow can also request rephrasing of an unintelligible question.
+If the initial Search returns no chunks, either workflow returns a search-limitation message suggesting a revised question; Agentic skips controller review and additional searches.
 If Retrieval review fails, it continues with the available chunks and records degradation.
 
 ## Evaluation
