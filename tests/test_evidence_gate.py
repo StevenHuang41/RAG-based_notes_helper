@@ -79,3 +79,29 @@ def test_retrieval_review_failure_never_generates(monkeypatch):
     assert result["retrieval_coverage"]["coverage"] == "unknown"
     assert result["retrieved_evidence"]
     assert not calls
+
+
+def test_selected_partial_context_is_answered_and_reviewed(monkeypatch):
+    monkeypatch.setattr(agentic, "get_settings", lambda: SimpleNamespace(
+        agentic_max_search_attempts=1, agentic_max_answer_attempts=1,
+        llm=SimpleNamespace(max_chunks=1),
+    ))
+    hits = [{"source": "notes.md", "chunk_id": i, "text": str(i), "score": 0.5} for i in range(2)]
+    monkeypatch.setattr(agentic, "rerank_candidates", lambda q, candidates, **kwargs: candidates)
+    class Controller:
+        def generate_raw(self, messages, **kwargs):
+            payload = json.loads(messages[-1]["content"])
+            if "chunks_pool" not in payload:
+                return json.dumps({"action": "accept", "answer_coverage": "partial", "missing_information": ["date"]})
+            return json.dumps({"coverage": "partial_evidence" if payload.get("phase") else "sufficient_evidence", "missing_information": ["date"]})
+    used = []
+    def answer(query, *, hits, **kwargs):
+        used.extend(hits)
+        return {"answer": "The owner is Lena; the date is unavailable.", "citations": [], "generation_context": hits}
+    result = agentic.agentic_answer("question", rag=None, meta_store=None,
+        search_fn=lambda q, **kwargs: hits, controller=Controller(), answer_fn=answer)
+    assert result["review_passed"] is True
+    assert result["answer_coverage"] == "partial"
+    assert result["generation_context_coverage"]["coverage"] == "partial_evidence"
+    assert [hit["chunk_id"] for hit in used] == [0]
+    assert result["generation_context"] == used

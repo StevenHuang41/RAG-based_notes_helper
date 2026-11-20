@@ -50,7 +50,8 @@ def test_query_reviews_large_complementary_pool_and_stops_after_second_search(mo
 
     assert result["review_passed"] is True
     assert searches == [question, "launch date"]
-    assert [review["question"] for review in reviews] == [question, question]
+    assert [review["question"] for review in reviews] == [question, question, question]
+    assert len(reviews[2]["chunks_pool"]) == 1
     assert reviews[1]["last_search"]["query"] == "launch date"
     assert reviews[1]["chunks_pool"] == [
         {key: chunk[key] for key in ("source", "chunk_id", "text")}
@@ -91,7 +92,7 @@ def test_query_reviews_pool_before_selecting_generation_context(monkeypatch, poo
             payload = json.loads(messages[-1]["content"])
             if "chunks_pool" in payload:
                 events.append("retrieval_review")
-                assert len(payload["chunks_pool"]) == pool_size
+                assert len(payload["chunks_pool"]) == (min(2, pool_size) if payload.get("phase") == "generation_context_review" else pool_size)
                 assert payload["question"] == "Who owns launch?"
                 return json.dumps({"coverage": "sufficient_evidence", "missing_information": []})
             events.append("answer_review")
@@ -118,7 +119,7 @@ def test_query_reviews_pool_before_selecting_generation_context(monkeypatch, poo
     monkeypatch.setattr(agentic, "rag_answer", answer)
     calls = []
     result = cli.run_query(object(), object(), query="Who owns launch?", agentic=True, on_generation=calls.append)
-    assert events == ["search", "retrieval_review", "answer", "answer_review"]
+    assert events == ["search", "retrieval_review"] + (["retrieval_review"] if pool_size > 2 else []) + ["answer", "answer_review"]
     assert result["retrieval_coverage"] == {
         "assessed_question": "Who owns launch?", "coverage": "sufficient_evidence", "missing_information": [],
     }
@@ -131,7 +132,7 @@ def test_query_reviews_pool_before_selecting_generation_context(monkeypatch, poo
     assert reranks == (["Who owns launch?"] if pool_size > 2 else [])
     assert [c["chunk_id"] for c in result["generation_context"]] == [c["chunk_id"] for c in result["selected_pool"]]
     assert result["retrieval_reviews"][0]["search_id"] == 1
-    assert [c["phase"] for c in calls] == ["retrieval_review", "answer_review"]
+    assert [c["phase"] for c in calls] == ["retrieval_review"] + (["generation_context_review"] if pool_size > 2 else []) + ["answer_review"]
     assert result["answer"] == "Lena owns launch."
 
 
@@ -269,6 +270,10 @@ def test_query_handles_empty_pools_and_retrieval_review_degradation(monkeypatch,
         assert result["answer_attempts"] == 0
         assert result["reason_code"] == ("needs_clarification" if scenario == "unintelligible" else "no_retrieval_results")
         assert len(searches) == (3 if scenario == "intelligible_empty" else 1)
+    elif scenario in {"invalid_review", "provider_failure", "provider_context_failure", "repeated_plan"}:
+        assert not answers
+        assert result["reason_code"] == "controller_failure"
+        assert result["workflow_error"] == "controller_failure"
     else:
         assert len(answers) == 1
         assert result["answer"] == "Lena owns launch."
