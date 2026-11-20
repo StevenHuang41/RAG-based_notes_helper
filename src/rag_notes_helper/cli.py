@@ -25,7 +25,7 @@ from rag_notes_helper.rag.retrieval import (
     HybridSearchResults,
     retrieve,
 )
-from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE, rag_answer
+from rag_notes_helper.rag.answer import rag_answer
 from rag_notes_helper.rag.agentic import (
     AgenticProgress,
     AgenticWorkflowError,
@@ -415,11 +415,7 @@ def run_query(
         result["reason_code"] = "insufficient_evidence"
         result["response_origin"] = "deterministic"
     else:
-        result["reason_code"] = (
-            "insufficient_evidence"
-            if result["answer"] == ABSTENTION_MESSAGE
-            else "answered"
-        )
+        result["reason_code"] = "answered"
         result["response_origin"] = "answer_model"
     result["retrieved_evidence"] = hits
     result["search_queries"] = [query]

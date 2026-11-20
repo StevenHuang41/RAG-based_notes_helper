@@ -34,7 +34,6 @@ from rag_notes_helper.eval.retrieval_metrics import (
     calculate_retrieval_metrics,
 )
 from rag_notes_helper.eval.report import write_readme
-from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE
 from rag_notes_helper.rag.index import (
     RagIndex,
     build_and_save_rag_from_isolated_corpus,
@@ -590,6 +589,8 @@ def _answerability_fields(
     reason_code: str | None = None,
     workflow_error: bool = False,
     forced_abstention: bool = False,
+    workflow: str | None = None,
+    response_origin: str | None = None,
 ) -> dict[str, Any]:
     expected_answerable = bool(case["answerable"])
     non_answer_outcomes = {
@@ -605,6 +606,7 @@ def _answerability_fields(
         workflow_error
         or not has_nonblank_answer(answer)
         or reason_code in non_answer_outcomes
+        or (workflow == "classic" and response_origin == "answer_model")
     ):
         return {
             "expected_answerable": expected_answerable,
@@ -613,14 +615,7 @@ def _answerability_fields(
             "correct_abstention": None,
             "answerability_correct": None,
         }
-    abstained = (
-        forced_abstention
-        or reason_code == "insufficient_evidence"
-        or (
-            isinstance(answer, str)
-            and answer.strip().casefold() == ABSTENTION_MESSAGE.casefold()
-        )
-    )
+    abstained = forced_abstention or reason_code == "insufficient_evidence"
     predicted_answerable = not abstained
     return {
         "expected_answerable": expected_answerable,
@@ -1456,6 +1451,8 @@ def _record_case(
             reason_code=result.get("reason_code"),
             workflow_error=workflow_error is not None,
             forced_abstention=result.get("answer_retry_exhausted") is True,
+            workflow=workflow,
+            response_origin=result.get("response_origin"),
         ),
         **_retrieval_coverage(case, evidence_records),
         "retrieval_metrics": {

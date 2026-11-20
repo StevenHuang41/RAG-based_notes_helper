@@ -13,7 +13,6 @@ import numpy as np
 import pytest
 
 from rag_notes_helper.eval import eval_runner
-from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE
 from rag_notes_helper.rag.agentic import (
     ANSWER_RETRY_EXHAUSTED_MESSAGE,
     NO_RETRIEVAL_RESULTS_MESSAGE,
@@ -380,13 +379,13 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
         for case in results["cases"]
     )
     assert all(
-        case["answerability_correct"] is True
+        case["answerability_correct"] is (True if agentic else None)
         for case in results["cases"]
         if case["expected_answerable"]
     )
     assert all(
-        case["answerability_correct"] is False
-        and case["correct_abstention"] is False
+        case["answerability_correct"] is (False if agentic else None)
+        and case["correct_abstention"] is (False if agentic else None)
         for case in results["cases"]
         if not case["expected_answerable"]
     )
@@ -405,28 +404,28 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert workflow_summary["answerability_outcomes"] == {
         "expected_answerable": {
             "case_count": answerable_count,
-            "answered_count": answerable_count,
+            "answered_count": answerable_count if agentic else 0,
             "abstained_count": 0,
-            "unavailable_count": 0,
+            "unavailable_count": 0 if agentic else answerable_count,
             "retrieval_empty_count": 0,
             "clarification_count": 0,
             "insufficient_evidence_count": 0,
             "answer_attempts_exhausted_count": 0,
             "error_count": 0,
-            "unavailable_or_error_count": 0,
-            "correct_behavior_count": answerable_count,
+            "unavailable_or_error_count": 0 if agentic else answerable_count,
+            "correct_behavior_count": answerable_count if agentic else 0,
         },
         "expected_unanswerable": {
             "case_count": unanswerable_count,
-            "answered_count": unanswerable_count,
+            "answered_count": unanswerable_count if agentic else 0,
             "abstained_count": 0,
-            "unavailable_count": 0,
+            "unavailable_count": 0 if agentic else unanswerable_count,
             "retrieval_empty_count": 0,
             "clarification_count": 0,
             "insufficient_evidence_count": 0,
             "answer_attempts_exhausted_count": 0,
             "error_count": 0,
-            "unavailable_or_error_count": 0,
+            "unavailable_or_error_count": 0 if agentic else unanswerable_count,
             "correct_behavior_count": 0,
         },
     }
@@ -1821,7 +1820,7 @@ def test_run_evaluation_judges_only_generated_answers_with_references(
 ):
     outcome_specs = [
         ("normal", True, "Grounded answer.", None, None),
-        ("abstention", False, ABSTENTION_MESSAGE, None, None),
+        ("abstention", False, "I cannot find the answers in the notes.", None, None),
         (
             "clarification",
             False,
@@ -2019,7 +2018,7 @@ def test_run_evaluation_records_agentic_outcomes_and_ragas_applicability(
     selected_context = [candidate_b, candidate_a]
     outcome_specs = [
         ("answered", True, "The pilot ran for six weeks.", "answered", "answer_model", [candidate_a, candidate_b], selected_context, None),
-        ("answer-model-abstention", False, ABSTENTION_MESSAGE, "insufficient_evidence", "answer_model", [candidate_a, candidate_b], selected_context, None),
+        ("answer-model-abstention", False, "I cannot find the answers in the notes.", "insufficient_evidence", "answer_model", [candidate_a, candidate_b], selected_context, None),
         (
             "answer-model-paraphrase-abstention",
             False,
@@ -2030,8 +2029,8 @@ def test_run_evaluation_records_agentic_outcomes_and_ragas_applicability(
             selected_context,
             None,
         ),
-        ("answer-model-abstention-no-context", False, ABSTENTION_MESSAGE, "insufficient_evidence", "answer_model", [candidate_a], [], None),
-        ("controller-abstention", False, ABSTENTION_MESSAGE, "insufficient_evidence", "controller", [candidate_a], [candidate_a], None),
+        ("answer-model-abstention-no-context", False, "I cannot find the answers in the notes.", "insufficient_evidence", "answer_model", [candidate_a], [], None),
+        ("controller-abstention", False, "I cannot find the answers in the notes.", "insufficient_evidence", "controller", [candidate_a], [candidate_a], None),
         ("clarification", False, "Which pilot are you asking about?", "needs_clarification", "controller", [candidate_a], [], None),
         ("retrieval-empty", True, NO_RETRIEVAL_RESULTS_MESSAGE, "no_retrieval_results", "deterministic", [], [], None),
         ("answer-exhausted", True, ANSWER_RETRY_EXHAUSTED_MESSAGE, "answer_attempts_exhausted", "deterministic", [candidate_a], [candidate_a], None),

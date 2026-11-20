@@ -223,3 +223,11 @@ def test_provider_failure_preserves_full_attempted_context_without_raw_error(mon
     assert result['citations'] == []
     assert result['review_passed'] is False
     assert any(call.get('phase') == 'answer_generation' for call in usage)
+
+
+def test_answer_review_decision_not_answer_wording_controls_outcome(monkeypatch):
+    setup_query(monkeypatch, [{'action': 'accept', 'answer_coverage': 'partial'}],
+                ['I cannot find the answers in the notes.'])
+    result = cli.run_query(object(), object(), query='What is missing?', agentic=True)
+    assert result['reason_code'] == 'answered'
+    assert result['answer_coverage'] == 'partial'

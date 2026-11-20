@@ -4,7 +4,7 @@ import pytest
 
 from rag_notes_helper.core.config import get_settings
 from rag_notes_helper.rag import answer as answer_module
-from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE, rag_answer
+from rag_notes_helper.rag.answer import rag_answer
 from rag_notes_helper.rag.retrieval import HybridSearchResults
 
 
@@ -376,6 +376,6 @@ def test_rag_answer_empty_hits_abstains_without_calling_llm(
     result = rag_answer(query="q", hits=[], stream=stream)
 
     assert result == {
-        "answer": ABSTENTION_MESSAGE,
+        "answer": "I could not find any relevant information in the notes. Please try rephrasing your question.",
         "citations": [],
     }
