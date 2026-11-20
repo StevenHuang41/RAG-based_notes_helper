@@ -57,7 +57,7 @@ def test_classic_empty_retrieval_returns_structured_no_evidence_outcome(
 
     assert queries == ["Who owns the launch?"]
     assert result["answer"] == (
-        "I could not find sufficient supporting evidence in the notes."
+        "This search found no related note content. Please try rephrasing your question."
     )
     assert result["reason_code"] == "no_evidence_after_searches"
     assert result["response_origin"] == "deterministic"
@@ -265,3 +265,22 @@ def test_cli_routes_submitted_whitespace_to_classic_one_shot(monkeypatch):
         "meta_store": "meta-store",
         "agentic": False,
     })]
+
+
+def test_agentic_initial_empty_search_returns_without_model_calls(monkeypatch):
+    searches = []
+    monkeypatch.setattr(agentic_module, "search_notes", lambda query, **kwargs: searches.append(query) or [])
+    monkeypatch.setattr(agentic_module, "get_llm", lambda: pytest.fail("empty retrieval must not call controller"))
+    monkeypatch.setattr(agentic_module, "rag_answer", lambda *args, **kwargs: pytest.fail("empty retrieval must not call Answer"))
+
+    result = cli.run_query(object(), object(), query="Who owns launch?", agentic=True)
+
+    assert searches == ["Who owns launch?"]
+    assert result["reason_code"] == "no_retrieval_results"
+    assert result["response_origin"] == "deterministic"
+    assert "question" in result["answer"].lower()
+    assert result["search_attempts"] == 1
+    assert result["search_queries"] == ["Who owns launch?"]
+    assert result["generation_context"] == []
+    assert result["retrieved_evidence"] == []
+    assert result["answer_attempts"] == 0

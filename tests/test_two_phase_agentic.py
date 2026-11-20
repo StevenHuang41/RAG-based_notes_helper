@@ -196,7 +196,7 @@ def test_query_accumulates_rewritten_searches_with_independent_attempt_cap(monke
     assert [p["search_id"] for p in pool[0]["search_provenance"]] == ([1] if cap == 1 else [1, *range(3, cap + 1)])
 
 
-@pytest.mark.parametrize("scenario", ["intelligible_empty", "unintelligible", "invalid_review", "provider_failure", "provider_context_failure", "invalid_then_valid", "empty_then_found", "intelligibility_invalid", "intelligibility_failure", "repeated_plan"])
+@pytest.mark.parametrize("scenario", ["invalid_review", "provider_failure", "provider_context_failure", "invalid_then_valid", "repeated_plan"])
 def test_query_handles_empty_pools_and_retrieval_review_degradation(monkeypatch, scenario):
     settings = SimpleNamespace(
         agentic_max_search_attempts=3, agentic_max_answer_attempts=1,
