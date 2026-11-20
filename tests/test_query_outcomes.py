@@ -5,7 +5,6 @@ import pytest
 
 from rag_notes_helper import cli
 from rag_notes_helper.rag import agentic as agentic_module
-from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE
 
 
 @pytest.mark.parametrize("query", ["", "   \t\n"])
@@ -150,7 +149,7 @@ def test_classic_grounded_answer_preserves_generation_evidence_and_metadata(
     assert result["search_queries"] == ["Who owns the launch?"]
 
 
-def test_classic_model_insufficient_evidence_is_distinct_from_empty_retrieval(
+def test_classic_free_form_model_answer_is_not_classified_by_text(
     monkeypatch,
 ):
     hit = {
@@ -164,7 +163,7 @@ def test_classic_model_insufficient_evidence_is_distinct_from_empty_retrieval(
         cli,
         "rag_answer",
         lambda *_args, **_kwargs: {
-            "answer": ABSTENTION_MESSAGE,
+            "answer": "I cannot find the answers in the notes.",
             "citations": [{"source": "notes/launch.md", "chunk_id": 4}],
             "generation_context": [hit],
         },
@@ -172,8 +171,8 @@ def test_classic_model_insufficient_evidence_is_distinct_from_empty_retrieval(
 
     result = cli.run_query(object(), object(), query="When is the launch?")
 
-    assert result["answer"] == ABSTENTION_MESSAGE
-    assert result["reason_code"] == "insufficient_evidence"
+    assert result["answer"] == "I cannot find the answers in the notes."
+    assert result["reason_code"] == "answered"
     assert result["response_origin"] == "answer_model"
 
 

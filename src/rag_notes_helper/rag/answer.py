@@ -14,8 +14,6 @@ from rag_notes_helper.rag.prompt_context import (
 from rag_notes_helper.utils.timer import deco_time_block
 
 
-ABSTENTION_MESSAGE = "I cannot find the answers in the notes."
-
 # - Start with the answer instead of a generic introductory phrase.
 # - Use clear natural language and an organized answer. Prose, headings, or lists
 # may be used when they help communicate the answer.
@@ -34,8 +32,7 @@ Rules:
 SYSTEM_PROMPT = f"""
 {_COMMON_SYSTEM_PROMPT}
 
-If the Context does not contain the answer, reply exactly:
-I cannot find the answers in the notes.
+If the Context does not contain the answer, explain what information is missing.
 """.strip()
 
 
@@ -43,8 +40,7 @@ AGENTIC_SYSTEM_PROMPT =  f"""
 {_COMMON_SYSTEM_PROMPT}
 
 Answer the parts supported by the Context and state what is missing.
-If no part is supported, reply exactly:
-I cannot find the answers in the notes.
+If no part is supported, explain that the Context does not contain the information needed.
 """.strip()
 
 
@@ -71,7 +67,7 @@ def rag_answer(
 
     if not hits:
         return {
-            "answer": ABSTENTION_MESSAGE,
+            "answer": "I could not find any relevant information in the notes. Please try rephrasing your question.",
             "citations": [],
         }
 

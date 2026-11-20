@@ -5,7 +5,6 @@ from types import SimpleNamespace
 import pytest
 
 from rag_notes_helper.eval import eval_runner
-from rag_notes_helper.rag.answer import ABSTENTION_MESSAGE
 
 
 def _settings():
@@ -261,7 +260,7 @@ def test_agentic_evaluation_preserves_search_stages_union_metrics_context_and_la
             "search_index": 1, "latency_ms": None, "result_count": 0,
         })
         return {
-            "answer": ABSTENTION_MESSAGE,
+            "answer": "I cannot find the answers in the notes.",
             "citations": [],
             "retrieved_evidence": [],
             "search_results": [[]],
@@ -429,7 +428,7 @@ def test_agentic_evaluation_preserves_search_stages_union_metrics_context_and_la
     assert answer_result["latency"]["rag_query_ms"] is not None
     assert answer_result["latency"]["end_to_end_ms"] is None
 
-    assert abstain_result["answer"] == ABSTENTION_MESSAGE
+    assert abstain_result["answer"] == "I cannot find the answers in the notes."
     assert abstain_result["generation_context"] == []
     assert abstain_result["final_context_metrics"]["recall"] is None
     assert abstain_result["retrieval_stage_metrics"]["vector"]["recall"] is None
