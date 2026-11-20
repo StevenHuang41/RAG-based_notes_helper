@@ -35,6 +35,62 @@ def test_zero_evidence_exhausts_search_without_answer(monkeypatch):
     assert result["retrieved_evidence"]
 
 
+def test_zero_evidence_can_recover_via_adaptive_search(monkeypatch):
+    monkeypatch.setattr(agentic, "get_settings", lambda: SimpleNamespace(
+        agentic_max_search_attempts=2, agentic_max_answer_attempts=1,
+        llm=SimpleNamespace(max_chunks=5),
+    ))
+    hits = [
+        {"source": "noise.md", "chunk_id": 0, "text": "unrelated", "score": .5},
+        {"source": "owner.md", "chunk_id": 1, "text": "Lena owns it", "score": .8},
+    ]
+    searches = []
+    def search(query, **kwargs):
+        searches.append(query)
+        return [hits[len(searches) - 1]]
+    class Controller:
+        def generate_raw(self, messages, **kwargs):
+            payload = json.loads(messages[-1]["content"])
+            if "chunks_pool" not in payload:
+                return json.dumps({"action": "accept"})
+            if len(payload["chunks_pool"]) == 1:
+                return json.dumps({"coverage": "zero_evidence", "next_search": {
+                    "query": "project owner", "vector_min_score": .1, "bm25_min_score_ratio": .0,
+                }})
+            return json.dumps({"coverage": "sufficient_evidence"})
+    used = []
+    def answer(query, *, hits, **kwargs):
+        used.extend(hits)
+        return {"answer": "Lena owns it.", "citations": [], "generation_context": hits}
+    result = agentic.agentic_answer("Who owns it?", rag=None, meta_store=None,
+        search_fn=search, controller=Controller(), answer_fn=answer)
+    assert searches == ["Who owns it?", "project owner"]
+    assert result["review_passed"] is True
+    assert result["answer"] == "Lena owns it."
+    assert [entry["coverage"] for entry in result["retrieval_reviews"]] == ["zero_evidence", "sufficient_evidence"]
+    assert len(used) == 2
+
+
+def test_selected_context_review_does_not_request_more_searches(monkeypatch):
+    monkeypatch.setattr(agentic, "get_settings", lambda: SimpleNamespace(
+        agentic_max_search_attempts=3, agentic_max_answer_attempts=1,
+        llm=SimpleNamespace(max_chunks=1),
+    ))
+    hits = [{"source": "notes.md", "chunk_id": i, "text": str(i), "score": .5} for i in range(2)]
+    monkeypatch.setattr(agentic, "rerank_candidates", lambda q, candidates, **kwargs: candidates)
+    class Controller:
+        def generate_raw(self, messages, **kwargs):
+            payload = json.loads(messages[-1]["content"])
+            if payload.get("phase") == "generation_context_review":
+                assert "provide a focused next_search" not in messages[0]["content"]
+                assert payload["searches_remaining"] == 0
+                return json.dumps({"coverage": "zero_evidence"})
+            return json.dumps({"coverage": "sufficient_evidence"})
+    result = agentic.agentic_answer("question", rag=None, meta_store=None,
+        search_fn=lambda q, **kwargs: hits, controller=Controller())
+    assert result["reason_code"] == "insufficient_evidence"
+
+
 def test_selected_context_zero_evidence_blocks_generation(monkeypatch):
     monkeypatch.setattr(agentic, "get_settings", lambda: SimpleNamespace(
         agentic_max_search_attempts=1, agentic_max_answer_attempts=1,
