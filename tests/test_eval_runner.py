@@ -432,7 +432,7 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     direct_summary = summary["workflows"][workflow]["by_category"]["direct"]
     assert direct_summary["generation_usage"]["token_usage"]["total_tokens"] == (
         sum(case["category"] == "direct" for case in fixture_cases)
-        * (26 if agentic else 12)
+        * (33 if agentic else 12)
     )
     direct_case_count = sum(
         case["category"] == "direct" for case in fixture_cases
@@ -457,12 +457,12 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
         "token_usage"
     ]["total_tokens"] == case_count * 3
     selected_case = results["cases"][0]
-    assert selected_case["generation_usage"]["call_count"] == (3 if agentic else 1)
+    assert selected_case["generation_usage"]["call_count"] == (4 if agentic else 1)
     assert selected_case["generation_usage"]["token_usage"] == {
         "status": "available",
-        "input_tokens": 16 if agentic else 10,
-        "output_tokens": 10 if agentic else 2,
-        "total_tokens": 26 if agentic else 12,
+        "input_tokens": 19 if agentic else 10,
+        "output_tokens": 14 if agentic else 2,
+        "total_tokens": 33 if agentic else 12,
     }
     if agentic:
         assert selected_case["generation_usage"]["character_usage"]["input"] > 0
@@ -487,11 +487,11 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
         "rag_query_ms"
     ]
     assert summary["workflows"][workflow]["generation_usage"]["call_count"] == (
-        len(fixture_cases) * (3 if agentic else 1)
+        len(fixture_cases) * (4 if agentic else 1)
     )
     assert summary["workflows"][workflow]["generation_usage"]["token_usage"][
         "total_tokens"
-    ] == len(fixture_cases) * (26 if agentic else 12)
+    ] == len(fixture_cases) * (33 if agentic else 12)
     assert summary["category_counts"] == {
         category: sum(case["category"] == category for case in fixture_cases)
         for category in ("direct", "multi_hop", "unanswerable", "ambiguous")

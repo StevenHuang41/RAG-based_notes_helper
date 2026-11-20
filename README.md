@@ -302,15 +302,20 @@ independent limits, each including the first attempt.
 ```mermaid
 flowchart TD
     Q[User Query] --> R[Retrieval]
-    R --> CR{"LLM Controller: check retrieved evidence"}
-    CR -->|sufficient evidence| G[Generation]
-    CR -->|zero/partial evidence| R
-    CR -->|"zero evidence (controller exceeds retrieval limit)"| A3(Search-limitation Response)
-    CR -->|"partial evidence (controller exceeds retrieval limit)"| G
+    R -->|initial search empty| A3(Search-limitation response)
+    R -->|chunks found| CR{"LLM Controller: assess pool"}
+    CR -->|zero/partial, searches remain| R
+    CR -->|zero after final search| A3
+    CR -->|partial or sufficient| S[Select generation context]
+    S --> CS{"Assess selected context if changed"}
+    CS -->|zero| A3
+    CS -->|partial or sufficient| G[Generation]
+    CR -->|review failure| E(Review error)
+    CS -->|review failure| E
     G --> CA{"LLM Controller: review generated answer quality"}
     CA -->|revise| G
     CA -->|pass| A1(Answer)
-    CA -->|controller exceeds generation limit| A2(Answer with missing information warning)
+    CA -->|attempts exhausted or review failure| A2(Verification warning)
 ```
 
 The controller may adjust the query or thresholds for another Search.
@@ -318,7 +323,7 @@ After retrieval, the workflow selects context for generation.
 Answer revisions use the same context and do not reopen retrieval.
 
 If the initial Search returns no chunks, either workflow returns a search-limitation message suggesting a revised question; Agentic skips controller review and additional searches.
-If Retrieval review fails, it continues with the available chunks and records degradation.
+After Search, zero evidence returns a fixed no-related-information response. The controller checks the selected generation context when selection removes chunks; only partial or sufficient evidence reaches Answer. A failed Retrieval review returns a workflow error without generation.
 
 ## Evaluation
 

@@ -2,6 +2,8 @@
 
 Status: Accepted — implemented locally; deterministic verification and live-provider limitations are recorded in the feature verification report.
 
+Amended by [ADR-0011](0011-evidence-gated-answer-generation.md) for Retrieval-review failure handling and selected-context coverage assessment.
+
 Remove `LLM_CONTEXT_WINDOW_TOKENS` and its runtime effects rather than replace it with model-capacity discovery. The current UTF-8-byte estimate can discard evidence or reject review before the provider is called. Provider capacity remains enforced by the deployment/provider; preserve existing provider-failure handling.
 
 ## Agreed design direction
