@@ -169,7 +169,7 @@ RETRIEVAL_FAILURE_MESSAGE = (
     "I could not complete the note search. Please try again."
 )
 NO_RETRIEVAL_RESULTS_MESSAGE = (
-    "This search found no usable note content to answer the question."
+    "This search found no related note content. Please try rephrasing your question."
 )
 
 
@@ -1180,7 +1180,10 @@ def _build_agentic_graph():
     graph.add_node("retrieval_review_failure", _retrieval_review_failure_node)
     graph.add_node("generation_context_review", _generation_context_review_node)
     graph.add_edge(START, "initial_search")
-    graph.add_edge("initial_search", "retrieval_review")
+    graph.add_conditional_edges(
+        "initial_search",
+        lambda state: "retrieval_review" if state["hits"] else "no_retrieval_results",
+    )
     graph.add_conditional_edges("retrieval_review", _route_after_retrieval_review)
     graph.add_edge("focused_search", "retrieval_review")
     graph.add_conditional_edges("select_context", lambda state: "generation_context_review" if state["selected_hits"] else "no_retrieval_results")

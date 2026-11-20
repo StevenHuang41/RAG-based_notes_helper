@@ -32,6 +32,7 @@ from rag_notes_helper.rag.agentic import (
     ProgressEventFunction,
     ProgressFunction,
     RETRIEVAL_FAILURE_MESSAGE,
+    NO_RETRIEVAL_RESULTS_MESSAGE,
     agentic_answer,
 )
 from rag_notes_helper.utils.logger import get_logger
@@ -396,7 +397,7 @@ def run_query(
     ] if isinstance(hits, HybridSearchResults) else []
     if not hits:
         return {
-            "answer": NO_EVIDENCE_MESSAGE,
+            "answer": NO_RETRIEVAL_RESULTS_MESSAGE,
             "citations": [],
             "generation_context": [],
             "retrieved_evidence": hits,
