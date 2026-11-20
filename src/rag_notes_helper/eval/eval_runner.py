@@ -1482,6 +1482,10 @@ def _record_case(
                 call.get("latency_ms") for call in generation_calls
                 if call.get("phase") == "answer_review"
             ]),
+            "generation_context_review_ms": _measured_latency_total([
+                call.get("latency_ms") for call in generation_calls
+                if call.get("phase") == "generation_context_review"
+            ]),
             "final_pool_rerank_ms": _safe_score((result.get("final_selection") or {}).get("latency_ms")),
             "answer_generation_ms": answer_latency_ms,
             "generation_ms": (

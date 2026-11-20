@@ -76,6 +76,8 @@ def _call_label(call: dict[str, Any], call_number: int) -> str:
             return f"{label} (Search {call['search_index']})"
         if call.get("phase") == "intelligibility" and call.get("search_index"):
             return f"{label} (Intelligibility, Search {call['search_index']})"
+        if call.get("phase") == "generation_context_review":
+            return f"{label} (Generation context review)"
         if call.get("phase") == "answer_review" and call.get("answer_attempt"):
             return f"{label} (Answer review {call['answer_attempt']})"
         return label
@@ -701,7 +703,7 @@ def _render_agentic_query_details(
             if call.get("call_type") != "controller" or call.get("search_index") != search_id:
                 continue
             phase = call.get("phase")
-            label = {"retrieval_review": "Retrieval review", "intelligibility": "Intelligibility check"}.get(phase)
+            label = {"retrieval_review": "Retrieval review", "intelligibility": "Intelligibility check", "generation_context_review": "Generation context review"}.get(phase)
             if label is not None:
                 per_search_rows.append([f"Search {search_id}", label, call.get("latency_ms")])
     lines.extend(_table(["Search", "Stage", "Measured latency (ms)"], per_search_rows))

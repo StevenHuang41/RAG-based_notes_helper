@@ -105,3 +105,29 @@ def test_selected_partial_context_is_answered_and_reviewed(monkeypatch):
     assert result["generation_context_coverage"]["coverage"] == "partial_evidence"
     assert [hit["chunk_id"] for hit in used] == [0]
     assert result["generation_context"] == used
+
+
+def test_invalid_selected_context_review_is_bounded_error(monkeypatch):
+    monkeypatch.setattr(agentic, "get_settings", lambda: SimpleNamespace(
+        agentic_max_search_attempts=1, agentic_max_answer_attempts=1,
+        llm=SimpleNamespace(max_chunks=1),
+    ))
+    hits = [{"source": "notes.md", "chunk_id": i, "text": str(i), "score": .5} for i in range(2)]
+    monkeypatch.setattr(agentic, "rerank_candidates", lambda q, candidates, **kwargs: candidates)
+    phases = []
+    class Controller:
+        def generate_raw(self, messages, **kwargs):
+            payload = json.loads(messages[-1]["content"])
+            phases.append(payload.get("phase", "retrieval_review"))
+            return "not json" if payload.get("phase") else json.dumps({"coverage": "sufficient_evidence"})
+    calls = []
+    result = agentic.agentic_answer("question", rag=None, meta_store=None,
+        search_fn=lambda q, **kwargs: hits, controller=Controller(),
+        answer_fn=lambda *a, **kwargs: calls.append(1))
+    assert phases == ["retrieval_review", "generation_context_review", "generation_context_review"]
+    assert result["reason_code"] == "controller_failure"
+    assert result["controller_failure_category"] == "invalid_json"
+    assert result["retrieval_coverage"]["coverage"] == "sufficient_evidence"
+    assert result["generation_context_coverage"]["coverage"] == "unknown"
+    assert result["retrieved_evidence"]
+    assert not calls
