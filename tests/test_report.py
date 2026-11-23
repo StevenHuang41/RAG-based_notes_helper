@@ -70,6 +70,8 @@ def test_report_uses_exact_token_sum_and_dash_for_unavailable_values(tmp_path):
                 "controller_ms": 1,
                 "answer_generation_ms": 2,
                 "rag_query_ms": 11,
+                "judge_ms": 3,
+                "judge_metrics_ms": {"faithfulness": 3},
             },
             "case_id": "usage", "generation_usage": {"calls": [
                 {"call_type": "answer", "provider": "fixture", "model": "v1", "latency_ms": 2,
@@ -77,14 +79,20 @@ def test_report_uses_exact_token_sum_and_dash_for_unavailable_values(tmp_path):
                 {"call_type": "controller", "provider": "fixture", "model": "v1", "latency_ms": 1,
                  "token_usage": {"input_tokens": None, "output_tokens": None, "total_tokens": None}},
             ]},
+            "judge_usage_by_metric": {"faithfulness": {
+                "calls": [{"provider": "judge", "model": "v2",
+                           "token_usage": {"input_tokens": 5, "output_tokens": 6}}],
+                "token_usage": {"input_tokens": 5, "output_tokens": 6},
+            }},
         }],
     }
     path = tmp_path / "README.md"
     write_readme(path, results)
     report = path.read_text(encoding="utf-8")
 
-    assert "| Answer call 1 | 2 | fixture / v1 | 3 | 4 | 7 |" in report
-    assert "| Controller call 1 | 1 | fixture / v1 | — | — | — |" in report
+    assert "| Answer call 1 | 2 | 3 | 4 | 7 |" in report
+    assert "| Controller call 1 | 1 | — | — | — |" in report
+    assert "| Judge: faithfulness | 3 | 5 | 6 | 11 |" in report
     assert "Calculated input+output" not in report
     assert "Usage status" not in report
     assert "Input chars" not in report
@@ -94,8 +102,10 @@ def test_report_uses_exact_token_sum_and_dash_for_unavailable_values(tmp_path):
     assert "Retrieval search" not in audit
     assert "RAG query latency" not in audit
     assert "Evaluation latency" not in audit
-    assert "| Controller total | 1 | — | — | — | — |" in audit
-    assert "| Answer total | 2 | — | 3 | 4 | 7 |" in audit
+    assert "Provider / model" not in audit
+    assert "| Controller total | 1 | — | — | — |" in audit
+    assert "| Answer total | 2 | 3 | 4 | 7 |" in audit
+    assert "| Judge total | 3 | — | — | — |" in audit
 
 
 def test_classic_query_detail_shows_stage_cutoffs_and_per_chunk_evidence(tmp_path):

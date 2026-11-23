@@ -104,15 +104,13 @@ def _execution_rows(case: dict[str, Any]) -> list[list[Any]]:
         rows.append([
             _call_label(call, call_counts[group]),
             call.get("latency_ms"),
-            f"{call.get('provider', '—')} / {call.get('model', '—')}",
             *_usage_columns(call),
         ])
     for metric, usage in (case.get("judge_usage_by_metric", {}) or {}).items():
         calls = usage.get("calls", [])
         metric_latency = (latency.get("judge_metrics_ms", {}) or {}).get(metric)
         if calls or metric_latency is not None:
-            providers = sorted({f"{call.get('provider', '—')} / {call.get('model', '—')}" for call in calls})
-            rows.append([f"Judge: {metric}", metric_latency, ", ".join(providers) or "—", *_usage_columns(usage)])
+            rows.append([f"Judge: {metric}", metric_latency, *_usage_columns(usage)])
     controller_calls = [
         call for call in generation_calls if call.get("call_type") == "controller"
     ]
@@ -130,7 +128,6 @@ def _execution_rows(case: dict[str, Any]) -> list[list[Any]]:
             rows.append([
                 label,
                 latency.get(latency_key),
-                "—",
                 *_summed_usage_columns(calls),
             ])
     return rows
@@ -615,7 +612,7 @@ def _render_execution_audit(case: dict[str, Any]) -> list[str]:
         "#### Execution audit: latency and token usage",
         "",
         *_table(
-            ["Process/call", "Latency (ms)", "Provider / model", "Provider input tokens", "Provider output tokens", "Total tokens"],
+            ["Process/call", "Latency (ms)", "Provider input tokens", "Provider output tokens", "Total tokens"],
             _execution_rows(case),
         ),
         "",
