@@ -48,7 +48,7 @@ BASELINE_CATEGORY_COUNTS = {
     "direct": 4,
     "multi_hop": 4,
     "unanswerable": 4,
-    "ambiguous": 4,
+    "reasoning": 4,
 }
 SEED_CASE_IDS = frozenset(
     {
@@ -64,10 +64,10 @@ SEED_CASE_IDS = frozenset(
         "unanswerable-02",
         "unanswerable-03",
         "unanswerable-04",
-        "ambiguous-01",
-        "ambiguous-02",
-        "ambiguous-03",
-        "ambiguous-04",
+        "reasoning-01",
+        "reasoning-02",
+        "reasoning-03",
+        "reasoning-04",
     }
 )
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -301,13 +301,8 @@ def load_qa_fixture(path: Path | None = None) -> list[dict[str, Any]]:
                 f"QA case {case_id} must define challenge tags as unique, "
                 "non-empty strings."
             )
-        if record["category"] == "ambiguous":
-            reason = record.get("ambiguity_reason")
-            if record["answerable"] or not isinstance(reason, str) or not reason.strip():
-                raise ValueError(
-                    f"Ambiguous QA case {case_id} must be unanswerable and include "
-                    "a non-empty ambiguity_reason."
-                )
+        if record["category"] in {"direct", "multi_hop", "reasoning"} and not record["answerable"]:
+            raise ValueError(f"QA case {case_id} in this category must be answerable.")
         if record["category"] == "unanswerable":
             missing_information = record.get("missing_information")
             if (
@@ -349,10 +344,6 @@ def load_qa_fixture(path: Path | None = None) -> list[dict[str, Any]]:
         if record["answerable"] and not evidence:
             raise ValueError(
                 f"QA case {case_id} requires expected_evidence spans."
-            )
-        if record["category"] == "ambiguous" and (not sources or not evidence):
-            raise ValueError(
-                f"Ambiguous QA case {case_id} requires evidence for its ambiguity."
             )
         for annotation in evidence:
             if not isinstance(annotation, dict) or not {

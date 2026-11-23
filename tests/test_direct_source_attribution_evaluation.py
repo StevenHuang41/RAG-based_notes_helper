@@ -42,15 +42,9 @@ def test_direct_source_attribution_cases_complete_in_evaluation(
     reviewed_cases = eval_runner.load_qa_fixture()
 
     assert len(results["cases"]) == len(reviewed_cases)
-    assert len(direct_cases) == 10
+    assert len(direct_cases) == 5
     assert {case["case_id"] for case in direct_cases} == {
-        f"direct-{number:02}" for number in range(1, 11)
+        f"direct-{number:02}" for number in range(1, 6)
     }
-    new_case_ids = {f"direct-{number:02}" for number in range(5, 11)}
-    assert all(
-        "source_attribution" in case["challenge_tags"]
-        for case in direct_cases
-        if case["case_id"] in new_case_ids
-    )
     assert all(case["expected_sources"] for case in direct_cases)
     assert all(case["expected_evidence"] for case in direct_cases)

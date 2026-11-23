@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,28 @@ def _write_fixture(tmp_path: Path, records) -> Path:
 
 def _fixture_records():
     return json.loads(eval_runner.QA_FIXTURE.read_text(encoding="utf-8"))
+
+
+def test_reviewed_fixture_has_four_files_and_twenty_grounded_cases():
+    cases = eval_runner.load_qa_fixture()
+    assert len(list(eval_runner.NOTES_FIXTURE.glob("*.md"))) == 4
+    assert Counter(case["category"] for case in cases) == {
+        "direct": 5, "multi_hop": 5, "reasoning": 5, "unanswerable": 5,
+    }
+    for case in cases:
+        assert case["answerable"] is (case["category"] != "unanswerable")
+        assert case["reference_answer"] and case["expected_evidence"]
+        if case["category"] in {"multi_hop", "reasoning"}:
+            assert len(case["expected_sources"]) >= 2
+
+
+@pytest.mark.parametrize("category", ["direct", "multi_hop", "reasoning"])
+def test_fixture_loader_rejects_unanswerable_cases_in_answerable_categories(tmp_path, category):
+    records = _fixture_records()
+    case = next(record for record in records if record["category"] == category)
+    case["answerable"] = False
+    with pytest.raises(ValueError, match="must be answerable"):
+        eval_runner.load_qa_fixture(_write_fixture(tmp_path, records))
 
 
 def test_default_evaluation_assets_require_the_checked_out_corpus(monkeypatch, tmp_path):
@@ -37,15 +60,15 @@ def test_fixture_loader_accepts_reviewed_cases_beyond_the_seed_set(tmp_path):
     records.append({
         "id": "direct-test-extra",
         "category": "direct",
-        "question": "Which review is due by May 12?",
+        "question": "When was the accessibility review completed?",
         "answerable": True,
-        "reference_answer": "Legal review was due by 2026-05-12 and completed on 2026-05-11.",
-        "expected_sources": ["delivery_timeline.md"],
+        "reference_answer": "The accessibility review was completed on 2027-04-16.",
+        "expected_sources": ["delivery.md"],
         "expected_evidence": [{
-            "source": "delivery_timeline.md",
-            "start_line": 5,
-            "end_line": 5,
-            "text": "Legal review was due by 2026-05-12 and completed on 2026-05-11. The completion date is earlier than the due date; the old planning draft still shows the due date only.",
+            "source": "delivery.md",
+            "start_line": 6,
+            "end_line": 6,
+            "text": "The accessibility review was completed on 2027-04-16.",
         }],
     })
 
@@ -84,15 +107,15 @@ def test_fixture_loader_requires_all_original_seed_case_ids(tmp_path):
     records.append({
         "id": "direct-test-extra",
         "category": "direct",
-        "question": "Which review is due by May 12?",
+        "question": "When was the accessibility review completed?",
         "answerable": True,
-        "reference_answer": "Legal review was due by 2026-05-12 and completed on 2026-05-11.",
-        "expected_sources": ["delivery_timeline.md"],
+        "reference_answer": "The accessibility review was completed on 2027-04-16.",
+        "expected_sources": ["delivery.md"],
         "expected_evidence": [{
-            "source": "delivery_timeline.md",
-            "start_line": 5,
-            "end_line": 5,
-            "text": "Legal review was due by 2026-05-12 and completed on 2026-05-11. The completion date is earlier than the due date; the old planning draft still shows the due date only.",
+            "source": "delivery.md",
+            "start_line": 6,
+            "end_line": 6,
+            "text": "The accessibility review was completed on 2027-04-16.",
         }],
     })
 
@@ -145,15 +168,15 @@ def test_fixture_loader_requires_source_for_answerable_cases(tmp_path):
     records.append({
         "id": "direct-test-extra",
         "category": "direct",
-        "question": "Which review is due by May 12?",
+        "question": "When was the accessibility review completed?",
         "answerable": True,
-        "reference_answer": "Legal review was due by 2026-05-12 and completed on 2026-05-11.",
+        "reference_answer": "The accessibility review was completed on 2027-04-16.",
         "expected_sources": [],
         "expected_evidence": [{
-            "source": "delivery_timeline.md",
-            "start_line": 5,
-            "end_line": 5,
-            "text": "Legal review was due by 2026-05-12 and completed on 2026-05-11. The completion date is earlier than the due date; the old planning draft still shows the due date only.",
+            "source": "delivery.md",
+            "start_line": 6,
+            "end_line": 6,
+            "text": "The accessibility review was completed on 2027-04-16.",
         }],
     })
 
@@ -165,10 +188,10 @@ def test_fixture_loader_accepts_multiline_evidence_spans(tmp_path):
     records = _fixture_records()
     case = next(record for record in records if record["id"] == "direct-01")
     case["expected_evidence"] = [{
-        "source": "product_overview.md",
-        "start_line": 5,
-        "end_line": 6,
-        "text": "Product owner: Lena Ortiz. Launch coordinator: Marco Bell. QA lead: Priya Shah. These are separate responsibilities, even when meeting notes shorten them to “owner.”\nThe customer pilot began on 2026-04-06 with twelve invited coordinators. That date identifies the pilot start and must not be reported as the public launch date.",
+        "source": "project.md",
+        "start_line": 3,
+        "end_line": 4,
+        "text": "Mira Chen is the product owner.\nThe pilot starts on 2027-04-05.",
     }]
 
     loaded = eval_runner.load_qa_fixture(_write_fixture(tmp_path, records))

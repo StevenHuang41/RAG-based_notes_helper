@@ -20,7 +20,7 @@ class AbstainingAnswerModel:
         return self.last_output
 
 
-def test_ambiguous_fixture_cases_are_auditable_and_abstain_through_evaluation(
+def test_reasoning_fixture_cases_are_auditable_through_evaluation(
     monkeypatch,
     tmp_path,
     fixture_evaluation_doubles,
@@ -43,12 +43,11 @@ def test_ambiguous_fixture_cases_are_auditable_and_abstain_through_evaluation(
     run_dir = eval_runner.run_evaluation(output_root=tmp_path / "runs")
     results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
 
-    ambiguous = [case for case in results["cases"] if case["category"] == "ambiguous"]
-    assert len(ambiguous) == 12
-    assert all(not case["expected_answerable"] for case in ambiguous)
-    assert all(case["ambiguity_reason"].strip() for case in ambiguous)
-    assert all(case["expected_sources"] for case in ambiguous)
-    assert all(case["expected_evidence"] for case in ambiguous)
-    assert all(case["answer"] == "I cannot find the answers in the notes." for case in ambiguous)
-    assert all(case["correct_abstention"] is None for case in ambiguous)
-    assert all(case["predicted_answerable"] is None for case in ambiguous)
+    reasoning = [case for case in results["cases"] if case["category"] == "reasoning"]
+    assert len(reasoning) == 5
+    assert all(case["expected_answerable"] for case in reasoning)
+    assert all(case["expected_sources"] for case in reasoning)
+    assert all(case["expected_evidence"] for case in reasoning)
+    assert all(case["answer"] == "I cannot find the answers in the notes." for case in reasoning)
+    assert all(case["correct_abstention"] is None for case in reasoning)
+    assert all(case["predicted_answerable"] is None for case in reasoning)

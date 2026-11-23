@@ -331,20 +331,11 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert [case["case_id"] for case in results["cases"]] == [
         case["id"] for case in fixture_cases
     ]
-    assert sum(case["category"] == "multi_hop" for case in results["cases"]) == 15
-    assert sum(case["category"] == "unanswerable" for case in results["cases"]) == 13
+    assert sum(case["category"] == "multi_hop" for case in results["cases"]) == 5
+    assert sum(case["category"] == "unanswerable" for case in results["cases"]) == 5
     assert {case["workflow"] for case in results["cases"]} == {workflow}
     assert len({case["case_id"] for case in results["cases"]}) == len(fixture_cases)
-    assert all(case["challenge_tags"] for case in results["cases"])
-    boundary_case = next(
-        case for case in results["cases"] if case["case_id"] == "multi-hop-03"
-    )
-    assert "chunk_boundary" in boundary_case["challenge_tags"]
-    assert all(
-        case["ambiguity_reason"]
-        for case in results["cases"]
-        if case["category"] == "ambiguous"
-    )
+    assert sum(case["category"] == "reasoning" for case in results["cases"]) == 5
     assert all(
         case["missing_information"]
         for case in results["cases"]
@@ -494,7 +485,7 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     ] == len(fixture_cases) * (33 if agentic else 12)
     assert summary["category_counts"] == {
         category: sum(case["category"] == category for case in fixture_cases)
-        for category in ("direct", "multi_hop", "unanswerable", "ambiguous")
+        for category in ("direct", "multi_hop", "unanswerable", "reasoning")
     }
     assert private_note.read_text(encoding="utf-8") == (
         "This must not enter the benchmark."
@@ -539,7 +530,7 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
         for case in results["cases"]
     ]
     assert selected_case["reference_answer"] == (
-        "Lena Ortiz is the product owner."
+        "Mira Chen is the product owner."
     )
     assert [row["contexts"] for row in answer_rows] == [
         case["answer_contexts"]
@@ -661,11 +652,11 @@ def test_sampled_run_records_reproducible_case_selection(
 
     if seed == 271:
         assert sampled_ids == [
-            "ambiguous-04",
-            "multi-hop-05",
-            "multi-hop-13",
-            "unanswerable-05",
-            "unanswerable-07",
+            "multi-hop-01",
+            "reasoning-01",
+            "reasoning-02",
+            "unanswerable-01",
+            "unanswerable-04",
         ]
     assert len(sampled_ids) == 5
     assert len(set(sampled_ids)) == 5
@@ -1172,7 +1163,6 @@ def test_ragas_metrics_skip_context_dependent_scores_when_retrieval_is_empty(
 @pytest.mark.parametrize(
     ("case_id", "field", "error_fragment"),
     [
-        ("ambiguous-01", "ambiguity_reason", "ambiguity_reason"),
         ("unanswerable-01", "missing_information", "missing_information"),
     ],
 )
