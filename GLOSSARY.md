@@ -28,6 +28,11 @@ _Avoid_: Answer retry
 A controller evaluation of a candidate answer's relevance, completeness relative to available evidence, and factual support against the exact Answer generation context. It may accept full or partial answers with disclosed gaps, accept an abstention, or request a revision using the same context; it does not reopen Retrieval.
 _Avoid_: Ragas judge, answer grading
 
+**Evidence summary**:
+A controller's account of information found for the original question, its supporting chunk sources, and remaining gaps. It is a model judgment, not the original note evidence; the source-linked summary is part of the target design in ADR-0012.
+
+The Answer review definition above describes the current implementation. The accepted, not-yet-implemented target in [ADR-0012](docs/adr/0012-per-search-evidence-review-and-context-reselection.md) also permits review to select other chunks from the same query's pool for a revision.
+
 ## Retrieval
 
 **Evidence coverage**:

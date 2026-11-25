@@ -299,6 +299,10 @@ Agentic RAG uses an LLM controller to assess evidence, plan additional
 searches, and review answer candidates. Search and Answer attempts have
 independent limits, each including the first attempt.
 
+The following describes the current implementation. The accepted but not yet
+implemented changes to evidence review and Answer revision are recorded in
+[ADR-0012](docs/adr/0012-per-search-evidence-review-and-context-reselection.md).
+
 ```mermaid
 flowchart TD
     Q[User Query] --> R[Retrieval]

@@ -3,6 +3,8 @@
 Date: 2026-10-25
 Status: Accepted
 
+Partially superseded for Ragas eligibility and answer-attempt context attribution by [ADR-0012](0012-per-search-evidence-review-and-context-reselection.md). ADR-0012 is an accepted target design, not yet implemented; existing implementation behavior remains in effect until migration.
+
 Amended by [ADR-0008](0008-two-phase-agentic-evidence-recovery.md): accepted Answer-model-generated abstentions enter per-metric Ragas applicability checks. The exclusion below continues to apply to deterministic or controller-origin abstentions; the other metric input requirements remain in effect.
 
 ## Context

@@ -2,6 +2,8 @@
 
 Status: Accepted
 
+Partially superseded by [ADR-0012](0012-per-search-evidence-review-and-context-reselection.md) for per-Search coverage assessment, selected-context gating, Answer context reselection, and candidate visibility on review failure. ADR-0012 is an accepted target design, not yet implemented; this ADR describes the current implementation until migration.
+
 Agentic Retrieval continues bounded Adaptive search for partial or zero pool coverage. If the final pool is assessed as zero evidence, return a deterministic no-related-information outcome and do not generate an answer. Select the generation top-k only for partial or sufficient pool coverage. When selection removes evidence, independently assess the exact ordered selected context; only partial or sufficient coverage permits Answer generation. This final review does not reopen Search. Pool and generation-context assessments remain distinct audit records. Controller judgments are not ground truth.
 
 When Retrieval or generation-context review fails after its bounded validation retries, report a controller workflow error instead of generating with unknown coverage or claiming no evidence. Preserve retrieved evidence and failure category. Answer review and revision remain bounded and use the same context.

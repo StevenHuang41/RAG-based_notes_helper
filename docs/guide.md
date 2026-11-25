@@ -248,6 +248,8 @@ Use `FUSION_TOP_K` and `VECTOR_MIN_SCORE` in place of the former `TOP_K` and `MI
 
 The application retains the most recent five complete REPL turns for intent context without trimming them by a local token estimate. `LLM_MAX_TOKENS` controls the separate output limit. The retired `LLM_CONTEXT_WINDOW_TOKENS` setting is ignored if it remains in an existing environment file.
 
+The following describes the current implementation. The accepted but not yet implemented target for per-Search review, context reselection, failure reporting, and evaluation is [ADR-0012](adr/0012-per-search-evidence-review-and-context-reselection.md).
+
 Agentic sends the complete accumulated chunks pool to Retrieval review against the original question after each Search. Once Retrieval stops, an oversized pool is reranked and at most `LLM_MAX_CHUNKS` chunks are selected for Answer generation; those chunks remain intact through Answer review and revisions. Model and deployment capacity still applies. If a provider rejects review input, the workflow reports a review error and retains the pool for audit without generating an answer; Answer generation or Answer review failure returns the existing safe warning. The application does not provision provider context capacity or guarantee that a provider consumes every submitted token.
 
 ---

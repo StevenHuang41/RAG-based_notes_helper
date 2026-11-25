@@ -2,6 +2,8 @@
 
 Status: Accepted — implemented locally; live-provider limitations are recorded in the feature verification report.
 
+Partially superseded by [ADR-0012](0012-per-search-evidence-review-and-context-reselection.md) for per-Search review and limits, later empty Searches, Answer context reselection, candidate visibility, and evaluation eligibility. ADR-0012 is an accepted target design, not yet implemented; this ADR and its later amendments describe the current implementation until migration.
+
 Amended by [ADR-0011](0011-evidence-gated-answer-generation.md) for zero-evidence gating, selected-context review, and Retrieval-review failure handling.
 
 Amended by [ADR-0009](0009-remove-local-context-window-budget.md): local context-window budget checks and budget-driven trimming are removed. Complete-pool review and provider-failure fallback remain in effect.
