@@ -3,6 +3,36 @@ import pytest
 from rag_notes_helper.eval.report import write_readme
 
 
+def test_configuration_shows_settings_in_requested_order(tmp_path):
+    metadata = {
+        "workflow": "classic", "sample_count": 5, "seed": 23,
+        "chunk_size": 200, "chunk_overlap": 50, "vector_top_k": 30,
+        "bm25_top_k": 20, "fusion_top_k": 10, "vector_min_score": 0.3,
+        "bm25_min_score_ratio": 0.0, "max_answer_chunks": 5,
+        "max_tokens": 1024, "temperature": 0.1, "agentic_max_searches": 3,
+        "agentic_max_answer_attempts": 3, "embedding_model": "embedding",
+        "cross_encoder_model": "cross-encoder", "answer_provider": "answer-provider",
+        "answer_model": "answer-model", "judge_provider": "judge-provider",
+        "judge_model": "judge-model",
+    }
+    path = tmp_path / "README.md"
+    write_readme(path, {"run_metadata": metadata})
+    configuration = path.read_text(encoding="utf-8").split("## Configuration\n", 1)[1].split("## Fixture coverage", 1)[0]
+    rows = [line for line in configuration.splitlines() if line.startswith("| ")][2:]
+    assert rows == [
+        "| Sample size | 5 |", "| Sampling seed | 23 |",
+        "| Chunk size (chars) | 200 |", "| Chunk overlap (chars) | 50 |",
+        "| Vector top-k | 30 |", "| BM25 top-k | 20 |", "| Fusion top-k | 10 |",
+        "| Vector min score | 0.3000 |", "| BM25 min score ratio | 0.0000 |",
+        "| LLM maximum chunks | 5 |", "| LLM maximum tokens | 1024 |",
+        "| LLM temperature | 0.1000 |", "| Agentic maximum Search attempts | 3 |",
+        "| Agentic maximum answer attempts | 3 |", "| Embedding model | embedding |",
+        "| Cross-encoder model | cross-encoder |", "| Answer provider | answer-provider |",
+        "| Answer model | answer-model |", "| Judge provider | judge-provider |",
+        "| Judge model | judge-model |",
+    ]
+
+
 @pytest.mark.parametrize("workflow", ["classic", "agentic"])
 def test_report_keeps_candidates_separate_from_final_answer_context(tmp_path, workflow):
     results = {

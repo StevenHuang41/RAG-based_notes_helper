@@ -100,6 +100,13 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
 ):
     monkeypatch.setenv("CHUNK_SIZE", "200")
     monkeypatch.setenv("CHUNK_OVERLAP", "50")
+    monkeypatch.setenv("VECTOR_TOP_K", "29")
+    monkeypatch.setenv("BM25_TOP_K", "19")
+    monkeypatch.setenv("FUSION_TOP_K", "9")
+    monkeypatch.setenv("VECTOR_MIN_SCORE", "0.25")
+    monkeypatch.setenv("BM25_MIN_SCORE_RATIO", "0.0")
+    monkeypatch.setenv("LLM_MAX_TOKENS", "1024")
+    monkeypatch.setenv("LLM_TEMPERATURE", "0.2")
     monkeypatch.setenv("AGENTIC_MAX_SEARCH_ATTEMPTS", "2")
     monkeypatch.setenv("AGENTIC_MAX_ANSWER_ATTEMPTS", "4")
 
@@ -279,6 +286,12 @@ def test_selected_workflow_uses_synthetic_notes_and_writes_run_artifacts(
     assert results["run_metadata"]["timezone"] == "Asia/Taipei"
     assert results["run_metadata"]["chunk_size"] == 200
     assert results["run_metadata"]["chunk_overlap"] == 50
+    for name, value in {
+        "vector_top_k": 29, "bm25_top_k": 19, "fusion_top_k": 9,
+        "vector_min_score": 0.25, "bm25_min_score_ratio": 0.0,
+        "max_tokens": 1024, "temperature": 0.2,
+    }.items():
+        assert results["run_metadata"][name] == value
     assert "[results.json](results.json)" in readme
     assert "[run.log](run.log)" in readme
     assert readme.index("## Overall metrics") < readme.index(

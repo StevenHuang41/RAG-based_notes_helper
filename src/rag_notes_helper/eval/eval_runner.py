@@ -1897,10 +1897,16 @@ def run_evaluation(
                 "cross_encoder_model": getattr(settings, "cross_encoder_model", None),
                 "chunk_size": settings.chunk_size,
                 "chunk_overlap": settings.chunk_overlap,
+                "vector_top_k": getattr(settings, "vector_top_k", None),
+                "bm25_top_k": getattr(settings, "bm25_top_k", None),
+                "fusion_top_k": settings.fusion_top_k,
+                "vector_min_score": settings.vector_min_score,
+                "bm25_min_score_ratio": getattr(settings, "bm25_min_score_ratio", None),
                 "top_k": settings.fusion_top_k,
                 "min_retrieval_score": settings.vector_min_score,
                 "max_answer_chunks": settings.llm.max_chunks,
                 "max_tokens": getattr(settings.llm, "max_tokens", None),
+                "temperature": getattr(settings.llm, "temperature", None),
                 "agentic_max_searches": getattr(
                     settings, "agentic_max_search_attempts", 3
                 ),

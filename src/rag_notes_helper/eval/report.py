@@ -830,15 +830,24 @@ def _readme_report(results: dict[str, Any]) -> str:
     )
     lines = ["# RAG Evaluation Report", "", f"- **Status:** `{results.get('run_status', 'failed' if results.get('error') else 'completed')}`", f"- **Workflow outcome:** `{results.get('workflow_outcome', 'unavailable')}`", f"- **Workflow errors:** `{results.get('workflow_error_count', 0)}`", f"- **Workflow degraded:** `{results.get('workflow_degraded_count', 0)}`", f"- **Workflow reliability:** `{reliability_text}`", f"- **Workflow:** `{workflow}`", f"- **Run timestamp (Asia/Taipei):** `{metadata.get('timestamp_local', 'unknown')}`", "- **Artifacts:** [results.json](results.json) · [run.log](run.log)", "", "## Configuration", ""]
     lines.extend(_table(["Setting", "Value"], [[label, value] for label, value in (
-        ("Answer provider", metadata.get("answer_provider")), ("Answer model", metadata.get("answer_model")),
-        ("Judge provider", metadata.get("judge_provider")), ("Judge model", metadata.get("judge_model")),
-        ("Embedding model", metadata.get("embedding_model")), ("Retrieval top-k", metadata.get("top_k")),
-        ("Cross-encoder model", metadata.get("cross_encoder_model")),
-        ("Maximum answer chunks", metadata.get("max_answer_chunks")),
-        ("Agentic maximum Search attempts", metadata.get("agentic_max_searches")),
-        ("Agentic maximum answer attempts", metadata.get("agentic_max_answer_attempts")),
         ("Sample size", metadata.get("sample_count") if metadata.get("sample_count") is not None else "Full fixture"),
         ("Sampling seed", metadata.get("seed") if metadata.get("seed") is not None else "Not set"),
+        ("Chunk size (chars)", metadata.get("chunk_size")),
+        ("Chunk overlap (chars)", metadata.get("chunk_overlap")),
+        ("Vector top-k", metadata.get("vector_top_k")),
+        ("BM25 top-k", metadata.get("bm25_top_k")),
+        ("Fusion top-k", metadata.get("fusion_top_k", metadata.get("top_k"))),
+        ("Vector min score", metadata.get("vector_min_score", metadata.get("min_retrieval_score"))),
+        ("BM25 min score ratio", metadata.get("bm25_min_score_ratio")),
+        ("LLM maximum chunks", metadata.get("max_answer_chunks")),
+        ("LLM maximum tokens", metadata.get("max_tokens")),
+        ("LLM temperature", metadata.get("temperature")),
+        ("Agentic maximum Search attempts", metadata.get("agentic_max_searches")),
+        ("Agentic maximum answer attempts", metadata.get("agentic_max_answer_attempts")),
+        ("Embedding model", metadata.get("embedding_model")),
+        ("Cross-encoder model", metadata.get("cross_encoder_model")),
+        ("Answer provider", metadata.get("answer_provider")), ("Answer model", metadata.get("answer_model")),
+        ("Judge provider", metadata.get("judge_provider")), ("Judge model", metadata.get("judge_model")),
     )]))
     lines.extend(["", "## Fixture coverage", "", f"- **Cases:** {summary.get('case_count', len(results.get('cases', [])))}", "- **Selected case IDs:** " + _markdown_cell(", ".join(metadata.get("selected_case_ids", []))), ""])
     if workflow == "agentic":
